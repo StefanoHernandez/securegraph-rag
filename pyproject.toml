@@ -67,6 +67,10 @@ dependencies = [
     "opentelemetry-instrumentation-asyncpg>=0.48b0",
     "prometheus-client>=0.21",
 
+    # Tokenization (chunker, prompt budgets). cl100k_base is a stand-in until
+    # the Gemma tokenizer is available locally; counts are approximate but stable.
+    "tiktoken>=0.8",
+
     # Logging
     "structlog>=24.4",
 ]
