@@ -1,0 +1,82 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# uv
+uv.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Docker volumes (mounted under ./data by compose)
+data/
+docker/data/
+
+# Neo4j / Qdrant local snapshots
+neo4j_data/
+qdrant_storage/
+
+# Models cache
+.models/
+.cache/
+
+# Generated corpus (keep only seed)
+corpus/generated/
+corpus/qa_pairs_generated.yaml
+
+# Eval reports (keep schema, generated reports are output)
+docs/eval/REPORT-*.md
+docs/eval/REPORT-*.json
+!docs/eval/REPORT-template.md
+
+# Frontend
+web/node_modules/
+web/.next/
+web/out/
+web/.turbo/
+
+# Helm
+deploy/k8s/charts/*.tgz
+
+# Test artifacts
+.tox/
+.nox/
+htmlcov/
