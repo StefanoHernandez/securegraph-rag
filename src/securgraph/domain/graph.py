@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from securgraph.domain.base import Classification, SGModel, TenantId
 
@@ -65,3 +65,31 @@ class GraphPath(SGModel):
                 f"(got nodes={len(self.nodes)}, edges={len(self.edges)})"
             )
         return self
+
+
+class ExtractedEntity(BaseModel):
+    """An entity extracted from a chunk by LLM."""
+
+    name: str = Field(description="Normalized name of the entity")
+    label: str = Field(
+        description="Category of the entity (e.g. Server, Project, Person, Database)"
+    )
+
+
+class ExtractedRelation(BaseModel):
+    """A relation extracted between two entities by LLM."""
+
+    source_entity_name: str = Field(description="Name of the source entity")
+    target_entity_name: str = Field(description="Name of the target entity")
+    relationship_type: str = Field(
+        description="Verb/predicate describing the relationship (e.g., OWNED_BY, DEPENDS_ON)"
+    )
+    confidence: float = Field(description="Confidence score from 0.0 to 1.0", ge=0.0, le=1.0)
+
+
+class ExtractedGraphSlice(BaseModel):
+    """The collection of entities and relations extracted from a single chunk."""
+
+    entities: list[ExtractedEntity] = Field(default_factory=list)
+    relations: list[ExtractedRelation] = Field(default_factory=list)
+

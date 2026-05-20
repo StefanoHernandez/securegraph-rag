@@ -26,9 +26,20 @@ def _test_env_defaults() -> Iterator[None]:
 @pytest.fixture
 def fastapi_app() -> FastAPI:
     """Fresh FastAPI app for tests (bypasses the process-level singleton)."""
+    from unittest.mock import AsyncMock
+
+    from securgraph.api.dependencies import get_db_session
     from securgraph.api.main import create_app
 
-    return create_app()
+    app = create_app()
+
+    async def mock_db_session() -> AsyncIterator[AsyncMock]:
+        mock = AsyncMock()
+        mock.execute.return_value = None
+        yield mock
+
+    app.dependency_overrides[get_db_session] = mock_db_session
+    return app
 
 
 @pytest.fixture
@@ -37,3 +48,12 @@ async def client(fastapi_app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=fastapi_app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+
+@pytest.fixture(autouse=True)
+async def cleanup_engine() -> AsyncIterator[None]:
+    """Dispose global database engine after each test to avoid closed event loop errors."""
+    yield
+    from securgraph.api.dependencies import engine
+
+    await engine.dispose()

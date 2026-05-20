@@ -13,14 +13,28 @@ pytestmark = pytest.mark.unit
 
 
 async def test_health_returns_ok(client: AsyncClient) -> None:
-    resp = await client.get("/health")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "ok"
-    assert body["service"] == "securgraph-api"
-    assert body["env"] == "test"
-    assert isinstance(body["components"], dict)
-    assert {"postgres", "qdrant", "neo4j", "openfga", "ollama"} <= set(body["components"])
+    from unittest.mock import MagicMock, patch
+
+    from securgraph.api.routes.health import ComponentReport, ComponentStatus
+
+    with (
+        patch("qdrant_client.QdrantClient") as mock_qdrant,
+        patch("securgraph.api.routes.health.ping_neo4j") as mock_ping_neo4j,
+        patch("securgraph.api.routes.health.ping_ollama") as mock_ping_ollama,
+    ):
+        mock_instance = MagicMock()
+        mock_qdrant.return_value = mock_instance
+        mock_ping_neo4j.return_value = ComponentReport(status=ComponentStatus.OK, latency_ms=5.0)
+        mock_ping_ollama.return_value = ComponentReport(status=ComponentStatus.OK, latency_ms=5.0)
+
+        resp = await client.get("/health")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["service"] == "securgraph-api"
+        assert body["env"] == "test"
+        assert isinstance(body["components"], dict)
+        assert {"postgres", "qdrant", "neo4j", "openfga", "ollama"} <= set(body["components"])
 
 
 async def test_openapi_schema_generated(client: AsyncClient) -> None:

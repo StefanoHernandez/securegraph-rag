@@ -12,7 +12,7 @@ This repository implements the full reference framework.
 
 ## Status
 
-🚧 **Alpha — Milestone 0 in progress.**
+🚧 **Alpha — Milestone 4 (Policy Enforcement) in progress.** M0, M1, M2, and M3 are complete. See `wiki/project/milestones.md` for the M0→M8 plan.
 
 ## Architecture
 
@@ -100,7 +100,7 @@ scripts/                    # eval, baselines, figures, load test
 docs/{eval,research,sprints,paper}/
 deploy/k8s/                 # Helm chart (M8)
 web/                        # Next.js 15 frontend (M6+)
-.agent/                     # AI_CONTEXT.md + CHANGELOG.md per global rules
+wiki/                       # Local project wiki and engineering documentation
 ```
 
 ## Evaluation

@@ -27,7 +27,14 @@ from securgraph.domain.consensus import (
     VerifierStatus,
 )
 from securgraph.domain.document import Document
-from securgraph.domain.graph import GraphEdge, GraphNode, GraphPath
+from securgraph.domain.graph import (
+    ExtractedEntity,
+    ExtractedGraphSlice,
+    ExtractedRelation,
+    GraphEdge,
+    GraphNode,
+    GraphPath,
+)
 from securgraph.domain.policy import (
     PolicyAction,
     PolicyDecision,
@@ -66,6 +73,9 @@ __all__ = [
     "Document",
     "DocumentType",
     "EvidenceType",
+    "ExtractedEntity",
+    "ExtractedGraphSlice",
+    "ExtractedRelation",
     "GraphEdge",
     "GraphNode",
     "GraphPath",

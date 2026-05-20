@@ -80,3 +80,4 @@ deploy/k8s/charts/*.tgz
 .tox/
 .nox/
 htmlcov/
+wiki

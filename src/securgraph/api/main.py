@@ -18,6 +18,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from securgraph import __version__
 from securgraph.api.routes import health as health_routes
+from securgraph.api.routes import ingest as ingest_routes
 from securgraph.config import get_settings
 from securgraph.logging import configure_logging, get_logger
 from securgraph.observability import setup_observability, shutdown_observability
@@ -45,6 +46,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         log.info("securgraph_stopping")
+        try:
+            from securgraph.adapters.neo4j import close_neo4j_driver
+            await close_neo4j_driver()
+        except Exception:
+            log.exception("neo4j_driver_teardown_failed")
         shutdown_observability()
 
 
@@ -77,6 +83,7 @@ def create_app() -> FastAPI:
         )
 
     application.include_router(health_routes.router)
+    application.include_router(ingest_routes.router)
 
     # OTel FastAPI instrumentation wraps every request in a server span and
     # injects the trace context downstream.

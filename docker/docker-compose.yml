@@ -142,7 +142,7 @@ services:
   # Jaeger (all-in-one) — OTel traces UI
   # ===========================================================================
   jaeger:
-    image: jaegertracing/all-in-one:1.62
+    image: jaegertracing/all-in-one:latest
     container_name: securgraph-jaeger
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
