@@ -36,6 +36,7 @@ from securgraph.domain.graph import (
     GraphPath,
 )
 from securgraph.domain.policy import (
+    OpenFGAPolicyAdapter,
     PolicyAction,
     PolicyDecision,
     PolicyDecisionValue,
@@ -82,6 +83,7 @@ __all__ = [
     "IngestionStatus",
     "IngestionTrace",
     "NLILabel",
+    "OpenFGAPolicyAdapter",
     "PolicyAction",
     "PolicyDecision",
     "PolicyDecisionValue",

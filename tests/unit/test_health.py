@@ -21,11 +21,13 @@ async def test_health_returns_ok(client: AsyncClient) -> None:
         patch("qdrant_client.QdrantClient") as mock_qdrant,
         patch("securgraph.api.routes.health.ping_neo4j") as mock_ping_neo4j,
         patch("securgraph.api.routes.health.ping_ollama") as mock_ping_ollama,
+        patch("securgraph.api.routes.health.ping_openfga") as mock_ping_openfga,
     ):
         mock_instance = MagicMock()
         mock_qdrant.return_value = mock_instance
         mock_ping_neo4j.return_value = ComponentReport(status=ComponentStatus.OK, latency_ms=5.0)
         mock_ping_ollama.return_value = ComponentReport(status=ComponentStatus.OK, latency_ms=5.0)
+        mock_ping_openfga.return_value = ComponentReport(status=ComponentStatus.OK, latency_ms=5.0)
 
         resp = await client.get("/health")
         assert resp.status_code == 200

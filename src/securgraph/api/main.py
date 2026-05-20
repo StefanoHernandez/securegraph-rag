@@ -42,12 +42,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     setup_observability(settings)
 
+    # Bootstrap OpenFGA
+    try:
+        from securgraph.api.dependencies import bootstrap_openfga
+
+        await bootstrap_openfga(settings)
+    except Exception:
+        log.exception("openfga_bootstrapping_failed")
+        if settings.env in ("prod", "stage"):
+            raise
+
     try:
         yield
     finally:
         log.info("securgraph_stopping")
         try:
             from securgraph.adapters.neo4j import close_neo4j_driver
+
             await close_neo4j_driver()
         except Exception:
             log.exception("neo4j_driver_teardown_failed")

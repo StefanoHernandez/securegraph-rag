@@ -237,7 +237,6 @@ async def ingest_document(
         # Write graph slice to Neo4j database
         await write_graph_slice(n4j_driver, request.tenant_id, chunk, graph_slice)
 
-
     # --- 6. Provenance + job completion -----------------------------------
     trace = IngestionTrace(
         job_id=job_id,

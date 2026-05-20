@@ -12,12 +12,21 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from securgraph.domain import Chunk, Document, IngestionTrace, TenantId, TraceStatus, utcnow
+from securgraph.domain import (
+    Chunk,
+    Document,
+    IngestionTrace,
+    PolicyDecision,
+    TenantId,
+    TraceStatus,
+    utcnow,
+)
 from securgraph.indexing.db import (
     ChunkRow,
     DocumentRow,
     IngestionJobRow,
     IngestionProvenanceRow,
+    PolicyDecisionRow,
 )
 
 # ---------------------------------------------------------------------------
@@ -208,14 +217,78 @@ async def fetch_ingestion_job(
     return row.status, row.document_id, row.error
 
 
+async def write_policy_decisions(session: AsyncSession, decisions: list[PolicyDecision]) -> None:
+    """Batch persist policy decisions to PostgreSQL."""
+    if not decisions:
+        return
+    rows = [
+        dict(
+            decision_id=d.decision_id,
+            trace_id=d.trace_id,
+            tenant_id=d.tenant_id,
+            user_id=d.user_id,
+            object_type=d.object_type.value,
+            object_id=d.object_id,
+            action=d.action.value,
+            decision=d.decision.value,
+            reason_code=d.reason_code,
+            policy_engine=d.policy_engine,
+            evaluated_at=d.evaluated_at,
+        )
+        for d in decisions
+    ]
+    stmt = pg_insert(PolicyDecisionRow).values(rows)
+    # Use ON CONFLICT DO NOTHING to keep inserts idempotent
+    stmt = stmt.on_conflict_do_nothing(index_elements=[PolicyDecisionRow.decision_id])
+    await session.execute(stmt)
+
+
+async def fetch_chunks_by_ids(
+    session: AsyncSession, tenant_id: str, chunk_ids: list[str]
+) -> list[Chunk]:
+    """Retrieve full Chunk domain models from PostgreSQL by their IDs."""
+    if not chunk_ids:
+        return []
+    stmt = select(ChunkRow).where(
+        ChunkRow.tenant_id == tenant_id,
+        ChunkRow.chunk_id.in_(chunk_ids),
+    )
+    res = await session.execute(stmt)
+    rows = res.scalars().all()
+    from securgraph.domain import Classification
+
+    return [
+        Chunk(
+            chunk_id=r.chunk_id,
+            document_id=r.document_id,
+            tenant_id=r.tenant_id,
+            text=r.text,
+            section_path=tuple(r.section_path),
+            page_start=r.page_start,
+            page_end=r.page_end,
+            token_count=r.token_count,
+            ordinal=r.ordinal,
+            text_hash=r.text_hash,
+            previous_chunk_id=r.previous_chunk_id,
+            next_chunk_id=r.next_chunk_id,
+            classification=Classification(r.classification),
+            language=r.language,
+            policy_tags=tuple(r.policy_tags),
+        )
+        for r in rows
+    ]
+
+
 __all__ = [
     "TraceStatus",  # convenience re-export
     "count_chunks_for_document",
     "create_ingestion_job",
+    "fetch_chunks_by_ids",
     "fetch_ingestion_job",
     "find_existing_document",
     "update_ingestion_job",
     "upsert_chunks",
     "upsert_document",
     "write_ingestion_provenance",
+    "write_policy_decisions",
 ]

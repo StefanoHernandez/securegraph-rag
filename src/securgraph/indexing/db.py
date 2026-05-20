@@ -108,8 +108,24 @@ class ChunkRow(Base):
 
     document: Mapped[DocumentRow] = relationship(back_populates="chunks")
 
-    __table_args__ = (
-        Index("ix_chunks_doc_ordinal", "document_id", "ordinal"),
+    __table_args__ = (Index("ix_chunks_doc_ordinal", "document_id", "ordinal"),)
+
+
+class PolicyDecisionRow(Base):
+    __tablename__ = "policy_decisions"
+
+    decision_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(256), index=True, nullable=False)
+    object_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False, default="read")
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason_code: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    policy_engine: Mapped[str] = mapped_column(String(64), nullable=False, default="openfga")
+    evaluated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 

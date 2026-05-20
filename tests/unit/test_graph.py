@@ -158,15 +158,19 @@ async def test_extract_graph_slice_success() -> None:
     """Verify clean JSON responses from Ollama are correctly parsed."""
     mock_client = AsyncMock()
     mock_response = MagicMock()
-    mock_response.message.content = json.dumps({
-        "entities": [{"name": "Neo4j", "label": "Database"}],
-        "relations": [{
-            "source_entity_name": "SecureGraph",
-            "target_entity_name": "Neo4j",
-            "relationship_type": "STORES_DATA_IN",
-            "confidence": 0.98
-        }]
-    })
+    mock_response.message.content = json.dumps(
+        {
+            "entities": [{"name": "Neo4j", "label": "Database"}],
+            "relations": [
+                {
+                    "source_entity_name": "SecureGraph",
+                    "target_entity_name": "Neo4j",
+                    "relationship_type": "STORES_DATA_IN",
+                    "confidence": 0.98,
+                }
+            ],
+        }
+    )
     mock_client.chat.return_value = mock_response
 
     with patch("securgraph.adapters.ollama.get_ollama_client", return_value=mock_client):
@@ -228,8 +232,10 @@ async def test_neo4j_writer_runs_transactional_cypher() -> None:
 
     from collections.abc import Callable
     from typing import Any
+
     async def side_effect_write(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         return await fn(mock_tx, *args, **kwargs)
+
     mock_session.execute_write.side_effect = side_effect_write
 
     chunk = Chunk(
@@ -246,12 +252,14 @@ async def test_neo4j_writer_runs_transactional_cypher() -> None:
 
     slice_data = ExtractedGraphSlice(
         entities=[ExtractedEntity(name="Python", label="Language")],
-        relations=[ExtractedRelation(
-            source_entity_name="SecureGraph",
-            target_entity_name="Python",
-            relationship_type="WRITTEN_IN",
-            confidence=1.0,
-        )],
+        relations=[
+            ExtractedRelation(
+                source_entity_name="SecureGraph",
+                target_entity_name="Python",
+                relationship_type="WRITTEN_IN",
+                confidence=1.0,
+            )
+        ],
     )
 
     await write_graph_slice(mock_driver, "tenant_1", chunk, slice_data)
@@ -315,9 +323,11 @@ async def test_graph_retriever_depth_boundary() -> None:
     # Mocking record generator yielding nothing
     from collections.abc import AsyncIterator
     from typing import Any
+
     async def mock_async_iter() -> AsyncIterator[Any]:
         if False:
             yield None
+
     mock_result.__aiter__.side_effect = mock_async_iter
 
     retriever = Neo4jGraphRetriever(mock_driver)
@@ -364,9 +374,11 @@ async def test_graph_retriever_parses_records_with_md5_id() -> None:
 
     from collections.abc import AsyncIterator
     from typing import Any
+
     async def mock_async_iter() -> AsyncIterator[Any]:
         for r in mock_records:
             yield r
+
     mock_result.__aiter__.side_effect = mock_async_iter
 
     retriever = Neo4jGraphRetriever(mock_driver)
@@ -384,6 +396,7 @@ async def test_graph_retriever_parses_records_with_md5_id() -> None:
 
     # Path ID must be deterministic hash of the nodes sequence "A,B"
     import hashlib
+
     expected_hash = hashlib.md5(b"A,B").hexdigest()  # noqa: S324
     assert path.path_id == f"path_{expected_hash}"
 

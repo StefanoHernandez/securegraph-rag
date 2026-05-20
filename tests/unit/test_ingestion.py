@@ -58,6 +58,7 @@ def mock_graph_extraction_and_writing(monkeypatch: pytest.MonkeyPatch) -> None:
     class DummyEmbeddingAdapter:
         def embed_text(self, text: str) -> list[float]:
             return [0.1] * 1024
+
         def embed_chunks(self, chunks: list[str]) -> list[list[float]]:
             return [[0.1] * 1024 for _ in chunks]
 

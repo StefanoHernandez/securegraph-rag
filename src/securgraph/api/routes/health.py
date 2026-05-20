@@ -13,12 +13,13 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
+from openfga_sdk import OpenFgaClient
 from pydantic import Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph import __version__
-from securgraph.api.dependencies import get_db_session
+from securgraph.api.dependencies import get_db_session, get_openfga_client
 from securgraph.domain.base import SGModel
 
 router = APIRouter(tags=["meta"])
@@ -79,6 +80,7 @@ async def ping_neo4j() -> ComponentReport:
     start = time.perf_counter()
     try:
         from securgraph.adapters.neo4j import get_neo4j_driver
+
         driver = get_neo4j_driver()
         await driver.verify_connectivity()
         latency = (time.perf_counter() - start) * 1000.0
@@ -92,8 +94,20 @@ async def ping_ollama() -> ComponentReport:
     start = time.perf_counter()
     try:
         from securgraph.adapters.ollama import get_ollama_client
+
         client = get_ollama_client()
         await client.list()
+        latency = (time.perf_counter() - start) * 1000.0
+        return ComponentReport(status=ComponentStatus.OK, latency_ms=latency)
+    except Exception as e:
+        return ComponentReport(status=ComponentStatus.UNAVAILABLE, detail=str(e))
+
+
+async def ping_openfga(client: OpenFgaClient) -> ComponentReport:
+    """Check connectivity to OpenFGA by reading the latest authorization model."""
+    start = time.perf_counter()
+    try:
+        await client.read_latest_authorization_model()
         latency = (time.perf_counter() - start) * 1000.0
         return ComponentReport(status=ComponentStatus.OK, latency_ms=latency)
     except Exception as e:
@@ -108,6 +122,7 @@ async def ping_ollama() -> ComponentReport:
 )
 async def health(
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
+    openfga_client: OpenFgaClient = Depends(get_openfga_client),  # noqa: B008
 ) -> JSONResponse:
     """Return overall health."""
     from securgraph.config import get_settings
@@ -118,12 +133,13 @@ async def health(
     qdrant_report = await ping_qdrant()
     neo4j_report = await ping_neo4j()
     ollama_report = await ping_ollama()
+    openfga_report = await ping_openfga(openfga_client)
 
     components: dict[str, ComponentReport] = {
         "postgres": postgres_report,
         "qdrant": qdrant_report,
         "neo4j": neo4j_report,
-        "openfga": ComponentReport(status=ComponentStatus.NOT_IMPLEMENTED),
+        "openfga": openfga_report,
         "ollama": ollama_report,
     }
 
@@ -133,6 +149,7 @@ async def health(
         or qdrant_report.status == ComponentStatus.UNAVAILABLE
         or neo4j_report.status == ComponentStatus.UNAVAILABLE
         or ollama_report.status == ComponentStatus.UNAVAILABLE
+        or openfga_report.status == ComponentStatus.UNAVAILABLE
     ):
         overall_status = "down"
 

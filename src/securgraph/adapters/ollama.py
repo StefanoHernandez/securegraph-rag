@@ -38,9 +38,9 @@ async def extract_graph_slice(text: str) -> ExtractedGraphSlice:
         "extract all entities and their semantic relationships.\n"
         "Output strictly in JSON matching this schema:\n"
         "{\n"
-        "  \"entities\": [{\"name\": \"entity_name\", \"label\": \"ENTITY_TYPE\"}],\n"
-        "  \"relations\": [{\"source_entity_name\": \"name\", \"target_entity_name\": \"name\", "
-        "\"relationship_type\": \"TYPE\", \"confidence\": 0.9}]\n"
+        '  "entities": [{"name": "entity_name", "label": "ENTITY_TYPE"}],\n'
+        '  "relations": [{"source_entity_name": "name", "target_entity_name": "name", '
+        '"relationship_type": "TYPE", "confidence": 0.9}]\n'
         "}\n"
         "If no entities/relations are found, return empty lists. Do not write "
         "markdown blocks or text, return ONLY the raw JSON."

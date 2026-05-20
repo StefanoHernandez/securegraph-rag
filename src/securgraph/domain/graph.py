@@ -92,4 +92,3 @@ class ExtractedGraphSlice(BaseModel):
 
     entities: list[ExtractedEntity] = Field(default_factory=list)
     relations: list[ExtractedRelation] = Field(default_factory=list)
-

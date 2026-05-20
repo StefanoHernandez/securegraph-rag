@@ -27,6 +27,7 @@ class MockEmbeddingAdapter(EmbeddingAdapter):
 
     def embed_text(self, text: str) -> list[float]:
         import hashlib
+
         # Generate deterministic vector of dimension 1024
         h = hashlib.sha256(text.encode()).digest()
         floats = []

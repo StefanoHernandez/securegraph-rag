@@ -1,0 +1,20 @@
+model
+  schema 1.1
+
+type user
+
+type group
+  relations
+    define member: [user, group#member]
+
+type document
+  relations
+    define owner: [user]
+    define group_viewer: [group#member]
+    define direct_viewer: [user]
+    define viewer: owner or group_viewer or direct_viewer
+
+type chunk
+  relations
+    define parent_document: [document]
+    define viewer: viewer from parent_document
