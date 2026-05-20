@@ -189,6 +189,7 @@ def test_query_request_defaults() -> None:
     q = QueryRequest(tenant_id="mrd", user_id="user:alice", query="hello world")
     assert q.options.retrieval_mode == "auto"
     assert q.options.max_graph_depth == 2
+    assert q.options.consensus_threshold == 0.7  # M4.5
 
 
 def test_consensus_report_bounds() -> None:

@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     max_graph_depth_hard_cap: int = Field(default=4, ge=1, le=8)
     max_evidence_per_query: int = Field(default=20, ge=1, le=200)
     query_token_budget: int = Field(default=3000, ge=256, le=131072)
+    consensus_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
 
     # ----------------------------------------------------------------- features
     # Feature flags that activate as later milestones land. Default OFF; set to

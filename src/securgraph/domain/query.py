@@ -30,6 +30,7 @@ class QueryOptions(SGModel):
     max_graph_depth: int = Field(default=2, ge=1, le=4)
     retrieval_mode: RetrievalMode = "auto"
     top_k: int = Field(default=10, ge=1, le=100)
+    consensus_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
 class QueryRequest(SGModel):
