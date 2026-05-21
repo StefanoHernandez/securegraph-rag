@@ -126,13 +126,6 @@ services:
         condition: service_healthy
       openfga-migrate:
         condition: service_completed_successfully
-    healthcheck:
-      # OpenFGA image has no wget/grpc_health_probe; use bash TCP to probe the HTTP port.
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8080'"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-      start_period: 10s
     deploy:
       resources:
         limits:

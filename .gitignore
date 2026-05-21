@@ -81,3 +81,6 @@ deploy/k8s/charts/*.tgz
 .nox/
 htmlcov/
 wiki
+
+# Antigravity CLI
+.antigravitycli/

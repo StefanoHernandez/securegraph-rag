@@ -59,3 +59,47 @@ class ConsensusReport(SGModel):
         description="Composite: 0.4 * entity_overlap + 0.6 * claim_nli_score (M4.5 default).",
     )
     high_trust: bool = False
+
+
+def calculate_consensus(
+    trace_id: TraceId,
+    vector_claims: tuple[Claim, ...],
+    graph_claims: tuple[Claim, ...],
+    vector_entities: set[str],
+    graph_entities: set[str],
+    threshold: float = 0.7,
+) -> ConsensusReport:
+    """Calculate bidirectional NLI score and Jaccard similarity to compile ConsensusReport."""
+    # 1. Entity Overlap
+    if not vector_entities and not graph_entities:
+        jaccard = 1.0
+    else:
+        jaccard = len(vector_entities & graph_entities) / len(vector_entities | graph_entities)
+
+    # 2. NLI Agreement Average (entailment = 1.0, others = 0.0)
+    total_claims = len(vector_claims) + len(graph_claims)
+    if total_claims == 0:
+        nli_score = 1.0
+    else:
+        entailed_count = 0
+        for c in vector_claims:
+            if c.nli_label == NLILabel.ENTAILMENT:
+                entailed_count += 1
+        for c in graph_claims:
+            if c.nli_label == NLILabel.ENTAILMENT:
+                entailed_count += 1
+        nli_score = entailed_count / total_claims
+
+    # 3. Composite score
+    agreement = 0.4 * jaccard + 0.6 * nli_score
+    high_trust = agreement >= threshold
+
+    return ConsensusReport(
+        trace_id=trace_id,
+        vector_claims=vector_claims,
+        graph_claims=graph_claims,
+        entity_overlap_jaccard=round(jaccard, 4),
+        claim_nli_score=round(nli_score, 4),
+        agreement_score=round(agreement, 4),
+        high_trust=high_trust,
+    )
