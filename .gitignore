@@ -83,3 +83,13 @@ htmlcov/
 
 # Antigravity CLI
 .antigravitycli/
+
+# Obsidian workspace state (auto-generated UI state, not content)
+wiki/.obsidian/workspace.json
+wiki/.obsidian/graph.json
+
+# Scratch / debug scripts (not part of the codebase)
+scratch/
+
+# Docker init scripts (local setup, not tracked)
+docker/postgres-init/
