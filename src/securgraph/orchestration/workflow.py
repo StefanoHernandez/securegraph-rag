@@ -71,7 +71,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             messages=[
                 {"role": "system", "content": "You are a secure factual RAG assistant. Output a concise answer based ONLY on the context. If no context matches or is provided, state that there is no available information."},
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            options={"num_ctx": settings.llm_num_ctx}
         )
         return {"vector_draft": response.message.content or ""}
 
@@ -86,7 +87,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             messages=[
                 {"role": "system", "content": "You are a secure factual RAG assistant. Output a concise answer based ONLY on the context. If no context matches or is provided, state that there is no available information."},
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            options={"num_ctx": settings.llm_num_ctx}
         )
         return {"graph_draft": response.message.content or ""}
 
@@ -183,7 +185,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             messages=[
                 {"role": "system", "content": "You are a synthesis agent. Produce a secure, unified answer grounded strictly in both drafts. Do not extrapolate, only summarize agreement areas. If there is no agreement and the score is below the threshold, warn that agreement could not be reached and synthesize a cautious minimal response."},
                 {"role": "user", "content": final_prompt}
-            ]
+            ],
+            options={"num_ctx": settings.llm_num_ctx}
         )
         return {"final_answer": Answer(text=response.message.content or "", citations=tuple())}
 

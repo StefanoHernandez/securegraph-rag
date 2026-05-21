@@ -56,6 +56,7 @@ async def extract_graph_slice(text: str) -> ExtractedGraphSlice:
                 {"role": "user", "content": text},
             ],
             format="json",
+            options={"num_ctx": settings.llm_num_ctx},
         )
 
         content = response.message.content
@@ -125,6 +126,7 @@ async def extract_claims(text: str) -> ClaimDecomposition:
                 {"role": "user", "content": text},
             ],
             format="json",
+            options={"num_ctx": settings.llm_num_ctx},
         )
         content = response.message.content or "{}"
         
@@ -205,7 +207,8 @@ async def judge_nli(claim: str, reference: str) -> NLIResult:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            format="json"
+            format="json",
+            options={"num_ctx": settings.llm_num_ctx}
         )
         content = response.message.content or "{}"
         
