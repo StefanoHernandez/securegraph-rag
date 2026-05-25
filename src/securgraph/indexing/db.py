@@ -25,7 +25,9 @@ from typing import Any, ClassVar
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -168,3 +170,39 @@ class IngestionProvenanceRow(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="started")
+
+
+class QueryTraceRow(Base):
+    __tablename__ = "query_traces"
+
+    trace_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    evidence: Mapped[list[RetrievalEvidenceRow]] = relationship(
+        back_populates="trace", cascade="all, delete-orphan"
+    )
+
+
+class RetrievalEvidenceRow(Base):
+    __tablename__ = "retrieval_evidence"
+
+    evidence_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    trace_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("query_traces.trace_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    object_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    retriever_id: Mapped[str] = mapped_column(String(64), nullable=False)  # "vector", "lexical", "graph"
+    original_rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    original_score: Mapped[float] = mapped_column(Float, nullable=False)
+    included_in_prompt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    trace: Mapped[QueryTraceRow] = relationship(back_populates="evidence")

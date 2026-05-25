@@ -5,12 +5,16 @@ Allows querying the secure hybrid Graph-RAG system with unified consensus and Re
 
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from securgraph.api.dependencies import get_graph_retriever, get_qdrant_retriever
+from securgraph.api.dependencies import get_db_session, get_graph_retriever, get_qdrant_retriever
+from securgraph.indexing.db import QueryTraceRow, RetrievalEvidenceRow
 from securgraph.domain import (
     ChannelSummary,
     ConfidenceBlock,
@@ -35,14 +39,26 @@ async def query_pipeline(
     request: QueryRequest,
     qdrant: Annotated[any, Depends(get_qdrant_retriever)],
     graph: Annotated[any, Depends(get_graph_retriever)],
+    session: AsyncSession = Depends(get_db_session),
 ) -> QueryResponse:
     """Run the 8-node LangGraph workflow with consensus verification and policy pruning."""
     trace_id = str(uuid.uuid4())
+    start_time = time.perf_counter()
 
     subject = Subject(
         tenant_id=request.tenant_id,
         user_id=request.user_id,
     )
+
+    # 1. Create and persist initial trace row (so child processes/threads can refer to it)
+    trace_row = QueryTraceRow(
+        trace_id=trace_id,
+        tenant_id=request.tenant_id,
+        user_id=request.user_id,
+        query=request.query,
+    )
+    session.add(trace_row)
+    await session.commit()
 
     # Pre-classify query intent
     classification = classify_query(request.query)
@@ -126,6 +142,46 @@ async def query_pipeline(
 
         warnings_list = list(result.get("warnings", []))
 
+        # 2. Persist completed trace and retrieval evidence
+        latency_ms = (time.perf_counter() - start_time) * 1000.0
+        trace_row.answer = final_answer.text
+        trace_row.latency_ms = latency_ms
+        trace_row.completed_at = func.now()
+
+        evidence_rows = []
+        for rank, ev in enumerate(vector_context):
+            evidence_rows.append(
+                RetrievalEvidenceRow(
+                    evidence_id=ev.evidence_id,
+                    trace_id=trace_id,
+                    tenant_id=ev.tenant_id,
+                    object_id=ev.object_id,
+                    retriever_id=ev.retriever_id.value,
+                    original_rank=ev.original_rank,
+                    original_score=ev.original_score,
+                    included_in_prompt=ev.included_in_prompt,
+                )
+            )
+
+        for rank, path in enumerate(graph_context):
+            evidence_rows.append(
+                RetrievalEvidenceRow(
+                    evidence_id=f"ev_graph_{path.path_id}_{trace_id}",
+                    trace_id=trace_id,
+                    tenant_id=request.tenant_id,
+                    object_id=path.path_id,
+                    retriever_id="graph",
+                    original_rank=rank,
+                    original_score=path.confidence,
+                    included_in_prompt=True,
+                )
+            )
+
+        if evidence_rows:
+            session.add_all(evidence_rows)
+
+        await session.commit()
+
         return QueryResponse(
             answer=final_answer.text,
             citations=final_answer.citations,
@@ -136,8 +192,33 @@ async def query_pipeline(
         )
 
     except HTTPException:
+        # In case of explicit HTTP HTTPExceptions, update completed status robustly
+        try:
+            latency_ms = (time.perf_counter() - start_time) * 1000.0
+            await session.rollback()
+            from sqlalchemy import update
+            await session.execute(
+                update(QueryTraceRow)
+                .where(QueryTraceRow.trace_id == trace_id)
+                .values(completed_at=func.now(), latency_ms=latency_ms)
+            )
+            await session.commit()
+        except Exception:
+            pass
         raise
     except Exception as e:
+        try:
+            latency_ms = (time.perf_counter() - start_time) * 1000.0
+            await session.rollback()
+            from sqlalchemy import update
+            await session.execute(
+                update(QueryTraceRow)
+                .where(QueryTraceRow.trace_id == trace_id)
+                .values(completed_at=func.now(), latency_ms=latency_ms)
+            )
+            await session.commit()
+        except Exception:
+            pass
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Query execution failed: {e!s}",
