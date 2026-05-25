@@ -45,7 +45,10 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
         dense = await qdrant.search_dense(subject.tenant_id, q, limit=limit, trace_id=trace)
         lexical = await qdrant.search_lexical(subject.tenant_id, q, limit=limit, trace_id=trace)
         
-        return {"vector_context": dense + lexical}
+        from securgraph.indexing.fusion import fuse_rankings
+        fused = fuse_rankings(dense, lexical, limit=limit)
+        
+        return {"vector_context": fused}
 
     async def graph_retrieval_node(state: QueryState) -> dict[str, Any]:
         seeds = [word.strip(",.?!") for word in state["query"].split() if word and word[0].isupper()]

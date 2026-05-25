@@ -58,6 +58,7 @@ from securgraph.domain.query import (
     QueryRequest,
     QueryResponse,
     RetrievalMode,
+    classify_query,
 )
 from securgraph.domain.retrieval import Citation, EvidenceType, RetrievalEvidence, RetrieverId
 
@@ -69,6 +70,7 @@ __all__ = [
     "Citation",
     "Claim",
     "Classification",
+    "classify_query",
     "ConfidenceBlock",
     "ConsensusReport",
     "Document",

@@ -87,3 +87,37 @@ class QueryResponse(SGModel):
     channels: QueryChannels = Field(default_factory=QueryChannels)
     trace_id: TraceId
     warnings: tuple[str, ...] = Field(default_factory=tuple)
+
+
+# ---------------------------------------------------------------------------
+# Query intent classifier
+# ---------------------------------------------------------------------------
+
+_GRAPH_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "related to",
+        "connected",
+        "relationship",
+        "how does",
+        "link",
+        "between",
+        "path",
+        "via",
+        "through",
+        "depends on",
+        "linked to",
+    }
+)
+
+
+def classify_query(query_text: str) -> QueryClassification:
+    """Classify the intent of an incoming query using rule-based keyword matching.
+
+    Returns ``ENTITY_RELATIONSHIP`` when the query contains graph-traversal
+    keywords; falls back to ``FACTUAL_SEMANTIC`` for all other queries.
+    """
+    q = query_text.lower()
+    if any(kw in q for kw in _GRAPH_KEYWORDS):
+        return QueryClassification.ENTITY_RELATIONSHIP
+    return QueryClassification.FACTUAL_SEMANTIC
+

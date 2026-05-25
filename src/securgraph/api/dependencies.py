@@ -209,3 +209,50 @@ async def get_policy_adapter(
     if _policy_adapter is None or _policy_adapter.client is not client:
         _policy_adapter = OpenFGAPolicyAdapter(client)
     return _policy_adapter
+
+
+# ---------------------------------------------------------------------------
+# Retriever singletons (initialised lazily on first request)
+# ---------------------------------------------------------------------------
+
+_qdrant_retriever: "QdrantRetriever | None" = None  # type: ignore[name-defined]
+_graph_retriever: "AuthorizedGraphRetriever | None" = None  # type: ignore[name-defined]
+
+
+async def get_qdrant_retriever() -> "QdrantRetriever":  # type: ignore[name-defined]
+    """Return a cached QdrantRetriever singleton.
+
+    Uses the process-wide embedding adapter and a QdrantClient pointed at the
+    URL from Settings.  Safe to call from multiple concurrent requests.
+    """
+    global _qdrant_retriever
+    if _qdrant_retriever is None:
+        from qdrant_client import QdrantClient
+
+        from securgraph.adapters.embeddings import get_embedding_adapter
+        from securgraph.indexing.vector_retriever import QdrantRetriever
+
+        _settings = get_settings()
+        client = QdrantClient(url=_settings.qdrant_url)
+        _qdrant_retriever = QdrantRetriever(client, get_embedding_adapter())
+    return _qdrant_retriever
+
+
+async def get_graph_retriever(
+    policy: OpenFGAPolicyAdapter = Depends(get_policy_adapter),  # noqa: B008
+) -> "AuthorizedGraphRetriever":  # type: ignore[name-defined]
+    """Return a cached AuthorizedGraphRetriever singleton.
+
+    Combines the Neo4j driver with the OpenFGA policy adapter to enforce
+    path-cut pruning during graph traversal.
+    """
+    global _graph_retriever
+    if _graph_retriever is None:
+        from securgraph.adapters.neo4j import get_neo4j_driver
+        from securgraph.indexing.graph_retriever import AuthorizedGraphRetriever
+
+        _graph_retriever = AuthorizedGraphRetriever(
+            driver=get_neo4j_driver(), fga=policy
+        )
+    return _graph_retriever
+
