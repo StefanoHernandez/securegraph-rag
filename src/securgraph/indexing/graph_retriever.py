@@ -170,6 +170,15 @@ class AuthorizedGraphRetriever:
                     break
 
             if path_valid:
-                authorized_paths.append(path)
+                # Reconstruct descriptive text context from the authorized chunk texts
+                path_chunk_texts = []
+                for cid in path.source_chunk_ids:
+                    if cid in authorized_ids:
+                        for c in authorized_chunks:
+                            if c.chunk_id == cid:
+                                path_chunk_texts.append(c.text)
+                                break
+                path_text = " ".join(path_chunk_texts)
+                authorized_paths.append(path.model_copy(update={"text": path_text}))
 
         return authorized_paths

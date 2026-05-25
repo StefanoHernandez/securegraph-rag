@@ -56,6 +56,7 @@ class GraphPath(SGModel):
     edges: tuple[str, ...] = Field(default_factory=tuple)
     source_chunk_ids: tuple[str, ...] = Field(default_factory=tuple)
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
+    text: str | None = Field(default=None, description="Descriptive text reconstructed from source chunks.")
 
     @model_validator(mode="after")
     def _validate_lengths(self) -> GraphPath:
@@ -65,6 +66,10 @@ class GraphPath(SGModel):
                 f"(got nodes={len(self.nodes)}, edges={len(self.edges)})"
             )
         return self
+
+    def __str__(self) -> str:
+        """Represent the path as a readable textual string for LLM prompts."""
+        return self.text or ""
 
 
 class ExtractedEntity(BaseModel):

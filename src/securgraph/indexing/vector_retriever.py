@@ -51,7 +51,7 @@ class QdrantRetriever:
 
         return [
             RetrievalEvidence(
-                evidence_id=f"ev_dense_{r.id}",
+                evidence_id=f"ev_dense_{r.id}_{trace}",
                 trace_id=trace,
                 tenant_id=tenant_id,
                 evidence_type="chunk",
@@ -61,6 +61,7 @@ class QdrantRetriever:
                 original_rank=idx,
                 original_score=r.score,
                 policy_check_id="unverified",
+                text=r.payload.get("text"),  # type: ignore
             )
             for idx, r in enumerate(results)
         ]
@@ -95,7 +96,7 @@ class QdrantRetriever:
 
         return [
             RetrievalEvidence(
-                evidence_id=f"ev_lex_{r.id}",
+                evidence_id=f"ev_lex_{r.id}_{trace}",
                 trace_id=trace,
                 tenant_id=tenant_id,
                 evidence_type="chunk",
@@ -105,6 +106,7 @@ class QdrantRetriever:
                 original_rank=idx,
                 original_score=1.0,  # Uniform default score before RRF fusion
                 policy_check_id="unverified",
+                text=r.payload.get("text"),  # type: ignore
             )
             for idx, r in enumerate(scroll_results)
         ]

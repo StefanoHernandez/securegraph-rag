@@ -26,6 +26,17 @@ SourceFormat = Literal["markdown", "text", "pdf", "docx"]
 _MD_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
 
+def normalize_text(text: str) -> str:
+    """Filter binary and hidden Unicode control characters to prevent prompt injections.
+
+    Removes zero-width characters and control codes that could hijack LLM parsing.
+    """
+    pattern = re.compile(
+        r"[\u200b\u200c\u200d\ufeff\u202a-\u202e]|[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]"
+    )
+    return pattern.sub("", text)
+
+
 @dataclass(frozen=True, slots=True)
 class ParsedSection:
     """A logical section of a parsed document.
@@ -91,6 +102,7 @@ def parse_bytes(data: bytes, source_format: SourceFormat) -> ParsedDocument:
 
 def parse_text(text: str) -> ParsedDocument:
     """One section, no structure."""
+    text = normalize_text(text)
     return ParsedDocument(
         source_format="text",
         parser_version=PARSER_VERSION,
@@ -110,6 +122,7 @@ def parse_markdown(text: str) -> ParsedDocument:
     Headers `#`, `##`, ... drive a stack so each section's ``path`` is the chain
     of enclosing headings.
     """
+    text = normalize_text(text)
     sections: list[ParsedSection] = []
     stack: list[str] = []  # heading texts at each level (index = level-1)
     buffer: list[str] = []
@@ -164,7 +177,7 @@ def parse_pdf_bytes(data: bytes) -> ParsedDocument:
     total_len = 0
     for idx, page in enumerate(reader.pages, start=1):
         page_text = page.extract_text() or ""
-        page_text = page_text.strip()
+        page_text = normalize_text(page_text).strip()
         if not page_text:
             continue
         total_len += len(page_text)
@@ -216,6 +229,7 @@ def parse_docx_bytes(data: bytes) -> ParsedDocument:
 
     for para in document.paragraphs:
         text = (para.text or "").strip()
+        text = normalize_text(text)
         if not text:
             continue
         total_len += len(text)

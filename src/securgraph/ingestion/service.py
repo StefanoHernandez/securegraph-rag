@@ -120,6 +120,10 @@ async def ingest_document(
     trace_id = trace_id or f"trace_{uuid.uuid4().hex[:16]}"
     job_id = f"ing_{uuid.uuid4().hex[:16]}"
 
+    # Ingestion Budget Limit check: fail-closed if document is > 50MB to prevent DoS
+    if len(request.data) > 50 * 1024 * 1024:
+        raise IngestionError("Document size exceeds the 50MB ingestion budget limit.")
+
     # --- 1. Source hash + idempotency check ---------------------------------
     src_hash = compute_source_hash(request.data)
     existing = await find_existing_document(

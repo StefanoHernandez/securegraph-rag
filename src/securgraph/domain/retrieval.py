@@ -57,9 +57,14 @@ class RetrievalEvidence(SGModel):
 
     policy_check_id: str = Field(min_length=1, max_length=128)
     included_in_prompt: bool = False
+    text: str | None = Field(default=None, description="The raw source context text.")
 
     # Optional graph-specific fields, populated only for path/node/edge evidence.
     graph_path_id: str | None = None
+
+    def __str__(self) -> str:
+        """Represent the evidence as a readable string (the actual text context) in prompts."""
+        return self.text or ""
 
 
 class Citation(SGModel):
