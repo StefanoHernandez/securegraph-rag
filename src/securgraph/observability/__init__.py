@@ -1,5 +1,3 @@
-"""OpenTelemetry integration."""
+from securgraph.observability.otel import get_tracer, setup_observability, shutdown_observability
 
-from securgraph.observability.otel import setup_observability, shutdown_observability
-
-__all__ = ["setup_observability", "shutdown_observability"]
+__all__ = ["get_tracer", "setup_observability", "shutdown_observability"]

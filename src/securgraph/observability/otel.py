@@ -18,7 +18,7 @@ from opentelemetry.sdk.resources import SERVICE_NAME, SERVICE_VERSION, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
-from prometheus_client import start_http_server
+from prometheus_client import Counter, Histogram, start_http_server
 
 from securgraph import __version__
 from securgraph.config import Settings
@@ -31,6 +31,42 @@ if TYPE_CHECKING:
 _LOG = get_logger(__name__)
 _TRACER_PROVIDER: TracerProvider | None = None
 _METRICS_SERVER_STARTED = False
+
+
+# ---------------------------------------------------------------------------
+# Prometheus Global Metrics
+# ---------------------------------------------------------------------------
+
+QUERY_COUNT = Counter(
+    "securgraph_query_total",
+    "Total number of executed secure queries",
+    labelnames=["tenant_id", "status"],
+)
+
+QUERY_LATENCY_SECS = Histogram(
+    "securgraph_query_latency_seconds",
+    "Query pipeline latency in seconds",
+    labelnames=["tenant_id"],
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, float("inf")),
+)
+
+CONSENSUS_AGREEMENT = Histogram(
+    "securgraph_consensus_agreement_score",
+    "Cross-retriever consensus agreement score",
+    labelnames=["tenant_id"],
+    buckets=(0.0, 0.2, 0.4, 0.6, 0.7, 0.8, 0.9, 1.0),
+)
+
+POLICY_DECISION_COUNT = Counter(
+    "securgraph_policy_decision_total",
+    "Total number of ReBAC policy decisions evaluated",
+    labelnames=["tenant_id", "object_type", "decision"],
+)
+
+
+def get_tracer() -> trace.Tracer:
+    """Return the global process-wide tracer."""
+    return trace.get_tracer("securgraph")
 
 
 def setup_observability(settings: Settings) -> None:
@@ -61,6 +97,17 @@ def setup_observability(settings: Settings) -> None:
         )
         trace.set_tracer_provider(provider)
         _TRACER_PROVIDER = provider
+
+        # Configure automatic OTel instrumentations
+        try:
+            from opentelemetry.instrumentation.asyncpg import AsyncPGInstrumentor
+            from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+            HTTPXClientInstrumentor().instrument()
+            AsyncPGInstrumentor().instrument()
+            _LOG.info("otel_automatic_instrumentations_configured")
+        except Exception as exc:
+            _LOG.warning("otel_automatic_instrumentations_failed", error=str(exc))
         _LOG.info(
             "otel_traces_configured",
             endpoint=settings.otel_exporter_otlp_endpoint,

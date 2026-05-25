@@ -120,6 +120,17 @@ class OpenFGAPolicyAdapter:
                 decision=PolicyDecisionValue.ALLOW if allowed else PolicyDecisionValue.DENY,
                 reason_code="openfga_ok" if allowed else "unauthorized_rbac",
             )
+
+            try:
+                from securgraph.observability.otel import POLICY_DECISION_COUNT
+                POLICY_DECISION_COUNT.labels(
+                    tenant_id=subject.tenant_id,
+                    object_type=PolicyObjectType.CHUNK.value,
+                    decision=decision.decision.value,
+                ).inc()
+            except Exception:
+                pass
+
             return chunk, decision
 
         # Run checks concurrently
