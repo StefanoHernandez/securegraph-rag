@@ -95,6 +95,7 @@ class Settings(BaseSettings):
     feature_communities_enabled: bool = False  # M6+
     feature_verifier_ensemble: bool = False  # M7+
     audit_tamper_evident: bool = False  # M7+
+    feature_self_healing_enabled: bool = False
 
 
 @lru_cache(maxsize=1)

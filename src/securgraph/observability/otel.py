@@ -63,6 +63,12 @@ POLICY_DECISION_COUNT = Counter(
     labelnames=["tenant_id", "object_type", "decision"],
 )
 
+GRAPH_SELF_HEALING_COUNT = Counter(
+    "securgraph_graph_self_healing_total",
+    "Total number of automatic graph self-healing actions taken",
+    labelnames=["tenant_id", "action"],
+)
+
 
 def get_tracer() -> trace.Tracer:
     """Return the global process-wide tracer."""

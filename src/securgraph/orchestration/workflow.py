@@ -16,6 +16,9 @@ from securgraph.domain import (
     VerifierStatus,
 )
 from securgraph.domain.consensus import calculate_consensus
+from securgraph.logging import get_logger
+
+_LOG = get_logger(__name__)
 
 
 class QueryState(TypedDict):
@@ -188,6 +191,34 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                 graph_entities=graph_entities,
                 threshold=state["options"].get("consensus_threshold", 0.7)
             )
+
+            # Check if self-healing is enabled and if there are graph contradictions
+            settings = get_settings()
+            if settings.feature_self_healing_enabled:
+                for c in updated_g_claims:
+                    if c.nli_label == NLILabel.CONTRADICTION:
+                        _LOG.info(
+                            "contradiction_detected_triggering_self_healing",
+                            claim=c.text[:60],
+                            trace_id=state["trace_id"],
+                        )
+                        driver = getattr(graph, "driver", None)
+                        if driver is None:
+                            from securgraph.adapters.neo4j import get_neo4j_driver
+                            driver = get_neo4j_driver()
+
+                        from securgraph.ingestion.self_healing import resolve_graph_contradiction
+                        import asyncio
+
+                        # Run self-healing as a background task
+                        asyncio.create_task(
+                            resolve_graph_contradiction(
+                                driver=driver,
+                                tenant_id=state["subject"].tenant_id,
+                                claim_text=c.text,
+                                vector_context=state["vector_draft"] or "",
+                            )
+                        )
             
             span.set_attribute("securgraph.agreement_score", report.agreement_score)
             span.set_attribute("securgraph.high_trust", report.high_trust)

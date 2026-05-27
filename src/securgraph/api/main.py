@@ -64,6 +64,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await close_neo4j_driver()
         except Exception:
             log.exception("neo4j_driver_teardown_failed")
+        try:
+            from securgraph.api.dependencies import _redis_pool
+
+            if _redis_pool is not None:
+                await _redis_pool.close()
+        except Exception:
+            log.exception("redis_pool_teardown_failed")
         shutdown_observability()
 
 

@@ -106,6 +106,7 @@ async def ingest_document(
     session: AsyncSession,
     request: IngestionRequest,
     *,
+    job_id: str | None = None,
     trace_id: str | None = None,
     qdrant_client: QdrantClient | None = None,
     embeddings: EmbeddingAdapter | None = None,
@@ -118,7 +119,7 @@ async def ingest_document(
     call so failures roll back cleanly.
     """
     trace_id = trace_id or f"trace_{uuid.uuid4().hex[:16]}"
-    job_id = f"ing_{uuid.uuid4().hex[:16]}"
+    job_id = job_id or f"ing_{uuid.uuid4().hex[:16]}"
 
     # Ingestion Budget Limit check: fail-closed if document is > 50MB to prevent DoS
     if len(request.data) > 50 * 1024 * 1024:

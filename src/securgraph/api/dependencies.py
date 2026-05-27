@@ -24,9 +24,12 @@ settings = get_settings()
 engine = create_async_engine(settings.postgres_dsn, pool_pre_ping=True)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
-# Singletons or cache for OpenFGA client and adapter
+from arq.connections import ArqRedis, RedisSettings, create_pool
+
+# Singletons or cache for OpenFGA client, adapter, and Redis pool
 _fga_client: OpenFgaClient | None = None
 _policy_adapter: OpenFGAPolicyAdapter | None = None
+_redis_pool: ArqRedis | None = None
 
 
 async def get_db_session() -> AsyncIterator[AsyncSession]:
@@ -255,4 +258,13 @@ async def get_graph_retriever(
             driver=get_neo4j_driver(), fga=policy
         )
     return _graph_retriever
+
+
+async def get_redis_pool() -> ArqRedis:
+    """Return the global cached Redis pool instance used by arq."""
+    global _redis_pool
+    if _redis_pool is None:
+        _settings = get_settings()
+        _redis_pool = await create_pool(RedisSettings.from_dsn(_settings.redis_url))
+    return _redis_pool
 

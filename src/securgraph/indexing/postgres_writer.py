@@ -152,16 +152,27 @@ async def create_ingestion_job(
     trace_id: str,
     tenant_id: TenantId,
     document_id: str | None = None,
+    status: str = "running",
 ) -> None:
-    row = IngestionJobRow(
-        job_id=job_id,
-        trace_id=trace_id,
-        tenant_id=tenant_id,
-        document_id=document_id,
-        status="running",
-        started_at=utcnow(),
-    )
-    session.add(row)
+    stmt = select(IngestionJobRow).where(IngestionJobRow.job_id == job_id)
+    res = await session.execute(stmt)
+    existing = res.scalar_one_or_none()
+    if existing is not None:
+        existing.trace_id = trace_id
+        existing.tenant_id = tenant_id
+        if document_id is not None:
+            existing.document_id = document_id
+        existing.status = status
+    else:
+        row = IngestionJobRow(
+            job_id=job_id,
+            trace_id=trace_id,
+            tenant_id=tenant_id,
+            document_id=document_id,
+            status=status,
+            started_at=utcnow(),
+        )
+        session.add(row)
 
 
 async def update_ingestion_job(

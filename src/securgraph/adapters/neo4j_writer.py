@@ -98,3 +98,74 @@ async def _write_transaction(
             tenant_id=tenant_id,
             chunk_id=chunk.chunk_id,
         )
+
+
+async def flag_or_delete_relationship(
+    driver: AsyncDriver,
+    tenant_id: str,
+    source_name: str,
+    target_name: str,
+    action: str,
+    new_target_name: str | None = None,
+    reason: str | None = None,
+) -> None:
+    """Flag, delete, or update an incorrect relationship in Neo4j."""
+    async with driver.session() as session:
+        await session.execute_write(
+            _repair_transaction,
+            tenant_id=tenant_id,
+            source_name=source_name,
+            target_name=target_name,
+            action=action,
+            new_target_name=new_target_name,
+            reason=reason,
+        )
+
+
+async def _repair_transaction(
+    tx: Any,
+    tenant_id: str,
+    source_name: str,
+    target_name: str,
+    action: str,
+    new_target_name: str | None = None,
+    reason: str | None = None,
+) -> None:
+    if action == "delete":
+        cypher = """
+        MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})-[r:RELATED_TO]->(tgt:Entity {name: $target_name, tenant_id: $tenant_id})
+        DELETE r
+        """
+        await tx.run(cypher, source_name=source_name, target_name=target_name, tenant_id=tenant_id)
+    elif action == "flag":
+        cypher = """
+        MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})-[r:RELATED_TO]->(tgt:Entity {name: $target_name, tenant_id: $tenant_id})
+        SET r.confidence = 0.1,
+            r.needs_review = true,
+            r.conflict_reason = $reason
+        """
+        await tx.run(
+            cypher,
+            source_name=source_name,
+            target_name=target_name,
+            tenant_id=tenant_id,
+            reason=reason or "Flagged due to RAG consensus contradiction."
+        )
+    elif action == "update":
+        delete_cypher = """
+        MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})-[r:RELATED_TO]->(tgt:Entity {name: $target_name, tenant_id: $tenant_id})
+        DELETE r
+        """
+        await tx.run(delete_cypher, source_name=source_name, target_name=target_name, tenant_id=tenant_id)
+        
+        if new_target_name:
+            update_cypher = """
+            MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})
+            MERGE (tgt:Entity {name: $new_target_name, tenant_id: $tenant_id})
+            ON CREATE SET tgt.label = "Entity"
+            MERGE (src)-[r:RELATED_TO]->(tgt)
+            SET r.confidence = 0.9,
+                r.needs_review = false,
+                r.source_chunk_ids = ["self_healing"]
+            """
+            await tx.run(update_cypher, source_name=source_name, new_target_name=new_target_name, tenant_id=tenant_id)
