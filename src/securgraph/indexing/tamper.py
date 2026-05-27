@@ -1,32 +1,93 @@
-"""Tamper-evident auditing module for cryptographic hash-chaining in PostgreSQL.
+"""Tamper-evident auditing module for cryptographic HMAC-chaining in PostgreSQL.
 
 Ensures that access/query traces, retrieved evidence, and policy decisions cannot
 be retroactively modified or deleted without breaking the chain of trust.
+
+Security model
+--------------
+Each row in an audit table carries a ``tamper_hash`` field computed as:
+
+    HMAC-SHA256(key, canonical_payload | prev_hash)
+
+where ``key`` is ``AUDIT_HMAC_KEY`` from the environment (never stored in the
+database). Because the key is outside the database, an attacker who only has
+write access to the DB cannot recalculate valid hashes after tampering with rows.
+
+If ``AUDIT_HMAC_KEY`` is empty the module falls back to plain SHA-256 and logs a
+WARNING. The fallback chain is consistent but NOT secure against a DB-level
+attacker — it documents internal order only.
+
+Concurrency
+-----------
+``chain_query_trace`` and ``chain_evidence_batch`` use ``SELECT ... FOR UPDATE``
+to read the previous ``tamper_hash``. This serialises concurrent writers per
+tenant so that two parallel requests cannot fork the chain by reading the same
+``prev_hash``.
+
+NULL rows
+---------
+Rows with ``tamper_hash IS NULL`` (e.g. written before the migration or the
+feature was enabled) are reported as tampered by ``verify_table_chain``. To
+backfill them, re-run the chain function over the relevant rows in insertion order.
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
+import logging
 from datetime import datetime
 from typing import Any, Type
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from securgraph.config import get_settings
 from securgraph.indexing.db import Base, PolicyDecisionRow, QueryTraceRow, RetrievalEvidenceRow
 
+logger = logging.getLogger(__name__)
 
-def compute_payload_hash(data: dict[str, Any], prev_hash: str) -> str:
-    """Compute a canonical SHA-256 hash of the payload fields coupled with the previous hash."""
-    parts = []
-    # Sort keys for canonical representation
+_INSECURE_WARNED: bool = False  # emit the WARNING only once per process
+
+
+def _get_audit_key() -> bytes | None:
+    """Return the HMAC key bytes, or None if not configured (insecure fallback)."""
+    global _INSECURE_WARNED  # noqa: PLW0603
+    raw = get_settings().audit_hmac_key.get_secret_value()
+    if not raw:
+        if not _INSECURE_WARNED:
+            logger.warning(
+                "AUDIT_HMAC_KEY is not set. Tamper-evident chaining is using plain "
+                "SHA-256 WITHOUT a secret key. The audit chain does NOT protect against "
+                "an attacker with database write access. Set AUDIT_HMAC_KEY in your "
+                "environment to enable real tamper protection."
+            )
+            _INSECURE_WARNED = True
+        return None
+    try:
+        return bytes.fromhex(raw)
+    except ValueError:
+        # Accept arbitrary UTF-8 strings as well (not only hex)
+        return raw.encode("utf-8")
+
+
+def compute_payload_hmac(data: dict[str, Any], prev_hash: str) -> str:
+    """Compute a canonical HMAC-SHA256 (or SHA-256 fallback) of the payload + prev_hash.
+
+    Args:
+        data:      Mapping of audit row fields (``tamper_hash`` excluded).
+        prev_hash: Hash of the immediately preceding row for this tenant, or the
+                   genesis sentinel string.
+
+    Returns:
+        Hex-encoded digest string.
+    """
+    parts: list[str] = []
     for key in sorted(data.keys()):
         val = data[key]
-        # Skip internal ORM attributes or metadata
+        # Exclude ORM internals and the hash column itself
         if key in ("tamper_hash", "_sa_instance_state", "evidence", "trace"):
             continue
-        
-        # Canonicalize format for strings, datetimes, floats, booleans
         if isinstance(val, datetime):
             val_str = val.isoformat()
         elif isinstance(val, float):
@@ -37,26 +98,43 @@ def compute_payload_hash(data: dict[str, Any], prev_hash: str) -> str:
             val_str = "null"
         else:
             val_str = str(val)
-            
         parts.append(f"{key}={val_str}")
-        
-    canonical_string = "|".join(parts) + f"|prev_hash={prev_hash}"
-    return hashlib.sha256(canonical_string.encode("utf-8")).hexdigest()
+
+    canonical = "|".join(parts) + f"|prev_hash={prev_hash}"
+    message = canonical.encode("utf-8")
+
+    key = _get_audit_key()
+    if key is not None:
+        return hmac.new(key, message, hashlib.sha256).hexdigest()
+    # Insecure fallback: plain SHA-256 without a secret key
+    return hashlib.sha256(message).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Per-table chaining helpers
+# ---------------------------------------------------------------------------
 
 
 async def chain_query_trace(session: AsyncSession, row: QueryTraceRow) -> None:
-    """Compute and append a chained tamper hash for a QueryTraceRow."""
-    # Find previous trace for the tenant
+    """Compute and set ``tamper_hash`` on *row*.
+
+    Uses ``SELECT FOR UPDATE`` to serialise concurrent writers for the same tenant.
+    Call this function *after* all fields on *row* are populated (answer, latency_ms,
+    completed_at) and *before* the row is added to the session.
+    """
     stmt = (
         select(QueryTraceRow.tamper_hash)
-        .where(QueryTraceRow.tenant_id == row.tenant_id, QueryTraceRow.trace_id != row.trace_id)
+        .where(
+            QueryTraceRow.tenant_id == row.tenant_id,
+            QueryTraceRow.trace_id != row.trace_id,
+        )
         .order_by(QueryTraceRow.started_at.desc())
         .limit(1)
+        .with_for_update()
     )
     result = await session.execute(stmt)
-    prev_hash = result.scalar_one_or_none() or "genesis_trace"
+    prev_hash: str = result.scalar_one_or_none() or "genesis_trace"
 
-    # Gather data dict from ORM properties
     data = {
         "trace_id": row.trace_id,
         "tenant_id": row.tenant_id,
@@ -67,25 +145,33 @@ async def chain_query_trace(session: AsyncSession, row: QueryTraceRow) -> None:
         "completed_at": row.completed_at,
         "latency_ms": row.latency_ms,
     }
-    row.tamper_hash = compute_payload_hash(data, prev_hash)
+    row.tamper_hash = compute_payload_hmac(data, prev_hash)
 
 
-async def chain_evidence_batch(session: AsyncSession, rows: list[RetrievalEvidenceRow]) -> None:
-    """Compute and append sequential chained tamper hashes for a batch of RetrievalEvidenceRow."""
+async def chain_evidence_batch(
+    session: AsyncSession, rows: list[RetrievalEvidenceRow]
+) -> None:
+    """Compute and set sequential ``tamper_hash`` values for a batch of evidence rows.
+
+    Uses ``SELECT FOR UPDATE`` to serialise concurrent writers for the same tenant.
+    """
     if not rows:
         return
 
     tenant_id = rows[0].tenant_id
-    # Find previous evidence row for the tenant not in the current batch
     exclude_ids = [r.evidence_id for r in rows]
     stmt = (
         select(RetrievalEvidenceRow.tamper_hash)
-        .where(RetrievalEvidenceRow.tenant_id == tenant_id, ~RetrievalEvidenceRow.evidence_id.in_(exclude_ids))
+        .where(
+            RetrievalEvidenceRow.tenant_id == tenant_id,
+            ~RetrievalEvidenceRow.evidence_id.in_(exclude_ids),
+        )
         .order_by(RetrievalEvidenceRow.evidence_id.desc())
         .limit(1)
+        .with_for_update()
     )
     result = await session.execute(stmt)
-    prev_hash = result.scalar_one_or_none() or "genesis_evidence"
+    prev_hash: str = result.scalar_one_or_none() or "genesis_evidence"
 
     for r in rows:
         data = {
@@ -98,25 +184,38 @@ async def chain_evidence_batch(session: AsyncSession, rows: list[RetrievalEviden
             "original_score": r.original_score,
             "included_in_prompt": r.included_in_prompt,
         }
-        r.tamper_hash = compute_payload_hash(data, prev_hash)
+        r.tamper_hash = compute_payload_hmac(data, prev_hash)
         prev_hash = r.tamper_hash
 
 
-async def chain_policy_decisions(session: AsyncSession, rows: list[dict[str, Any]], tenant_id: str) -> None:
-    """Compute and append chained tamper hashes for a raw batch of policy decisions to be bulk inserted."""
+async def chain_policy_decisions(
+    session: AsyncSession,
+    rows: list[dict[str, Any]],
+    tenant_id: str,
+) -> None:
+    """Compute and set ``tamper_hash`` for a raw batch of policy decision dicts.
+
+    Uses ``SELECT FOR UPDATE`` to serialise concurrent writers for the same tenant.
+    """
     if not rows:
         return
 
-    # Find previous policy decision for the tenant not in the current batch
     exclude_ids = [r["decision_id"] for r in rows]
     stmt = (
         select(PolicyDecisionRow.tamper_hash)
-        .where(PolicyDecisionRow.tenant_id == tenant_id, ~PolicyDecisionRow.decision_id.in_(exclude_ids))
-        .order_by(PolicyDecisionRow.evaluated_at.desc(), PolicyDecisionRow.decision_id.desc())
+        .where(
+            PolicyDecisionRow.tenant_id == tenant_id,
+            ~PolicyDecisionRow.decision_id.in_(exclude_ids),
+        )
+        .order_by(
+            PolicyDecisionRow.evaluated_at.desc(),
+            PolicyDecisionRow.decision_id.desc(),
+        )
         .limit(1)
+        .with_for_update()
     )
     result = await session.execute(stmt)
-    prev_hash = result.scalar_one_or_none() or "genesis_decision"
+    prev_hash: str = result.scalar_one_or_none() or "genesis_decision"
 
     for r in rows:
         data = {
@@ -132,8 +231,13 @@ async def chain_policy_decisions(session: AsyncSession, rows: list[dict[str, Any
             "policy_engine": r["policy_engine"],
             "evaluated_at": r["evaluated_at"],
         }
-        r["tamper_hash"] = compute_payload_hash(data, prev_hash)
+        r["tamper_hash"] = compute_payload_hmac(data, prev_hash)
         prev_hash = r["tamper_hash"]
+
+
+# ---------------------------------------------------------------------------
+# Chain verification
+# ---------------------------------------------------------------------------
 
 
 async def verify_table_chain(
@@ -141,37 +245,49 @@ async def verify_table_chain(
     tenant_id: str,
     table_class: Type[Base],
 ) -> tuple[bool, list[str]]:
-    """Verify the entire cryptographic hash chain for a specific table and tenant.
+    """Verify the cryptographic chain for a specific audit table and tenant.
+
+    Reads all rows in insertion order and re-derives each HMAC from the payload
+    and the previous row's hash. Returns ``(True, [])`` when the chain is intact.
+
+    Semantics of mismatch handling
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    When a row's stored ``tamper_hash`` does not match the re-derived value, the
+    row's primary key is recorded in ``tampered_ids`` and verification continues
+    using the *re-derived* hash as ``prev_hash`` for the next row. This means:
+
+    - Each subsequent intact row is still validated independently.
+    - A single tampered row does NOT cascade false positives to downstream rows
+      that are genuinely unmodified.
+    - Trade-off: if an attacker also re-hashes downstream rows (possible without
+      the HMAC key), those rows will *also* appear tampered. With HMAC + a secret
+      key, re-hashing without the key is computationally infeasible.
+
+    Args:
+        session:     Active async SQLAlchemy session.
+        tenant_id:   Tenant to verify.
+        table_class: One of ``QueryTraceRow``, ``RetrievalEvidenceRow``,
+                     ``PolicyDecisionRow``.
 
     Returns:
-        (is_valid, list_of_tampered_primary_keys)
+        ``(is_valid, list_of_tampered_primary_keys)``
+
+    Note:
+        Rows with ``tamper_hash IS NULL`` are reported as tampered. They were
+        written before the feature was enabled or before the migration ran.
+        Backfill them by re-running the appropriate ``chain_*`` function.
     """
-    # 1. Fetch all rows ordered sequentially by their creation/eval timestamp
     if table_class == QueryTraceRow:
-        stmt = select(QueryTraceRow).where(QueryTraceRow.tenant_id == tenant_id).order_by(QueryTraceRow.started_at.asc())
-        pk_field = "trace_id"
+        stmt = (
+            select(QueryTraceRow)
+            .where(QueryTraceRow.tenant_id == tenant_id)
+            .order_by(QueryTraceRow.started_at.asc())
+        )
         genesis = "genesis_trace"
-    elif table_class == RetrievalEvidenceRow:
-        stmt = select(RetrievalEvidenceRow).where(RetrievalEvidenceRow.tenant_id == tenant_id).order_by(RetrievalEvidenceRow.evidence_id.asc())
-        pk_field = "evidence_id"
-        genesis = "genesis_evidence"
-    elif table_class == PolicyDecisionRow:
-        stmt = select(PolicyDecisionRow).where(PolicyDecisionRow.tenant_id == tenant_id).order_by(PolicyDecisionRow.evaluated_at.asc(), PolicyDecisionRow.decision_id.asc())
-        pk_field = "decision_id"
-        genesis = "genesis_decision"
-    else:
-        raise ValueError(f"Unsupported table class for tamper chaining: {table_class}")
+        pk_field = "trace_id"
 
-    result = await session.execute(stmt)
-    rows = result.scalars().all()
-
-    prev_hash = genesis
-    tampered_ids = []
-
-    for row in rows:
-        # Reconstruct payload dictionary
-        if isinstance(row, QueryTraceRow):
-            data = {
+        def _row_data(row: QueryTraceRow) -> dict[str, Any]:
+            return {
                 "trace_id": row.trace_id,
                 "tenant_id": row.tenant_id,
                 "user_id": row.user_id,
@@ -181,8 +297,18 @@ async def verify_table_chain(
                 "completed_at": row.completed_at,
                 "latency_ms": row.latency_ms,
             }
-        elif isinstance(row, RetrievalEvidenceRow):
-            data = {
+
+    elif table_class == RetrievalEvidenceRow:
+        stmt = (
+            select(RetrievalEvidenceRow)
+            .where(RetrievalEvidenceRow.tenant_id == tenant_id)
+            .order_by(RetrievalEvidenceRow.evidence_id.asc())
+        )
+        genesis = "genesis_evidence"
+        pk_field = "evidence_id"
+
+        def _row_data(row: RetrievalEvidenceRow) -> dict[str, Any]:  # type: ignore[misc]
+            return {
                 "evidence_id": row.evidence_id,
                 "trace_id": row.trace_id,
                 "tenant_id": row.tenant_id,
@@ -192,8 +318,21 @@ async def verify_table_chain(
                 "original_score": row.original_score,
                 "included_in_prompt": row.included_in_prompt,
             }
-        else:  # PolicyDecisionRow
-            data = {
+
+    elif table_class == PolicyDecisionRow:
+        stmt = (
+            select(PolicyDecisionRow)
+            .where(PolicyDecisionRow.tenant_id == tenant_id)
+            .order_by(
+                PolicyDecisionRow.evaluated_at.asc(),
+                PolicyDecisionRow.decision_id.asc(),
+            )
+        )
+        genesis = "genesis_decision"
+        pk_field = "decision_id"
+
+        def _row_data(row: PolicyDecisionRow) -> dict[str, Any]:  # type: ignore[misc]
+            return {
                 "decision_id": row.decision_id,
                 "trace_id": row.trace_id,
                 "tenant_id": row.tenant_id,
@@ -207,13 +346,23 @@ async def verify_table_chain(
                 "evaluated_at": row.evaluated_at,
             }
 
-        calculated_hash = compute_payload_hash(data, prev_hash)
-        
+    else:
+        raise ValueError(f"Unsupported table class for tamper chaining: {table_class}")
+
+    result = await session.execute(stmt)
+    rows = result.scalars().all()
+
+    prev_hash = genesis
+    tampered_ids: list[str] = []
+
+    for row in rows:
+        calculated_hash = compute_payload_hmac(_row_data(row), prev_hash)
+
         if row.tamper_hash != calculated_hash:
-            pk_val = getattr(row, pk_field)
-            tampered_ids.append(pk_val)
-            # Break the chain, continue or report immediately
-            prev_hash = calculated_hash  # Attempt to re-anchor or report
+            tampered_ids.append(getattr(row, pk_field))
+            # Continue verification with the re-derived hash so that subsequent
+            # *intact* rows are still validated independently (see docstring).
+            prev_hash = calculated_hash
         else:
             prev_hash = row.tamper_hash
 

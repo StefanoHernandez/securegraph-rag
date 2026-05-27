@@ -32,6 +32,7 @@ from securgraph.domain import (
     QueryResponse,
     Subject,
     classify_query,
+    utcnow,
 )
 from securgraph.orchestration.workflow import compile_workflow
 
@@ -66,18 +67,16 @@ async def query_pipeline(
             user_id=request.user_id,
         )
 
-        # 1. Create and persist initial trace row (so child processes/threads can refer to it)
+        # 1. Build the initial trace row — do NOT insert yet.
+        # It will be inserted after the workflow completes so the hash is computed
+        # on the final, complete row (answer + latency_ms + completed_at populated).
+        settings = get_settings()
         trace_row = QueryTraceRow(
             trace_id=trace_id,
             tenant_id=request.tenant_id,
             user_id=request.user_id,
             query=request.query,
         )
-        settings = get_settings()
-        if settings.audit_tamper_evident:
-            await chain_query_trace(session, trace_row)
-        session.add(trace_row)
-        await session.commit()
 
         # Pre-classify query intent
         classification = classify_query(request.query)
@@ -162,11 +161,11 @@ async def query_pipeline(
 
             warnings_list = list(result.get("warnings", []))
 
-            # 2. Persist completed trace and retrieval evidence
+            # 2. Persist completed trace and retrieval evidence — single commit.
+            # chain_query_trace is called here (once) when all fields are set.
             latency_ms = (time.perf_counter() - start_time) * 1000.0
             trace_row.answer = final_answer.text
             trace_row.latency_ms = latency_ms
-            from securgraph.domain import utcnow
             trace_row.completed_at = utcnow()
 
             evidence_rows = []
@@ -201,10 +200,13 @@ async def query_pipeline(
                 )
 
             if settings.audit_tamper_evident:
+                # chain_query_trace runs once here after all fields are populated.
                 await chain_query_trace(session, trace_row)
                 if evidence_rows:
                     await chain_evidence_batch(session, evidence_rows)
 
+            # Insert the trace row and all evidence in a single transaction.
+            session.add(trace_row)
             if evidence_rows:
                 session.add_all(evidence_rows)
 

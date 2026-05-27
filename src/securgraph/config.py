@@ -97,6 +97,17 @@ class Settings(BaseSettings):
     audit_tamper_evident: bool = False  # M7+
     feature_self_healing_enabled: bool = False
 
+    # ----------------------------------------------------------- audit integrity
+    # HMAC key for tamper-evident audit chaining. Must be set to a random 32+
+    # byte hex string and stored *outside* the database (env var, Docker secret,
+    # or KMS-injected). If empty, chaining falls back to plain SHA-256 and logs
+    # a WARNING — the chain is then NOT secure against an attacker who controls
+    # the database.
+    audit_hmac_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias="AUDIT_HMAC_KEY",
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
