@@ -98,3 +98,24 @@ def test_edge_with_unknown_chunk_goes_to_unlabeled_class() -> None:
     ]
     buckets = partition_edges_by_class(edges, chunk_labels)
     assert "unlabeled" in buckets
+
+
+def test_mixed_source_edge_appears_in_real_class_and_unlabeled() -> None:
+    """An edge evidenced by both a labeled and an unknown chunk belongs to the
+    real class (a user authorized there legitimately sees it via the labeled
+    chunk) AND to the unlabeled class — not to one in place of the other."""
+    chunk_labels = {"c1": _label("alice")}  # "c2" intentionally unknown
+    edges = [
+        {
+            "source": "A",
+            "target": "B",
+            "type": "R",
+            "confidence": 0.9,
+            "source_chunk_ids": ["c1", "c2"],
+        },
+    ]
+    buckets = partition_edges_by_class(edges, chunk_labels)
+    real_key = policy_class_key(_label("alice"))
+    assert set(buckets.keys()) == {real_key, "unlabeled"}
+    assert len(buckets[real_key]) == 1
+    assert len(buckets["unlabeled"]) == 1

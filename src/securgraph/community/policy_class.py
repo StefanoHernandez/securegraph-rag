@@ -55,11 +55,16 @@ def partition_edges_by_class(
     edges: list[dict[str, Any]],
     chunk_labels: dict[str, AccessLabel],
 ) -> dict[str, list[ClassEdge]]:
-    """Group edges into per-class buckets.
+    """Group edges into per-class buckets (per-class projection).
 
-    Each edge belongs to every class among the policy_class_keys of its source
-    chunks. A source chunk with no known label maps to ``UNLABELED_CLASS_KEY`` so
-    legacy/unlabeled data is never silently merged into a real class.
+    Each edge belongs to EVERY policy class among the labels of its source
+    chunks. A mixed edge — sourced from both a labeled chunk and an unlabeled
+    one — therefore appears in BOTH the real class bucket and the unlabeled
+    bucket: it is legitimately part of the real class (a user authorized there
+    sees it via the labeled chunk), while the unlabeled contribution is kept
+    separate so it is never silently merged INTO a real class. A source chunk
+    with no known label maps to ``UNLABELED_CLASS_KEY``; an edge with no source
+    chunks at all also falls back to ``UNLABELED_CLASS_KEY``.
     """
     buckets: dict[str, list[ClassEdge]] = defaultdict(list)
     for edge in edges:
