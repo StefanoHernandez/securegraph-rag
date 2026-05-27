@@ -1,0 +1,35 @@
+# Isolated evaluation project.
+#
+# WHY THIS EXISTS
+# ---------------
+# ragas (offline KPI evaluation, deliverable D7) pulls the full langchain stack
+# (langchain, langchain-community, langsmith, ...). The production package only
+# uses langchain-core via langgraph. Resolving ragas together with the runtime
+# dependencies forced a `langchain<1.0` ceiling on the *production* lock, because
+# langchain>=1.0 removed `langchain.debug` which langchain-core 0.3.x still
+# references inside get_debug() (AttributeError when LangGraph runs).
+#
+# This project resolves ragas + langchain in its OWN lockfile, with securgraph
+# linked as an editable path dependency. The production lock (../uv.lock) never
+# contains langchain or ragas, so the whole conflict class is impossible there.
+#
+# Run with:  make eval-venv  (one-off setup)  then  make eval
+[project]
+name = "securgraph-eval"
+version = "0.0.0"
+description = "Isolated ragas-based KPI evaluation harness for SecurGraph RAG."
+requires-python = ">=3.11"
+dependencies = [
+    "securgraph",
+    # langchain<1.0: see WHY above. langchain-community is imported directly by
+    # scripts/eval.py for the Ollama LLM/embeddings wrappers.
+    "langchain>=0.3,<1.0",
+    "langchain-community>=0.3,<1.0",
+    "ragas>=0.2,<0.5",
+    "datasets>=3.0",
+    "matplotlib>=3.9",
+    "pandas>=2.2",
+]
+
+[tool.uv.sources]
+securgraph = { path = "..", editable = true }

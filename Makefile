@@ -36,11 +36,11 @@ $(ENV_FILE):
 venv: ## Create .venv and install deps via uv.
 	@command -v $(UV) >/dev/null 2>&1 || { echo "uv not installed. Install: https://docs.astral.sh/uv/"; exit 1; }
 	$(UV) venv $(VENV) --python 3.11
-	$(UV) pip install --python $(VENV)/bin/python -e ".[dev,parsers,eval]"
+	$(UV) pip install --python $(VENV)/bin/python -e ".[dev,parsers]"
 
 .PHONY: sync
 sync: ## Sync deps from pyproject.toml.
-	$(UV) pip install --python $(VENV)/bin/python -e ".[dev,parsers,eval]"
+	$(UV) pip install --python $(VENV)/bin/python -e ".[dev,parsers]"
 
 ##@ Backends
 
@@ -132,9 +132,13 @@ ci: lint type test ## Run all CI checks locally (lint + type + test).
 
 ##@ Eval (M8)
 
+.PHONY: eval-venv
+eval-venv: ## Set up the isolated eval environment (ragas + langchain stack).
+	cd eval && $(UV) sync
+
 .PHONY: eval
-eval: ## Run KPI evaluation against golden set.
-	$(VENV)/bin/python scripts/eval.py
+eval: ## Run KPI evaluation against golden set (uses isolated eval/.venv).
+	eval/.venv/bin/python scripts/eval.py
 
 .PHONY: consistency-check
 consistency-check: ## Cross-store consistency check (Postgres ↔ Qdrant ↔ Neo4j).
