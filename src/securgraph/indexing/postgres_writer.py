@@ -28,6 +28,8 @@ from securgraph.indexing.db import (
     IngestionProvenanceRow,
     PolicyDecisionRow,
 )
+from securgraph.config import get_settings
+from securgraph.indexing.tamper import chain_policy_decisions
 
 # ---------------------------------------------------------------------------
 # Idempotency lookup
@@ -245,9 +247,14 @@ async def write_policy_decisions(session: AsyncSession, decisions: list[PolicyDe
             reason_code=d.reason_code,
             policy_engine=d.policy_engine,
             evaluated_at=d.evaluated_at,
+            tamper_hash=None,
         )
         for d in decisions
     ]
+    settings = get_settings()
+    if settings.audit_tamper_evident:
+        await chain_policy_decisions(session, rows, decisions[0].tenant_id)
+        
     stmt = pg_insert(PolicyDecisionRow).values(rows)
     # Use ON CONFLICT DO NOTHING to keep inserts idempotent
     stmt = stmt.on_conflict_do_nothing(index_elements=[PolicyDecisionRow.decision_id])

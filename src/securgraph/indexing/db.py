@@ -129,6 +129,7 @@ class PolicyDecisionRow(Base):
     evaluated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class IngestionJobRow(Base):
@@ -185,6 +186,7 @@ class QueryTraceRow(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     evidence: Mapped[list[RetrievalEvidenceRow]] = relationship(
         back_populates="trace", cascade="all, delete-orphan"
@@ -204,5 +206,6 @@ class RetrievalEvidenceRow(Base):
     original_rank: Mapped[int] = mapped_column(Integer, nullable=False)
     original_score: Mapped[float] = mapped_column(Float, nullable=False)
     included_in_prompt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     trace: Mapped[QueryTraceRow] = relationship(back_populates="evidence")

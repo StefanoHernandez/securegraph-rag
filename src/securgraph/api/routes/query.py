@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, get_graph_retriever, get_qdrant_retriever
 from securgraph.indexing.db import QueryTraceRow, RetrievalEvidenceRow
+from securgraph.config import get_settings
+from securgraph.indexing.tamper import chain_query_trace, chain_evidence_batch
 from securgraph.observability import get_tracer
 from securgraph.observability.otel import (
     CONSENSUS_AGREEMENT,
@@ -71,6 +73,9 @@ async def query_pipeline(
             user_id=request.user_id,
             query=request.query,
         )
+        settings = get_settings()
+        if settings.audit_tamper_evident:
+            await chain_query_trace(session, trace_row)
         session.add(trace_row)
         await session.commit()
 
@@ -161,7 +166,8 @@ async def query_pipeline(
             latency_ms = (time.perf_counter() - start_time) * 1000.0
             trace_row.answer = final_answer.text
             trace_row.latency_ms = latency_ms
-            trace_row.completed_at = func.now()
+            from securgraph.domain import utcnow
+            trace_row.completed_at = utcnow()
 
             evidence_rows = []
             for rank, ev in enumerate(vector_context):
@@ -175,6 +181,7 @@ async def query_pipeline(
                         original_rank=ev.original_rank,
                         original_score=ev.original_score,
                         included_in_prompt=ev.included_in_prompt,
+                        tamper_hash=None,
                     )
                 )
 
@@ -189,8 +196,14 @@ async def query_pipeline(
                         original_rank=rank,
                         original_score=path.confidence,
                         included_in_prompt=True,
+                        tamper_hash=None,
                     )
                 )
+
+            if settings.audit_tamper_evident:
+                await chain_query_trace(session, trace_row)
+                if evidence_rows:
+                    await chain_evidence_batch(session, evidence_rows)
 
             if evidence_rows:
                 session.add_all(evidence_rows)

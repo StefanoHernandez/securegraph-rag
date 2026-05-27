@@ -179,11 +179,68 @@ async def extract_claims(text: str) -> ClaimDecomposition:
 
 
 async def judge_nli(claim: str, reference: str) -> NLIResult:
-    """Evaluate claim against reference text using live Ollama NLI classification."""
+    """Evaluate claim against reference text using live Ollama NLI classification.
+
+    If settings.feature_verifier_ensemble is enabled, performs a 3-voter majority consensus.
+    """
     client = get_ollama_client()
     settings = get_settings()
 
-    system_prompt = (
+    async def _execute_single_nli_vote(
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+    ) -> NLIResult:
+        try:
+            response = await client.chat(
+                model=settings.llm_model_judge,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                format="json",
+                options={"num_ctx": settings.llm_num_ctx, "temperature": temperature}
+            )
+            content = response.message.content or "{}"
+            
+            # Robust parsing: strip potential markdown wrapper
+            content_stripped = content.strip()
+            if content_stripped.startswith("```"):
+                lines = content_stripped.splitlines()
+                if lines[0].startswith("```json") or lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                content_stripped = "\n".join(lines).strip()
+
+            data = json.loads(content_stripped)
+
+            # Normalize keys
+            label = data.get("label")
+            if not label:
+                for k in ("entailment", "neutral", "contradiction"):
+                    if k in data and str(data[k]).lower() in ("true", "1", "yes"):
+                        label = k
+                        break
+            if label not in ("entailment", "neutral", "contradiction"):
+                label = "neutral"
+
+            confidence = data.get("confidence")
+            if confidence is None:
+                confidence = 1.0 if label == "entailment" else 0.5
+            try:
+                confidence = float(confidence)
+            except (ValueError, TypeError):
+                confidence = 0.5
+
+            reason = data.get("reason") or "Vote completed."
+            return NLIResult(label=label, confidence=confidence, reason=reason)
+
+        except Exception as e:
+            _LOG.warning("single_nli_vote_failed", error=str(e), temperature=temperature)
+            return NLIResult(label="neutral", confidence=0.0, reason=f"Failed: {str(e)}")
+
+    system_prompt_v1 = (
         "You are an expert NLI judge classifying relationships. Analyze whether the Claim is supported by the Reference Context.\n"
         "Classify the relationship as exactly one of: entailment, neutral, or contradiction.\n"
         "Output strictly in JSON matching this schema:\n"
@@ -195,58 +252,73 @@ async def judge_nli(claim: str, reference: str) -> NLIResult:
         "Do not write markdown blocks or text, return ONLY the raw JSON."
     )
 
+    system_prompt_v2 = (
+        "You are a highly conservative and strict NLI judge. Analyze whether the Claim is fully and explicitly supported by the Reference Context.\n"
+        "If there are any assumptions, logical jumps, or missing details, classify as neutral.\n"
+        "Classify exactly as: entailment, neutral, or contradiction.\n"
+        "Output strictly in JSON matching this schema:\n"
+        "{\n"
+        '  "label": "neutral",\n'
+        '  "confidence": 0.90,\n'
+        '  "reason": "Reason for choice."\n'
+        "}\n"
+        "Do not write markdown blocks or text, return ONLY the raw JSON."
+    )
+
+    system_prompt_v3 = (
+        "You are an NLI judge focused on detecting factual support or contradiction.\n"
+        "Check if the Claim directly contradicts the Context (contradiction) or is fully validated by it (entailment), else classify as neutral.\n"
+        "Classify exactly as: entailment, neutral, or contradiction.\n"
+        "Output strictly in JSON matching this schema:\n"
+        "{\n"
+        '  "label": "contradiction",\n'
+        '  "confidence": 0.95,\n'
+        '  "reason": "Explain choice."\n'
+        "}\n"
+        "Do not write markdown blocks or text, return ONLY the raw JSON."
+    )
+
     prompt = (
         f"Claim: {claim}\n"
         f"Reference Context: {reference}"
     )
 
-    try:
-        response = await client.chat(
-            model=settings.llm_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            format="json",
-            options={"num_ctx": settings.llm_num_ctx}
-        )
-        content = response.message.content or "{}"
-        
-        # Robust parsing: strip potential markdown wrapper
-        content_stripped = content.strip()
-        if content_stripped.startswith("```"):
-            lines = content_stripped.splitlines()
-            if lines[0].startswith("```json") or lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            content_stripped = "\n".join(lines).strip()
+    if not settings.feature_verifier_ensemble:
+        # Fall back to single voter
+        return await _execute_single_nli_vote(system_prompt_v1, prompt, temperature=0.0)
 
-        data = json.loads(content_stripped)
+    import asyncio
+    # Run 3 voters concurrently!
+    votes = await asyncio.gather(
+        _execute_single_nli_vote(system_prompt_v1, prompt, temperature=0.0),
+        _execute_single_nli_vote(system_prompt_v2, prompt, temperature=0.3),
+        _execute_single_nli_vote(system_prompt_v3, prompt, temperature=0.7),
+    )
 
-        # Normalize keys
-        label = data.get("label")
-        if not label:
-            # Maybe the model returned {"entailment": "true"} or similar
-            for k in ("entailment", "neutral", "contradiction"):
-                if k in data and str(data[k]).lower() in ("true", "1", "yes"):
-                    label = k
-                    break
-        if label not in ("entailment", "neutral", "contradiction"):
-            label = "neutral"
+    # Perform majority vote
+    counts = {"entailment": 0, "neutral": 0, "contradiction": 0}
+    for v in votes:
+        counts[v.label] += 1
 
-        confidence = data.get("confidence")
-        if confidence is None:
-            confidence = 1.0 if label == "entailment" else 0.5
-        try:
-            confidence = float(confidence)
-        except (ValueError, TypeError):
-            confidence = 0.5
+    # Find the winning label (majority of 3 votes)
+    winning_label = "neutral"
+    max_count = -1
+    for label, count in counts.items():
+        if count > max_count:
+            max_count = count
+            winning_label = label
+        elif count == max_count:
+            # Tie breaker: prefer neutral/fail-safe
+            if label == "neutral" or (label == "contradiction" and winning_label == "entailment"):
+                winning_label = label
 
-        reason = data.get("reason") or "NLI evaluation completed."
+    # Compute average confidence for the winning label voters
+    winning_confidences = [v.confidence for v in votes if v.label == winning_label]
+    if not winning_confidences:
+        # If no voters voted for the winner (not possible in 3 votes, but let's be safe)
+        winning_confidences = [v.confidence for v in votes]
+    avg_confidence = sum(winning_confidences) / len(winning_confidences)
 
-        return NLIResult(label=label, confidence=confidence, reason=reason)
+    winning_reasons = "; ".join([f"Voter: {v.reason}" for v in votes if v.label == winning_label])
 
-    except Exception as e:
-        _LOG.warning("judge_nli_failed", error=str(e), claim=claim[:50])
-        return NLIResult(label="neutral", confidence=0.0, reason=f"Failed to judge: {str(e)}")
+    return NLIResult(label=winning_label, confidence=round(avg_confidence, 4), reason=winning_reasons)
