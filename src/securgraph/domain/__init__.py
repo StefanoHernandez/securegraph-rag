@@ -61,6 +61,11 @@ from securgraph.domain.query import (
     classify_query,
 )
 from securgraph.domain.retrieval import Citation, EvidenceType, RetrievalEvidence, RetrieverId
+from securgraph.domain.community import (
+    Community,
+    CommunityHierarchy,
+    CommunitySummaryResponse,
+)
 
 __all__ = [
     "AgentRun",
@@ -71,6 +76,9 @@ __all__ = [
     "Claim",
     "Classification",
     "classify_query",
+    "Community",
+    "CommunityHierarchy",
+    "CommunitySummaryResponse",
     "ConfidenceBlock",
     "ConsensusReport",
     "Document",

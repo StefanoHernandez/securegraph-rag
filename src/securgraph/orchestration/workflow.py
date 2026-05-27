@@ -41,6 +41,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
     builder = StateGraph(QueryState)
 
     async def vector_retrieval_node(state: QueryState) -> dict[str, Any]:
+        if state["options"].get("query_type") == "global":
+            return {"vector_context": []}
         tracer = get_tracer()
         with tracer.start_as_current_span("vector_retrieval") as span:
             subject: Subject = state["subject"]
@@ -62,6 +64,32 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
     async def graph_retrieval_node(state: QueryState) -> dict[str, Any]:
         tracer = get_tracer()
         with tracer.start_as_current_span("graph_retrieval") as span:
+            if state["options"].get("query_type") == "global":
+                from securgraph.adapters.neo4j import get_neo4j_driver
+                from securgraph.indexing.global_retriever import AuthorizedCommunityRetriever
+                
+                retriever = AuthorizedCommunityRetriever(
+                    driver=getattr(graph, "driver", None) or get_neo4j_driver(),
+                    fga=getattr(graph, "fga", None),
+                )
+                
+                summaries = await retriever.retrieve_communities(
+                    subject=state["subject"],
+                    level=1,  # Target Level 1 (high-level themes)
+                    trace_id=state["trace_id"],
+                )
+                span.set_attribute("securgraph.communities_count", len(summaries))
+                
+                context_parts = []
+                for idx, comm in enumerate(summaries):
+                    context_parts.append(
+                        f"--- Community Cluster {idx}: {comm.title} (Level {comm.level}) ---\n"
+                        f"Summary: {comm.summary}\n"
+                        f"Members: {', '.join(comm.member_entities)}\n"
+                    )
+                global_context = "\n".join(context_parts)
+                return {"graph_context": summaries, "graph_draft": global_context}
+
             seeds = [word.strip(",.?!") for word in state["query"].split() if word and word[0].isupper()]
             async with AsyncSessionLocal() as session:
                 paths = await graph.traverse_authorized_subgraph(
@@ -77,6 +105,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             return {"graph_context": paths}
 
     async def vector_draft_node(state: QueryState) -> dict[str, Any]:
+        if state["options"].get("query_type") == "global":
+            return {"vector_draft": ""}
         tracer = get_tracer()
         with tracer.start_as_current_span("vector_draft"):
             client = get_ollama_client()
@@ -95,6 +125,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             return {"vector_draft": response.message.content or ""}
 
     async def graph_draft_node(state: QueryState) -> dict[str, Any]:
+        if state["options"].get("query_type") == "global":
+            return {}
         tracer = get_tracer()
         with tracer.start_as_current_span("graph_draft"):
             client = get_ollama_client()
@@ -113,7 +145,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             return {"graph_draft": response.message.content or ""}
 
     async def vector_claim_extraction_node(state: QueryState) -> dict[str, Any]:
-        if not state["vector_draft"]:
+        if state["options"].get("query_type") == "global" or not state["vector_draft"]:
             return {"vector_claims": []}
         decomp = await extract_claims(state["vector_draft"])
         claims = [
@@ -128,7 +160,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
         return {"vector_claims": claims}
 
     async def graph_claim_extraction_node(state: QueryState) -> dict[str, Any]:
-        if not state["graph_draft"]:
+        if state["options"].get("query_type") == "global" or not state["graph_draft"]:
             return {"graph_claims": []}
         decomp = await extract_claims(state["graph_draft"])
         claims = [
@@ -143,6 +175,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
         return {"graph_claims": claims}
 
     async def consensus_verifier_node(state: QueryState) -> dict[str, Any]:
+        if state["options"].get("query_type") == "global":
+            return {"consensus_report": None, "vector_claims": [], "graph_claims": []}
         tracer = get_tracer()
         with tracer.start_as_current_span("consensus_verifier") as span:
             v_claims = list(state["vector_claims"])
@@ -229,6 +263,24 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
         with tracer.start_as_current_span("synthesis"):
             client = get_ollama_client()
             settings = get_settings()
+            
+            if state["options"].get("query_type") == "global":
+                final_prompt = (
+                    f"You are a global synthesis agent. Synthesize a comprehensive, high-level, structured answer "
+                    f"answering the query based on the following Hierarchical Graph Community Summaries:\n"
+                    f"{state['graph_draft']}\n\n"
+                    f"Query: {state['query']}"
+                )
+                response = await client.chat(
+                    model=settings.llm_model,
+                    messages=[
+                        {"role": "system", "content": "You are a global synthesis agent. Produce a comprehensive, secure, structured answer summarizing the community summaries. Do not extrapolate outside the context."},
+                        {"role": "user", "content": final_prompt}
+                    ],
+                    options={"num_ctx": settings.llm_num_ctx}
+                )
+                return {"final_answer": Answer(text=response.message.content or "", citations=tuple())}
+
             final_prompt = (
                 f"Synthesize a final unified secure response based on two draft reviews:\n"
                 f"Vector Draft: {state['vector_draft']}\n"
