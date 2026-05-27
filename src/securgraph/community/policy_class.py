@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -34,3 +36,45 @@ def policy_class_key(label: AccessLabel) -> str:
         sort_keys=True,
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+UNLABELED_CLASS_KEY = "unlabeled"
+
+
+@dataclass(frozen=True)
+class ClassEdge:
+    """An edge as it belongs to one specific policy class."""
+
+    source: str
+    target: str
+    type: str
+    confidence: float
+
+
+def partition_edges_by_class(
+    edges: list[dict[str, Any]],
+    chunk_labels: dict[str, AccessLabel],
+) -> dict[str, list[ClassEdge]]:
+    """Group edges into per-class buckets.
+
+    Each edge belongs to every class among the policy_class_keys of its source
+    chunks. A source chunk with no known label maps to ``UNLABELED_CLASS_KEY`` so
+    legacy/unlabeled data is never silently merged into a real class.
+    """
+    buckets: dict[str, list[ClassEdge]] = defaultdict(list)
+    for edge in edges:
+        keys: set[str] = set()
+        for chunk_id in edge.get("source_chunk_ids") or []:
+            label = chunk_labels.get(chunk_id)
+            keys.add(policy_class_key(label) if label is not None else UNLABELED_CLASS_KEY)
+        if not keys:
+            keys.add(UNLABELED_CLASS_KEY)
+        ce = ClassEdge(
+            source=edge["source"],
+            target=edge["target"],
+            type=edge["type"],
+            confidence=float(edge.get("confidence", 0.5)),
+        )
+        for key in keys:
+            buckets[key].append(ce)
+    return dict(buckets)
