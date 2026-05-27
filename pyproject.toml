@@ -90,6 +90,11 @@ dev = [
     "types-PyYAML",
 ]
 eval = [
+    # ragas 0.4.x requires langchain but is compatible with 0.3.x.
+    # langchain>=1.0 removed `langchain.debug` which langchain-core 0.3.x still
+    # references inside get_debug(), causing AttributeError when LangGraph's
+    # ainvoke() runs. Pin to <1.0 to keep the stack consistent.
+    "langchain>=0.3,<1.0",
     "ragas>=0.2",
     "datasets>=3.0",
     "matplotlib>=3.9",
