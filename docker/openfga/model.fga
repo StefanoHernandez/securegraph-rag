@@ -18,3 +18,15 @@ type chunk
   relations
     define parent_document: [document]
     define viewer: viewer from parent_document
+
+type policy_class
+  relations
+    define owner: [user]
+    define group_viewer: [group#member]
+    define direct_viewer: [user]
+    define viewer: owner or group_viewer or direct_viewer
+
+type community
+  relations
+    define in_class: [policy_class]
+    define viewer: viewer from in_class

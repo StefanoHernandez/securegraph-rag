@@ -8,9 +8,14 @@ from typing import Any
 import networkx as nx
 from neo4j import AsyncDriver
 from networkx.algorithms.community import louvain_communities
+from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
 
 from securgraph.adapters.ollama import get_ollama_client
-from securgraph.community.policy_class import AccessLabel, partition_edges_by_class
+from securgraph.community.policy_class import (
+    AccessLabel,
+    partition_edges_by_class,
+    policy_class_key,
+)
 from securgraph.config import get_settings
 from securgraph.logging import get_logger
 
@@ -213,11 +218,56 @@ async def _summarize_and_write_community(
     }
 
 
+def _fga_user(principal: str) -> str:
+    """Return an FGA user expression. Pass-through if already namespaced."""
+    return principal if ":" in principal else f"user:{principal}"
+
+
 async def emit_community_authorization_tuples(
     fga: Any,
     chunk_labels: dict[str, AccessLabel],
     buckets: dict[str, list[Any]],
     written: list[dict[str, Any]],
 ) -> None:
-    """Stub — replaced in Task 6."""
-    return None
+    """Emit policy_class grant tuples and community in_class tuples.
+
+    One ``policy_class`` per distinct class key with grants mirroring the
+    access label (owner, group_viewer per group, direct_viewer per direct user).
+    One ``community in_class policy_class`` tuple per written community.
+    A class with no grants (e.g. ``UNLABELED_CLASS_KEY`` or absent label) emits
+    no grant tuples and therefore remains invisible at retrieval (fail-closed).
+    """
+    label_by_key: dict[str, AccessLabel] = {}
+    for label in chunk_labels.values():
+        label_by_key.setdefault(policy_class_key(label), label)
+
+    tuples: list[ClientTuple] = []
+    for key in buckets:
+        label = label_by_key.get(key)
+        if label is None:
+            continue
+        obj = f"policy_class:{key}"
+        if label.owner:
+            tuples.append(
+                ClientTuple(user=_fga_user(label.owner), relation="owner", object=obj)
+            )
+        for g in sorted(label.group_viewers):
+            tuples.append(
+                ClientTuple(user=f"group:{g}#member", relation="group_viewer", object=obj)
+            )
+        for d in sorted(label.direct_viewers):
+            tuples.append(
+                ClientTuple(user=_fga_user(d), relation="direct_viewer", object=obj)
+            )
+
+    for comm in written:
+        tuples.append(
+            ClientTuple(
+                user=f"policy_class:{comm['policy_class_key']}",
+                relation="in_class",
+                object=f"community:{comm['community_id']}",
+            )
+        )
+
+    if tuples:
+        await fga.client.write(ClientWriteRequest(writes=tuples))
