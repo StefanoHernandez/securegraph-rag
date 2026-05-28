@@ -71,9 +71,11 @@ dependencies = [
     "opentelemetry-instrumentation-asyncpg>=0.48b0",
     "prometheus-client>=0.21",
 
-    # Tokenization (chunker, prompt budgets). cl100k_base is a stand-in until
-    # the Gemma tokenizer is available locally; counts are approximate but stable.
-    "tiktoken>=0.8",
+    # Tokenization (chunker, prompt budgets). Uses HuggingFace AutoTokenizer
+    # with the Granite tokenizer (matches the granite4.1 family LLM used at
+    # runtime). transformers is already pulled transitively by FlagEmbedding,
+    # made explicit here because the chunker depends on it directly.
+    "transformers>=4.45",
 
     # Logging
     "structlog>=24.4",
@@ -89,17 +91,10 @@ dev = [
     "mypy>=1.13",
     "types-PyYAML",
 ]
-eval = [
-    # ragas 0.4.x requires langchain but is compatible with 0.3.x.
-    # langchain>=1.0 removed `langchain.debug` which langchain-core 0.3.x still
-    # references inside get_debug(), causing AttributeError when LangGraph's
-    # ainvoke() runs. Pin to <1.0 to keep the stack consistent.
-    "langchain>=0.3,<1.0",
-    "ragas>=0.2",
-    "datasets>=3.0",
-    "matplotlib>=3.9",
-    "pandas>=2.2",
-]
+# NOTE: ragas-based evaluation lives in its own isolated project under eval/
+# (see eval/pyproject.toml). It pulls the full langchain stack, which conflicts
+# with langgraph's langchain-core; keeping it out of this resolution leaves the
+# production lock free of langchain/ragas. Run it via `make eval-venv` + `make eval`.
 parsers = [
     "pypdf>=5.0",
     "python-docx>=1.1",

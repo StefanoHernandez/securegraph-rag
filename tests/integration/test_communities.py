@@ -1,108 +1,97 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from securgraph.adapters.community_generator import generate_hierarchical_communities
 from securgraph.config import get_settings
 from securgraph.domain import Subject
 from securgraph.domain.community import Community
-from securgraph.domain.policy import PolicyDecisionValue, OpenFGAPolicyAdapter
+from securgraph.domain.policy import OpenFGAPolicyAdapter
 from securgraph.indexing.global_retriever import AuthorizedCommunityRetriever
-from securgraph.orchestration.workflow import compile_workflow, QueryState
+from securgraph.orchestration.workflow import QueryState, compile_workflow
 
 pytestmark = pytest.mark.integration
 
 
 @pytest.mark.asyncio
-async def test_community_generation_and_partitioning(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify Louvain partitioning, Ollama JSON summary prompting, and Neo4j Community writes."""
+async def test_community_generation_partitions_by_policy_class(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Edges from two access classes must produce communities tagged per class,
+    and no community may mix entities from different classes."""
     settings = get_settings()
     settings.feature_communities_enabled = True
 
-    # 1. Mock Neo4j session returns
-    mock_entities = [
-        {"name": "SSL"},
-        {"name": "TLS"},
-        {"name": "Network"},
-        {"name": "Security"},
-        {"name": "Policy"},
+    mock_chunks = [
+        {"chunk_id": "c1", "owner_id": "alice", "policy_tags": [], "direct_viewers": []},
+        {"chunk_id": "c2", "owner_id": "bob", "policy_tags": [], "direct_viewers": []},
     ]
     mock_relations = [
-        {"source": "SSL", "target": "TLS", "type": "RELATED_TO", "confidence": 0.9},
-        {"source": "Network", "target": "Security", "type": "RELATED_TO", "confidence": 0.8},
-        {"source": "Security", "target": "Policy", "type": "RELATED_TO", "confidence": 0.75},
+        {"source": "SSL", "target": "TLS", "type": "RELATED_TO", "confidence": 0.9,
+         "source_chunk_ids": ["c1"]},
+        {"source": "Payroll", "target": "Bank", "type": "RELATED_TO", "confidence": 0.8,
+         "source_chunk_ids": ["c2"]},
     ]
 
-    mock_run = AsyncMock()
-    
-    mock_entities_result = MagicMock()
-    mock_entities_result.data = AsyncMock(return_value=mock_entities)
+    merged_communities: list[dict] = []
+    contains_calls: list[dict] = []
 
-    mock_relations_result = MagicMock()
-    mock_relations_result.data = AsyncMock(return_value=mock_relations)
-
-    async def mock_run_fn(cypher: str, **kwargs) -> Any:
-        if "MATCH (e:Entity" in cypher:
-            return mock_entities_result
+    async def mock_run_fn(cypher: str, **kwargs):  # type: ignore[no-untyped-def]
+        result = MagicMock()
+        if "MATCH (c:Chunk" in cypher:
+            result.data = AsyncMock(return_value=mock_chunks)
         elif "MATCH (src:Entity" in cypher:
-            return mock_relations_result
+            result.data = AsyncMock(return_value=mock_relations)
+        elif "MERGE (c:Community" in cypher:
+            merged_communities.append(kwargs)
+            result.data = AsyncMock(return_value=[])
+        elif "CONTAINS_ENTITY" in cypher:
+            contains_calls.append(kwargs)
+            result.data = AsyncMock(return_value=[])
         else:
-            return MagicMock()
-
-    mock_run.side_effect = mock_run_fn
+            result.data = AsyncMock(return_value=[])
+        return result
 
     class MockSession:
-        async def __aenter__(self) -> MockSession:
+        async def __aenter__(self):  # type: ignore[no-untyped-def]
             return self
-        async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        async def __aexit__(self, *a):  # type: ignore[no-untyped-def]
             pass
-        async def run(self, cypher: str, **kwargs) -> Any:
-            return await mock_run(cypher, **kwargs)
+        async def run(self, cypher: str, **kwargs):  # type: ignore[no-untyped-def]
+            return await mock_run_fn(cypher, **kwargs)
 
     mock_driver = MagicMock()
     mock_driver.session = lambda: MockSession()
 
-    # 2. Mock Ollama Client for JSON community summaries
     mock_chat_response = MagicMock()
-    mock_chat_response.message.content = (
-        '{\n'
-        '  "title": "Protocolli di Crittografia SSL/TLS",\n'
-        '  "summary": "Analisi delle connessioni di rete sicure basate sui protocolli di crittografia."\n'
-        '}'
-    )
-    
-    mock_ollama_client = AsyncMock()
-    mock_ollama_client.chat.return_value = mock_chat_response
-
+    mock_chat_response.message.content = '{"title": "T", "summary": "S"}'
+    mock_ollama = AsyncMock()
+    mock_ollama.chat.return_value = mock_chat_response
     monkeypatch.setattr(
-        "securgraph.adapters.community_generator.get_ollama_client",
-        lambda: mock_ollama_client
+        "securgraph.adapters.community_generator.get_ollama_client", lambda: mock_ollama
     )
 
-    # 3. Run the generator
-    await generate_hierarchical_communities(driver=mock_driver, tenant_id="test_tenant_comm")
+    await generate_hierarchical_communities(driver=mock_driver, tenant_id="t1")
 
-    # Assert that it fetched nodes and edges and purged old records
-    assert mock_run.call_count >= 3
-    assert "MATCH (e:Entity" in mock_run.call_args_list[0][0][0]
-    assert "MATCH (src:Entity" in mock_run.call_args_list[1][0][0]
-    assert "DETACH DELETE c" in mock_run.call_args_list[2][0][0]
+    assert merged_communities, "expected community writes"
+    keys = {m["policy_class_key"] for m in merged_communities}
+    assert len(keys) == 2, f"expected 2 distinct classes, got {keys}"
 
-    # Assert that it performed community merges with members
-    comm_merge_queries = [call[0][0] for call in mock_run.call_args_list[3:]]
-    assert any("MERGE (c:Community" in q for q in comm_merge_queries)
-    assert any("MERGE (c)-[:CONTAINS_ENTITY]" in q for q in comm_merge_queries)
+    class_a = {"SSL", "TLS"}
+    class_b = {"Payroll", "Bank"}
+    for m in merged_communities:
+        members = set(m["member_entities"])
+        assert not (members & class_a and members & class_b), "community spans classes"
 
-    # Reset feature flag
     settings.feature_communities_enabled = False
 
 
 @pytest.mark.asyncio
 async def test_global_retriever_and_rebac_filtering() -> None:
-    """Verify AuthorizedCommunityRetriever fetches Neo4j communities and filters via OpenFGA ReBAC."""
+    """Verify AuthorizedCommunityRetriever fetches Neo4j communities and filters via ReBAC."""
     # 1. Mock Neo4j communities query return
     mock_db_records = [
         {
@@ -139,12 +128,12 @@ async def test_global_retriever_and_rebac_filtering() -> None:
     mock_policy_adapter = OpenFGAPolicyAdapter(mock_fga_client)
 
     retriever = AuthorizedCommunityRetriever(driver=mock_driver, fga=mock_policy_adapter)
-    
+
     subject = Subject(tenant_id="tenant_test", user_id="user:stefano")
-    
+
     # 3. Retrieve
     res = await retriever.retrieve_communities(subject=subject, level=1)
-    
+
     assert len(res) == 1
     assert res[0].community_id == "comm_l1_0_tenant_test"
     assert res[0].title == "SSL Protocols"
@@ -154,7 +143,7 @@ async def test_global_retriever_and_rebac_filtering() -> None:
 
 @pytest.mark.asyncio
 async def test_global_workflow_routing_and_synthesis(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify that CompiledStateGraph routes to global community retrieval and synthesizes correctly."""
+    """Verify CompiledStateGraph routes to global community retrieval and synthesizes correctly."""
     settings = get_settings()
     settings.feature_communities_enabled = True
 
@@ -167,7 +156,7 @@ async def test_global_workflow_routing_and_synthesis(monkeypatch: pytest.MonkeyP
         level=1,
         member_entities=("SSL", "TLS"),
     )
-    
+
     mock_retrieve = AsyncMock(return_value=[mock_summary])
     monkeypatch.setattr(
         "securgraph.indexing.global_retriever.AuthorizedCommunityRetriever.retrieve_communities",

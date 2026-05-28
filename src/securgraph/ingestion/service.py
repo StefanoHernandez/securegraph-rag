@@ -87,6 +87,7 @@ class IngestionRequest:
     document_type: DocumentType = DocumentType.OTHER
     classification: Classification = Classification.INTERNAL
     policy_tags: tuple[str, ...] = ()
+    direct_viewers: tuple[str, ...] = ()
     title_override: str | None = None
     source_format: SourceFormat | None = None
 
@@ -240,7 +241,14 @@ async def ingest_document(
         # Extract graph slice from chunk text using local LLM (gemma4:e2b)
         graph_slice = await extract_graph_slice(chunk.text)
         # Write graph slice to Neo4j database
-        await write_graph_slice(n4j_driver, request.tenant_id, chunk, graph_slice)
+        await write_graph_slice(
+            n4j_driver,
+            request.tenant_id,
+            chunk,
+            graph_slice,
+            owner_id=request.owner_id,
+            direct_viewers=request.direct_viewers,
+        )
 
     # --- 6. Provenance + job completion -----------------------------------
     trace = IngestionTrace(

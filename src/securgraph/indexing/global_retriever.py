@@ -9,7 +9,9 @@ from neo4j import AsyncDriver
 from openfga_sdk.models import CheckRequest, TupleKey
 
 from securgraph.domain.community import Community, CommunitySummaryResponse
-from securgraph.domain.policy import OpenFGAPolicyAdapter, PolicyDecision, PolicyDecisionValue, PolicyObjectType, utcnow
+from securgraph.domain.policy import (
+    OpenFGAPolicyAdapter,
+)
 from securgraph.logging import get_logger
 
 _LOG = get_logger(__name__)
@@ -40,7 +42,11 @@ class AuthorizedCommunityRetriever:
         cypher = "MATCH (c:Community {tenant_id: $tenant_id}) "
         if level is not None:
             cypher += "WHERE c.level = $level "
-        cypher += "RETURN c.community_id AS community_id, c.title AS title, c.summary AS summary, c.level AS level, c.member_entities AS member_entities"
+        cypher += (
+            "RETURN c.community_id AS community_id, c.title AS title, "
+            "c.summary AS summary, c.level AS level, c.member_entities AS member_entities, "
+            "c.policy_class_key AS policy_class_key"
+        )
 
         async with self.driver.session() as session:
             result = await session.run(cypher, tenant_id=subject.tenant_id, level=level)
@@ -54,13 +60,21 @@ class AuthorizedCommunityRetriever:
                 summary=r["summary"],
                 level=r["level"],
                 member_entities=tuple(r["member_entities"] or []),
+                policy_class_key=r.get("policy_class_key") or "unlabeled",
             )
             for r in records
         ]
 
-        # 2. Filter communities via OpenFGA ReBAC
-        authorized_comms = await self.filter_communities(subject, communities, trace_id or "trace_global")
-        
+        # 2. Per-class authorization gate (one FGA check per policy-equivalence-class)
+        class_keys = {c.policy_class_key for c in communities}
+        allowed_keys = await self.authorized_classes(subject, class_keys)
+        in_class = [c for c in communities if c.policy_class_key in allowed_keys]
+
+        # 3. Defense-in-depth: per-community ReBAC check
+        authorized_comms = await self.filter_communities(
+            subject, in_class, trace_id or "trace_global"
+        )
+
         return [
             CommunitySummaryResponse(
                 community_id=c.community_id,
@@ -68,9 +82,35 @@ class AuthorizedCommunityRetriever:
                 summary=c.summary,
                 level=c.level,
                 member_entities=list(c.member_entities),
+                policy_class_key=c.policy_class_key,
             )
             for c in authorized_comms
         ]
+
+    async def authorized_classes(self, subject: Any, class_keys: set[str]) -> set[str]:
+        """Return the subset of class keys the subject may view (one check each)."""
+
+        async def check(key: str) -> tuple[str, bool]:
+            tuple_key = TupleKey(  # type: ignore[no-untyped-call]
+                user=subject.fga_user,
+                relation="viewer",
+                object=f"policy_class:{key}",
+            )
+            try:
+                resp = await self.fga.client.check(CheckRequest(tuple_key=tuple_key))  # type: ignore[arg-type, no-untyped-call]
+                return key, bool(resp.allowed)
+            except Exception as e:
+                _LOG.warning(
+                    "policy_class_check_failed_failing_closed",
+                    error=str(e),
+                    class_key=key,
+                )
+                return key, False
+
+        if not class_keys:
+            return set()
+        results = await asyncio.gather(*(check(k) for k in class_keys))
+        return {k for k, ok in results if ok}
 
     async def filter_communities(
         self,
@@ -110,12 +150,12 @@ class AuthorizedCommunityRetriever:
                     object_type="community",
                     decision="allow" if allowed else "deny",
                 ).inc()
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
 
             return c, allowed
 
         # Execute authorization checks concurrently
         results = await asyncio.gather(*(check_community(c) for c in communities))
-        
+
         return [c for c, allowed in results if allowed]

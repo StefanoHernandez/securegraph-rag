@@ -6,13 +6,13 @@ SecurGraph is a research framework that pushes graph-RAG beyond what existing sy
 
 - **C1 — Verifiable Access Correctness.** Every answer ships with a provenance trace that lets an auditor re-derive: *"every chunk/node/edge used as evidence was authorized for the requesting subject at request time."* OpenFGA is ground truth.
 - **C2 — Cross-Retriever Consensus as Confidence.** Vector and graph retrievers run independently on authorized evidence. Their agreement (entity overlap + bidirectional NLI on claims) gates "high-trust" answers.
-- **C3 — Policy-Aware Community Detection.** Per policy-equivalence-class community detection — prevents the cross-class structural leakage that GraphRAG-style global summaries cause.
+- **C3 — Policy-Aware Community Detection.** The tenant graph is partitioned by structural policy-equivalence-class (canonical hash of `owner + group_viewers + direct_viewers`) **before** Louvain runs, so no community or summary ever spans more than one access class. Retrieval authorizes one OpenFGA check per class plus a per-community defense-in-depth check. The no-leakage guarantee is pinned by a Hypothesis property test under `tests/adversarial/`.
 
 This repository implements the full reference framework.
 
 ## Status
 
-🚧 **Alpha — Milestone 4 (Policy Enforcement) in progress.** M0, M1, M2, and M3 are complete. See `wiki/project/milestones.md` for the M0→M8 plan.
+🚧 **Alpha.** All core milestones M0–M8 are complete and five enterprise extensions have landed (EXT1 async workers, EXT2 graph self-healing, EXT3 hierarchical communities + global RAG, EXT4 verifier ensemble, EXT5 tamper-evident audit ledger). Contribution C3 (policy-partitioned community detection) is implemented under `src/securgraph/community/`. See `wiki/project/milestones.md` and `wiki/overview-securegraph-rag.md` for the current state.
 
 ## Architecture
 
@@ -31,10 +31,11 @@ Components:
 | Graph store      | Neo4j 5 + GDS plugin     | Entity-relationship traversal, communities       |
 | Authorization    | OpenFGA (ReBAC)          | Per-user 5-level access control                  |
 | Orchestration    | LangGraph `StateGraph`   | Vector ‖ Graph fanout, consensus, verifier       |
-| LLM              | Ollama (Gemma 3 local)   | Generation, extraction, NLI judge                |
+| LLM              | Ollama (Granite 4.1 default; Gemma 3 minimal-hardware) | Generation, extraction, NLI judge                |
 | Embeddings       | BGE-M3 (multilingual)    | Dense + sparse in one pass                       |
-| Workers (M6+)    | Arq + Redis              | Async ingestion, community recompute             |
-| Frontend (M6+)   | Next.js 15 + react-flow  | Chat, explain, admin, audit views                |
+| Chunker tokenizer | HF `ibm-granite/granite-4.0-h-tiny` | Token budgeting (offline after first cache) |
+| Workers          | Arq + Redis              | Async ingestion, community recompute             |
+| Frontend         | Next.js + react-flow (planned, not yet built) | Chat, explain, admin, audit views |
 | Observability    | OpenTelemetry → Jaeger   | Distributed traces, metrics, audit               |
 
 ## Prerequisites
@@ -49,7 +50,7 @@ Components:
   ollama serve   # in a separate terminal
   ```
 
-Hardware mode: this repo defaults to **minimal-hardware mode** (<16 GB RAM): `gemma3:1b` LLM, Neo4j with 512 MB heap, etc. For higher tiers override via `.env`.
+Hardware mode: the Python defaults in `config.py` target **minimal-hardware mode** (<16 GB RAM): `gemma3:1b` LLM, Neo4j with 512 MB heap, etc. Override via `.env`; the tested production profile uses `granite4.1:3b` (set `SECURGRAPH_LLM_MODEL=granite4.1:3b` and friends, see `.env.example`).
 
 ## Quickstart
 
@@ -90,16 +91,16 @@ src/securgraph/             # framework code
   orchestration/            # LangGraph state machine
   provenance/ audit/        # M6, M7
   observability/            # OpenTelemetry
-  community/                # M6 — C3
-  workers/                  # M6 — Arq tasks
+  community/                # C3 — policy-equivalence-class partitioning
+  workers/                  # Arq tasks (async ingestion, recompute)
   limits/                   # M7
   testing/                  # adversarial harness, corpus gen
 tests/{unit,integration,adversarial}/
 corpus/{seed,permissions,golden}/
 scripts/                    # eval, baselines, figures, load test
 docs/{eval,research,sprints,paper}/
-deploy/k8s/                 # Helm chart (M8)
-web/                        # Next.js 15 frontend (M6+)
+deploy/k8s/                 # Helm chart (planned)
+web/                        # Next.js frontend (planned, not yet built)
 wiki/                       # Local project wiki and engineering documentation
 ```
 
