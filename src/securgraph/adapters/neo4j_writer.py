@@ -18,10 +18,15 @@ async def write_graph_slice(
     tenant_id: str,
     chunk: Chunk,
     graph_slice: ExtractedGraphSlice,
+    *,
+    owner_id: str = "",
+    direct_viewers: tuple[str, ...] = (),
 ) -> None:
     """UPSERT Document -> Chunk -> Entities -> Relationships in Neo4j.
 
-    Executes all three steps atomically within a single execute_write transaction.
+    `owner_id` and `direct_viewers` are persisted on the Chunk node so the
+    community generator can compute a policy-equivalence-class key from each
+    chunk's full authorization label (owner, groups, direct viewers).
     """
     async with driver.session() as session:
         await session.execute_write(
@@ -29,6 +34,8 @@ async def write_graph_slice(
             tenant_id=tenant_id,
             chunk=chunk,
             graph_slice=graph_slice,
+            owner_id=owner_id,
+            direct_viewers=direct_viewers,
         )
 
 
@@ -37,6 +44,8 @@ async def _write_transaction(
     tenant_id: str,
     chunk: Chunk,
     graph_slice: ExtractedGraphSlice,
+    owner_id: str = "",
+    direct_viewers: tuple[str, ...] = (),
 ) -> None:
     # 1. Upsert Chunk Node and Link to Document
     chunk_cypher = """
@@ -45,7 +54,9 @@ async def _write_transaction(
 
     MERGE (c:Chunk {chunk_id: $chunk_id, tenant_id: $tenant_id})
     SET c.classification = $classification,
-        c.policy_tags = $policy_tags
+        c.policy_tags = $policy_tags,
+        c.owner_id = $owner_id,
+        c.direct_viewers = $direct_viewers
 
     MERGE (d)-[:CONTAINS]->(c)
     """
@@ -56,6 +67,8 @@ async def _write_transaction(
         tenant_id=tenant_id,
         classification=chunk.classification.value,
         policy_tags=list(chunk.policy_tags),
+        owner_id=owner_id,
+        direct_viewers=list(direct_viewers),
     )
 
     # 2. Upsert Entities and Link to Chunk (only if entities exist)
