@@ -71,9 +71,11 @@ dependencies = [
     "opentelemetry-instrumentation-asyncpg>=0.48b0",
     "prometheus-client>=0.21",
 
-    # Tokenization (chunker, prompt budgets). cl100k_base is a stand-in until
-    # the Gemma tokenizer is available locally; counts are approximate but stable.
-    "tiktoken>=0.8",
+    # Tokenization (chunker, prompt budgets). Uses HuggingFace AutoTokenizer
+    # with the Granite tokenizer (matches the granite4.1 family LLM used at
+    # runtime). transformers is already pulled transitively by FlagEmbedding,
+    # made explicit here because the chunker depends on it directly.
+    "transformers>=4.45",
 
     # Logging
     "structlog>=24.4",

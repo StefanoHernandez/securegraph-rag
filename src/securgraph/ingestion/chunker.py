@@ -13,9 +13,13 @@ Algorithm:
     2. After all sections are emitted, fix up ``previous_chunk_id`` /
        ``next_chunk_id`` so the chunker output is a valid doubly-linked list.
 
-Token counting uses :mod:`tiktoken` ``cl100k_base`` as a stand-in until the
-Gemma tokenizer is available locally. Counts are approximate but **stable
-across runs**, which is what idempotency needs.
+Token counting uses a HuggingFace ``AutoTokenizer`` (default
+``ibm-granite/granite-4.0-h-tiny``) so the chunker shares the same BPE family
+as the Granite LLM used at runtime — counts are accurate to what the LLM
+actually sees, and remain **stable across runs**, which is what idempotency
+needs. The model id is configurable via ``settings.chunker_tokenizer_model``.
+The tokenizer is fetched from HuggingFace on first use and cached locally;
+subsequent runs are fully offline.
 """
 
 from __future__ import annotations
@@ -23,10 +27,11 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Any, Final
 
-import tiktoken
+from transformers import AutoTokenizer
 
+from securgraph.config import get_settings
 from securgraph.domain import Chunk, Classification, TenantId
 from securgraph.ingestion.parsers import ParsedDocument, ParsedSection
 
@@ -52,20 +57,21 @@ class ChunkerConfig:
 # ---------------------------------------------------------------------------
 
 
-def _tokenizer() -> tiktoken.Encoding:
-    """Lazily cached tokenizer. Singleton per process."""
+def _tokenizer() -> Any:
+    """Lazily cached HuggingFace tokenizer. Singleton per process."""
     global _ENC_CACHE
     if _ENC_CACHE is None:
-        _ENC_CACHE = tiktoken.get_encoding("cl100k_base")
+        model_id = get_settings().chunker_tokenizer_model
+        _ENC_CACHE = AutoTokenizer.from_pretrained(model_id)
     return _ENC_CACHE
 
 
-_ENC_CACHE: tiktoken.Encoding | None = None
+_ENC_CACHE: Any = None
 
 
 def count_tokens(text: str) -> int:
-    """Approximate token count used by the chunker."""
-    return len(_tokenizer().encode(text, disallowed_special=()))
+    """Token count under the configured Granite-family tokenizer."""
+    return len(_tokenizer().encode(text, add_special_tokens=False))
 
 
 def _chunk_id(document_id: str, ordinal: int, text_hash: str) -> str:
@@ -114,11 +120,11 @@ def _overlap_tail(text: str, overlap_tokens: int) -> str:
     if overlap_tokens <= 0 or not text:
         return ""
     enc = _tokenizer()
-    ids = enc.encode(text, disallowed_special=())
+    ids = enc.encode(text, add_special_tokens=False)
     if len(ids) <= overlap_tokens:
         return text
     tail_ids = ids[-overlap_tokens:]
-    return enc.decode(tail_ids)
+    return enc.decode(tail_ids, skip_special_tokens=True)
 
 
 # ---------------------------------------------------------------------------

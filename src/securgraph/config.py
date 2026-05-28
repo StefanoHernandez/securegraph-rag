@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     llm_model_judge: str = "gemma3:1b"
     llm_num_ctx: int = Field(default=4096, ge=512, le=131072)
 
+    # ---------------------------------------------------------------- tokenizer
+    # HuggingFace tokenizer used by the chunker for token budgeting. Default is
+    # Granite 4.0 H-Tiny (matches the granite4.1:3b Ollama default closely
+    # enough; token counts are approximate but stable). First load downloads
+    # the tokenizer; subsequent loads read from the HF cache.
+    chunker_tokenizer_model: str = "ibm-granite/granite-4.0-h-tiny"
+
     # --------------------------------------------------------------- embeddings
     embedding_model: str = "BAAI/bge-m3"
     embedding_device: Literal["cpu", "cuda", "mps", "auto"] = "cpu"
