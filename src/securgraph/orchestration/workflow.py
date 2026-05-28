@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from typing import Any, TypedDict
+
 from langgraph.graph import END, START, StateGraph
 
 from securgraph.adapters.ollama import extract_claims, get_ollama_client, judge_nli
-from securgraph.observability import get_tracer
 from securgraph.api.dependencies import AsyncSessionLocal
 from securgraph.config import get_settings
 from securgraph.domain import (
@@ -17,6 +17,7 @@ from securgraph.domain import (
 )
 from securgraph.domain.consensus import calculate_consensus
 from securgraph.logging import get_logger
+from securgraph.observability import get_tracer
 
 _LOG = get_logger(__name__)
 
@@ -40,8 +41,15 @@ class QueryState(TypedDict):
 def compile_workflow(qdrant: Any, graph: Any) -> Any:
     builder = StateGraph(QueryState)
 
+    def _mode(state: QueryState) -> str:
+        m = state["options"].get("retrieval_mode") or "auto"
+        return "hybrid" if m == "auto" else m
+
     async def vector_retrieval_node(state: QueryState) -> dict[str, Any]:
         if state["options"].get("query_type") == "global":
+            return {"vector_context": []}
+        mode = _mode(state)
+        if mode == "graph":
             return {"vector_context": []}
         tracer = get_tracer()
         with tracer.start_as_current_span("vector_retrieval") as span:
@@ -49,13 +57,16 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             q: str = state["query"]
             trace: str = state["trace_id"]
             limit = state["options"].get("top_k", 10)
-            
-            dense = await qdrant.search_dense(subject.tenant_id, q, limit=limit, trace_id=trace)
+
+            if mode == "lexical":
+                dense = []
+            else:
+                dense = await qdrant.search_dense(subject.tenant_id, q, limit=limit, trace_id=trace)
             lexical = await qdrant.search_lexical(subject.tenant_id, q, limit=limit, trace_id=trace)
-            
+
             from securgraph.indexing.fusion import fuse_rankings
             fused = fuse_rankings(dense, lexical, limit=limit)
-            
+
             span.set_attribute("securgraph.dense_count", len(dense))
             span.set_attribute("securgraph.lexical_count", len(lexical))
             span.set_attribute("securgraph.fused_count", len(fused))
@@ -67,19 +78,19 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             if state["options"].get("query_type") == "global":
                 from securgraph.adapters.neo4j import get_neo4j_driver
                 from securgraph.indexing.global_retriever import AuthorizedCommunityRetriever
-                
+
                 retriever = AuthorizedCommunityRetriever(
                     driver=getattr(graph, "driver", None) or get_neo4j_driver(),
                     fga=getattr(graph, "fga", None),
                 )
-                
+
                 summaries = await retriever.retrieve_communities(
                     subject=state["subject"],
                     level=1,  # Target Level 1 (high-level themes)
                     trace_id=state["trace_id"],
                 )
                 span.set_attribute("securgraph.communities_count", len(summaries))
-                
+
                 context_parts = []
                 for idx, comm in enumerate(summaries):
                     context_parts.append(
@@ -90,6 +101,10 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                 global_context = "\n".join(context_parts)
                 return {"graph_context": summaries, "graph_draft": global_context}
 
+            mode = _mode(state)
+            if mode in ("vector", "lexical"):
+                return {"graph_context": []}
+
             seeds = [word.strip(",.?!") for word in state["query"].split() if word and word[0].isupper()]
             async with AsyncSessionLocal() as session:
                 paths = await graph.traverse_authorized_subgraph(
@@ -99,7 +114,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     trace_id=state["trace_id"],
                     max_depth=state["options"].get("max_graph_depth", 2)
                 )
-            
+
             span.set_attribute("securgraph.seeds_count", len(seeds))
             span.set_attribute("securgraph.paths_count", len(paths))
             return {"graph_context": paths}
@@ -107,13 +122,15 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
     async def vector_draft_node(state: QueryState) -> dict[str, Any]:
         if state["options"].get("query_type") == "global":
             return {"vector_draft": ""}
+        if not state["vector_context"]:
+            return {"vector_draft": ""}
         tracer = get_tracer()
         with tracer.start_as_current_span("vector_draft"):
             client = get_ollama_client()
             settings = get_settings()
             context_text = "\n".join([str(ev) for ev in state["vector_context"]])
             prompt = f"Answer using vector sources only:\nContext: {context_text}\nQuery: {state['query']}"
-            
+
             response = await client.chat(
                 model=settings.llm_model,
                 messages=[
@@ -127,13 +144,15 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
     async def graph_draft_node(state: QueryState) -> dict[str, Any]:
         if state["options"].get("query_type") == "global":
             return {}
+        if not state["graph_context"]:
+            return {"graph_draft": ""}
         tracer = get_tracer()
         with tracer.start_as_current_span("graph_draft"):
             client = get_ollama_client()
             settings = get_settings()
             context_text = "\n".join([str(ev) for ev in state["graph_context"]])
             prompt = f"Answer using graph sources only:\nContext: {context_text}\nQuery: {state['query']}"
-            
+
             response = await client.chat(
                 model=settings.llm_model,
                 messages=[
@@ -181,7 +200,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
         with tracer.start_as_current_span("consensus_verifier") as span:
             v_claims = list(state["vector_claims"])
             g_claims = list(state["graph_claims"])
-            
+
             # Run live NLI judgments bidirectionally
             updated_v_claims = []
             for c in v_claims:
@@ -195,7 +214,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                         }
                     )
                 )
-                
+
             updated_g_claims = []
             for c in g_claims:
                 res = await judge_nli(c.text, state["vector_draft"] or "")
@@ -241,8 +260,9 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                             from securgraph.adapters.neo4j import get_neo4j_driver
                             driver = get_neo4j_driver()
 
-                        from securgraph.ingestion.self_healing import resolve_graph_contradiction
                         import asyncio
+
+                        from securgraph.ingestion.self_healing import resolve_graph_contradiction
 
                         # Run self-healing as a background task
                         asyncio.create_task(
@@ -253,7 +273,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                                 vector_context=state["vector_draft"] or "",
                             )
                         )
-            
+
             span.set_attribute("securgraph.agreement_score", report.agreement_score)
             span.set_attribute("securgraph.high_trust", report.high_trust)
             return {"consensus_report": report, "vector_claims": updated_v_claims, "graph_claims": updated_g_claims}
@@ -263,7 +283,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
         with tracer.start_as_current_span("synthesis"):
             client = get_ollama_client()
             settings = get_settings()
-            
+
             if state["options"].get("query_type") == "global":
                 final_prompt = (
                     f"You are a global synthesis agent. Synthesize a comprehensive, high-level, structured answer "
