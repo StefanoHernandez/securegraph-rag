@@ -16,6 +16,7 @@ class Community(SGModel):
     summary: str = Field(min_length=1)
     level: int = Field(default=0, ge=0)
     member_entities: tuple[str, ...] = Field(default_factory=tuple)
+    policy_class_key: str = Field(default="unlabeled", min_length=1, max_length=64)
 
 
 class CommunityHierarchy(SGModel):
@@ -34,3 +35,4 @@ class CommunitySummaryResponse(SGModel):
     summary: str
     level: int
     member_entities: list[str]
+    policy_class_key: str = "unlabeled"
