@@ -29,6 +29,7 @@ dependencies = [
     "datasets>=3.0",
     "matplotlib>=3.9",
     "pandas>=2.2",
+    "arq>=0.28.0",
 ]
 
 [tool.uv.sources]

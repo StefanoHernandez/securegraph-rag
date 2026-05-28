@@ -143,3 +143,7 @@ eval: ## Run KPI evaluation against golden set (uses isolated eval/.venv).
 .PHONY: consistency-check
 consistency-check: ## Cross-store consistency check (Postgres ↔ Qdrant ↔ Neo4j).
 	$(VENV)/bin/python scripts/consistency_check.py
+
+.PHONY: baseline
+baseline: ## Run vector/lexical/graph/hybrid baseline comparison (writes eval/results/).
+	eval/.venv/bin/python eval/baseline.py
