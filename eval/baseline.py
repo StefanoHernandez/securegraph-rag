@@ -59,19 +59,32 @@ async def _run_mode(client: AsyncClient, mode: str, qa_pairs: list[dict]) -> lis
             print(f"  [{mode}] [{idx}] HTTP {resp.status_code}: {resp.text[:200]}")
             continue
         body = resp.json()
-        answer = body.get("answer", {}).get("text", "") or body.get("answer", "")
-        ctx = body.get("evidence", []) or body.get("citations", [])
-        ctx_texts = [
-            c.get("text") or c.get("snippet") or str(c)
-            for c in (ctx if isinstance(ctx, list) else [])
-        ]
+        answer = body.get("answer", "") if isinstance(body.get("answer"), str) else ""
+
+        # Reconstruct contexts from the per-channel summary, same pattern as
+        # scripts/eval.py. Vector channel contributes its draft_summary (the
+        # synthesized text over retrieved chunks); graph channel contributes
+        # each traversed path's textual form. Falls back to the QA pair's
+        # expected_context only when the run produced no channel content
+        # (e.g. retrieval_mode skipped a branch and the other returned empty).
+        contexts: list[str] = []
+        channels = body.get("channels") or {}
+        vec_summary = (channels.get("vector") or {}).get("draft_summary")
+        if vec_summary:
+            contexts.append(vec_summary)
+        graph_paths = (channels.get("graph") or {}).get("paths", []) or []
+        for path in graph_paths:
+            contexts.append(str(path))
+        if not contexts:
+            contexts = [item.get("expected_context", "")]
+
         rows.append(
             {
                 "mode": mode,
                 "question": item["question"],
                 "ground_truth": item["ground_truth"],
                 "answer": answer,
-                "contexts": ctx_texts or [item.get("expected_context", "")],
+                "contexts": contexts,
             }
         )
     return rows
