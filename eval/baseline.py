@@ -11,6 +11,7 @@ deltas to the retriever, not to the synthesizer.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import sys
 from pathlib import Path
@@ -19,8 +20,11 @@ import pandas as pd
 import yaml
 from datasets import Dataset
 from httpx import ASGITransport, AsyncClient
+from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
 
+from securgraph.api.dependencies import AsyncSessionLocal
 from securgraph.api.main import create_app
+from securgraph.ingestion.service import IngestionRequest, ingest_document
 
 try:
     from langchain_community.embeddings import OllamaEmbeddings
@@ -38,7 +42,10 @@ except ImportError as e:
 
 MODES = ("vector", "lexical", "graph", "hybrid")
 CORPUS_PATH = Path(__file__).parent.parent / "corpus" / "baseline_v1" / "qa_pairs.yaml"
+CORPUS_DOCS_DIR = Path(__file__).parent.parent / "corpus" / "baseline_v1" / "documents"
 RESULTS_DIR = Path(__file__).parent / "results"
+TENANT_ID = "mrd"
+USER_ID = "user:stefano"
 
 
 async def _run_mode(client: AsyncClient, mode: str, qa_pairs: list[dict]) -> list[dict]:
@@ -139,17 +146,76 @@ def _write_outputs(summary: pd.DataFrame) -> tuple[Path, Path]:
     return csv_path, md_path
 
 
+async def _ingest_corpus(session_maker) -> list[str]:
+    """Ingest every .txt under corpus/baseline_v1/documents/, return doc_ids."""
+    doc_ids: list[str] = []
+    for path in sorted(CORPUS_DOCS_DIR.glob("*.txt")):
+        async with session_maker() as session:
+            req = IngestionRequest(
+                tenant_id=TENANT_ID,
+                source_uri=path.name,
+                owner_id=USER_ID,
+                data=path.read_bytes(),
+                policy_tags=("dev",),
+            )
+            try:
+                result = await ingest_document(session, req)
+                await session.commit()
+                doc_ids.append(result.document_id)
+                print(f"  ingested {path.name} -> {result.document_id} ({result.status})")
+            except Exception as e:
+                await session.rollback()
+                print(f"  ingest warning {path.name}: {e}")
+    return doc_ids
+
+
+async def _seed_fga_owner_tuples(doc_ids: list[str]) -> None:
+    """Grant USER_ID as owner of each ingested document. Idempotent."""
+    from securgraph.api.dependencies import _fga_client  # type: ignore[attr-defined]
+
+    if _fga_client is None:
+        print("  (no fga client; skipping tuple seed — queries will fail-closed)")
+        return
+    tuples = [
+        ClientTuple(user=USER_ID, relation="owner", object=f"document:{did}")
+        for did in doc_ids
+    ]
+    try:
+        await _fga_client.write(ClientWriteRequest(writes=tuples))
+        print(f"  seeded {len(tuples)} document:owner tuples")
+    except Exception as e:
+        # OpenFGA returns an error if tuples already exist; treat as benign.
+        print(f"  fga seed note: {e}")
+
+
 async def main() -> None:
     if not CORPUS_PATH.exists():
         print(f"Missing corpus: {CORPUS_PATH}")
+        sys.exit(2)
+    if not CORPUS_DOCS_DIR.exists():
+        print(f"Missing docs dir: {CORPUS_DOCS_DIR}")
         sys.exit(2)
     qa_pairs = yaml.safe_load(CORPUS_PATH.read_text(encoding="utf-8"))
     print(f"Loaded {len(qa_pairs)} QA pairs from {CORPUS_PATH}")
 
     app = create_app()
     transport = ASGITransport(app=app)
-    all_rows: list[dict] = []
+
+    # Use the ASGI client wrapped around the app: this triggers the FastAPI
+    # lifespan, which bootstraps OpenFGA + the policy adapter.
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Trigger lifespan by issuing a cheap call.
+        with contextlib.suppress(Exception):
+            await client.get("/health", timeout=30.0)
+
+        print("--- Ingesting corpus ---")
+        doc_ids = await _ingest_corpus(AsyncSessionLocal)
+        print(f"Ingested {len(doc_ids)} documents")
+
+        print("--- Seeding FGA owner tuples ---")
+        await _seed_fga_owner_tuples(doc_ids)
+
+        all_rows: list[dict] = []
         for mode in MODES:
             print(f"--- Running mode: {mode} ---")
             all_rows.extend(await _run_mode(client, mode, qa_pairs))
