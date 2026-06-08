@@ -1,0 +1,15 @@
+Master Service Agreement — Excerpt
+
+Between Helios Group ("Customer") and Polaris Systems S.r.l. ("Provider"), executed 15 January 2026. The full agreement is held by the Procurement office; this excerpt summarises Schedule B (Project-Specific Annex for Orion-7) for internal reference.
+
+1. Scope of Services. Polaris Systems shall provide hosting, operational support, and incident response for the data-platform components of Project Orion-7. Components in scope include the GraphVault knowledge store, the upstream ingestion connectors, and the read-only audit replicas. Components out of scope include the corporate identity provider and the Customer's own backup vaults.
+
+2. Service Level. The Provider commits to a 99.9% monthly availability target measured at the GraphVault read endpoint, with a maximum incident-response time of 30 minutes for Severity-1 issues. Severity-1 is defined as full unavailability or any suspected unauthorised disclosure.
+
+3. Escalation Contacts. On the Provider side the primary escalation contact is Luca Ferrari, Head of Customer Operations at Polaris Systems. On the Customer side the primary escalation contact is the Orion-7 Project Lead, Maria Conti. Either party may designate a delegate in writing for periods exceeding five working days.
+
+4. Personnel. Polaris Systems shall maintain at least two engineers cleared at the equivalent of Customer's Tier-2 Privacy Training at all times. Cleared personnel shall be listed in Appendix B-2 and updated quarterly.
+
+5. Data Handling. Polaris Systems shall not move Orion-7 data outside the European Economic Area without prior written consent of the Customer's Data Protection Officer. All operational access to production data is logged and shall be made available to the Customer on request within two working days.
+
+6. Termination for Breach. Repeated failure to meet the Service Level for three consecutive months, or any confirmed unauthorised disclosure incident, entitles the Customer to terminate Schedule B with thirty days notice.

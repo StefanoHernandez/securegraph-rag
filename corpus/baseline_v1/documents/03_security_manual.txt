@@ -1,0 +1,15 @@
+Helios Group — Information Security Manual, Section 4: Knowledge Stores
+
+This section defines the security controls that apply to the company's structured knowledge stores. It is binding on every operator and every consumer of the systems listed.
+
+4.1 Classification Tiers. All knowledge-store records carry one of four classification labels: Public, Internal, Confidential, and Restricted. Restricted is the highest tier and is reserved for records that, if disclosed without authorisation, would create regulatory, contractual, or reputational harm of material magnitude. Examples of Restricted data include onboarding records covered by Project Orion-7, unredacted incident reports, and any record explicitly tagged Restricted by a Data Steward.
+
+4.2 Systems in Scope. The primary system covered by this section is GraphVault, the company's hybrid vector-graph knowledge store. GraphVault is the canonical home for entity-relationship data extracted from customer documents. Secondary systems include the legacy SQL ledger HermesDB (read-only since 2025) and the operational message bus AtlasMQ.
+
+4.3 Access to Restricted Data. Read access to Restricted records in GraphVault requires (a) membership in a security group named in the record's policy tag, (b) completion of the Tier-2 Privacy Training, and (c) an explicit grant by the record's Data Steward. The grant is recorded in the corporate identity provider and is auditable at any time.
+
+4.4 Logging. Every read of a Restricted record in GraphVault produces an immutable audit entry containing the requester identity, the timestamp, the record identifier, and the authorising policy. Audit entries are retained for seven years.
+
+4.5 Encryption. Restricted records are encrypted at rest using AES-256-GCM and in transit using TLS 1.3. Key rotation occurs at most every ninety days.
+
+4.6 Incident Reporting. Any suspected unauthorised access to a Restricted record must be reported to the Data Protection Officer within one hour of discovery, regardless of severity.

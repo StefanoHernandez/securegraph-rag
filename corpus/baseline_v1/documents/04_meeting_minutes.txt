@@ -1,0 +1,17 @@
+Orion-7 Weekly Operational Review — Minutes
+
+Date: 12 May 2026. Chair: Maria Conti. Note-taker: Tomas Becker.
+
+Attendees from Helios Group: Maria Conti (Project Lead), Tomas Becker (Deputy Lead), Anya Volkov (Data Steward, joined by video from Vienna), Pietro Russo (Security Operations Manager). Attendees from Polaris Systems: Luca Ferrari (Head of Customer Operations), Sara Klein (Lead Engineer).
+
+1. Previous actions. The migration of the staging ingestion path completed on schedule and was signed off by Anya on 9 May. Outstanding action AC-31 (key rotation drill) is rescheduled to the week of 19 May because the security team is engaged in the company-wide phishing exercise.
+
+2. Incident review. Polaris Systems reported a Severity-2 incident affecting GraphVault between 03:14 and 03:47 UTC on 8 May. The graph-traversal endpoint returned elevated latency due to a community-recompute job running concurrently with the nightly index rebuild. No data was disclosed and no records were modified. Mitigation: the community-recompute schedule has been moved to 04:30 UTC. Root cause: insufficient lock contention testing in the previous release. Follow-up AC-44 assigned to Sara Klein, due 26 May.
+
+3. Capacity. Pietro reported that GraphVault is currently at 62% of allocated storage. Forecast says we reach 80% by the end of Q3. Action AC-45 assigned to Luca to scope a capacity upgrade under the existing service contract.
+
+4. Compliance. Anya confirmed that the quarterly access review of the orion7-engineering group has been completed and three accounts were removed. The audit report is filed in the Compliance archive under reference Q2-2026-Orion7.
+
+5. Open risks. The team agreed to keep the risk "Vendor concentration on Polaris Systems for both GraphVault hosting and ingestion connectors" on the register until a contingency plan is documented.
+
+Next meeting: 19 May 2026, 10:00 CET.

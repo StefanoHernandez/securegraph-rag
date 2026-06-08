@@ -1,0 +1,13 @@
+Helios Group — Internal Project Staffing and Data Governance Policy
+
+Version 3.2, effective 1 April 2026. This policy governs the assignment of personnel to internal projects and the data-stewardship responsibilities that follow from such assignments. It supersedes Version 3.1 in full.
+
+Project Orion-7 is the company's confidential initiative to consolidate customer-onboarding records across the European subsidiaries. Because Orion-7 processes high-sensitivity personal data, all members of the project team are required to complete the Tier-2 Privacy Training before being granted system access.
+
+The Project Lead for Orion-7 is Maria Conti, reporting to the VP of Data Operations. Maria is responsible for approving every new joiner, signing off on any change to the project's scope, and acting as the single point of contact for the legal and compliance functions. The Deputy Lead is Tomas Becker, who covers operational continuity during Maria's absence.
+
+The role of Data Steward is the named owner of a dataset for the purposes of access control, retention, and incident reporting. Each Data Steward must be a permanent employee at grade L4 or above and must have completed the Data Stewardship Accreditation. For Orion-7 the Data Steward is Anya Volkov, based in the Vienna office. Anya approves every access request to the Orion-7 data tables and signs the quarterly access-review attestation.
+
+Members of the Orion-7 team belong to the "orion7-engineering" group in the corporate identity provider. Group membership is reviewed every quarter by Anya and revoked within five working days of role change or departure.
+
+Any contractor engagement under Orion-7 is governed by the master service agreement with the relevant vendor, not by this policy. Exceptions to any clause in this document must be requested in writing to the VP of Data Operations and approved by the Data Protection Officer.

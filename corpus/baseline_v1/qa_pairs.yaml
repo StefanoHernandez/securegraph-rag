@@ -1,0 +1,232 @@
+# SecurGraph baseline_v1 QA corpus.
+#
+# 30 QA pairs derived from 5 documents under ./documents/. Each pair is grounded:
+# ground_truth and expected_context are reproducible from the source_documents.
+# query_type values: single_hop, multi_hop, summary. Used by the baseline harness
+# to bucket metrics by question difficulty.
+#
+# Entity overlap (designed for multi-hop coverage):
+#   Project Orion-7        -> 01, 02, 04
+#   Polaris Systems        -> 02, 04
+#   GraphVault             -> 02, 03, 04
+#   Classification Restricted -> 03, 05
+#   Role Data Steward      -> 01, 03, 05
+#   Maria Conti (Lead)     -> 01, 02, 04
+#   Anya Volkov (Steward)  -> 01, 04
+#   Luca Ferrari (vendor)  -> 02, 04
+
+# ---------------------------------------------------------------- single_hop
+
+- id: q01
+  question: "Who is the Project Lead of Project Orion-7?"
+  ground_truth: "Maria Conti."
+  expected_context: "The Project Lead for Orion-7 is Maria Conti, reporting to the VP of Data Operations."
+  source_documents: ["01_internal_policy.txt"]
+  query_type: "single_hop"
+
+- id: q02
+  question: "Who is the Data Steward for Orion-7?"
+  ground_truth: "Anya Volkov."
+  expected_context: "For Orion-7 the Data Steward is Anya Volkov, based in the Vienna office."
+  source_documents: ["01_internal_policy.txt"]
+  query_type: "single_hop"
+
+- id: q03
+  question: "In which city is Anya Volkov based?"
+  ground_truth: "Vienna."
+  expected_context: "For Orion-7 the Data Steward is Anya Volkov, based in the Vienna office."
+  source_documents: ["01_internal_policy.txt"]
+  query_type: "single_hop"
+
+- id: q04
+  question: "What is the monthly availability target Polaris Systems commits to for the GraphVault read endpoint?"
+  ground_truth: "99.9% monthly availability."
+  expected_context: "The Provider commits to a 99.9% monthly availability target measured at the GraphVault read endpoint."
+  source_documents: ["02_service_contract.txt"]
+  query_type: "single_hop"
+
+- id: q05
+  question: "What is the maximum incident-response time for Severity-1 issues in the Polaris Systems contract?"
+  ground_truth: "30 minutes."
+  expected_context: "a maximum incident-response time of 30 minutes for Severity-1 issues."
+  source_documents: ["02_service_contract.txt"]
+  query_type: "single_hop"
+
+- id: q06
+  question: "Who is the primary escalation contact on the Polaris Systems side under the Orion-7 annex?"
+  ground_truth: "Luca Ferrari, Head of Customer Operations at Polaris Systems."
+  expected_context: "On the Provider side the primary escalation contact is Luca Ferrari, Head of Customer Operations at Polaris Systems."
+  source_documents: ["02_service_contract.txt"]
+  query_type: "single_hop"
+
+- id: q07
+  question: "How long are audit entries for reads of Restricted records in GraphVault retained?"
+  ground_truth: "Seven years."
+  expected_context: "Audit entries are retained for seven years."
+  source_documents: ["03_security_manual.txt"]
+  query_type: "single_hop"
+
+- id: q08
+  question: "Which encryption algorithm is used at rest for Restricted records?"
+  ground_truth: "AES-256-GCM."
+  expected_context: "Restricted records are encrypted at rest using AES-256-GCM and in transit using TLS 1.3."
+  source_documents: ["03_security_manual.txt"]
+  query_type: "single_hop"
+
+- id: q09
+  question: "What is the maximum interval between key rotations for Restricted data?"
+  ground_truth: "At most every ninety days."
+  expected_context: "Key rotation occurs at most every ninety days."
+  source_documents: ["03_security_manual.txt"]
+  query_type: "single_hop"
+
+- id: q10
+  question: "When did the Severity-2 incident affecting GraphVault occur, per the 12 May minutes?"
+  ground_truth: "Between 03:14 and 03:47 UTC on 8 May 2026."
+  expected_context: "Polaris Systems reported a Severity-2 incident affecting GraphVault between 03:14 and 03:47 UTC on 8 May."
+  source_documents: ["04_meeting_minutes.txt"]
+  query_type: "single_hop"
+
+- id: q11
+  question: "Within how many hours must a suspected unauthorised access to a Restricted record be reported to the Data Protection Officer, per the Helios security manual?"
+  ground_truth: "Within one hour of discovery."
+  expected_context: "Any suspected unauthorised access to a Restricted record must be reported to the Data Protection Officer within one hour of discovery, regardless of severity."
+  source_documents: ["03_security_manual.txt"]
+  query_type: "single_hop"
+
+- id: q12
+  question: "Within how many hours must a suspected unauthorised access be reported to the supervisory authority under EU Directive 2025/41 Article 14?"
+  ground_truth: "Within seventy-two hours."
+  expected_context: "reporting suspected unauthorised access to the supervisory authority within seventy-two hours"
+  source_documents: ["05_regulation_excerpt.txt"]
+  query_type: "single_hop"
+
+# ----------------------------------------------------------------- multi_hop
+
+- id: q13
+  question: "Which vendor provides hosting for the system that stores the onboarding records covered by Project Orion-7?"
+  ground_truth: "Polaris Systems."
+  expected_context: "Polaris Systems shall provide hosting [...] Components in scope include the GraphVault knowledge store [...] Examples of Restricted data include onboarding records covered by Project Orion-7."
+  source_documents: ["02_service_contract.txt", "03_security_manual.txt"]
+  query_type: "multi_hop"
+
+- id: q14
+  question: "Who is the Helios-side escalation contact for incidents affecting the system that holds Restricted data?"
+  ground_truth: "Maria Conti, the Orion-7 Project Lead."
+  expected_context: "On the Customer side the primary escalation contact is the Orion-7 Project Lead, Maria Conti. [...] The primary system covered by this section is GraphVault [...] examples of Restricted data include onboarding records covered by Project Orion-7."
+  source_documents: ["02_service_contract.txt", "03_security_manual.txt"]
+  query_type: "multi_hop"
+
+- id: q15
+  question: "Which role is named both in the Helios internal staffing policy and in EU Directive 2025/41 Article 14?"
+  ground_truth: "Data Steward."
+  expected_context: "The role of Data Steward is the named owner of a dataset [...] Every controller subject to this Directive shall designate, for each dataset classified as Restricted, a single natural person to act as Data Steward."
+  source_documents: ["01_internal_policy.txt", "05_regulation_excerpt.txt"]
+  query_type: "multi_hop"
+
+- id: q16
+  question: "Anya Volkov decides to downgrade the classification of an Orion-7 dataset. Who else must sign the decision?"
+  ground_truth: "The Data Protection Officer must countersign the decision."
+  expected_context: "For Orion-7 the Data Steward is Anya Volkov [...] A Restricted classification may be downgraded to a lower tier only by a documented decision of the Data Steward, countersigned by the Data Protection Officer."
+  source_documents: ["01_internal_policy.txt", "05_regulation_excerpt.txt"]
+  query_type: "multi_hop"
+
+- id: q17
+  question: "Which two people from Polaris Systems attended the 12 May Orion-7 weekly review, and which of them is the contractual escalation contact?"
+  ground_truth: "Luca Ferrari and Sara Klein attended; Luca Ferrari is the contractual escalation contact."
+  expected_context: "Attendees [...] from Polaris Systems: Luca Ferrari (Head of Customer Operations), Sara Klein (Lead Engineer). [...] On the Provider side the primary escalation contact is Luca Ferrari."
+  source_documents: ["02_service_contract.txt", "04_meeting_minutes.txt"]
+  query_type: "multi_hop"
+
+- id: q18
+  question: "Whose written approval is required to move data of the project led by Maria Conti outside the EEA?"
+  ground_truth: "The Customer's Data Protection Officer."
+  expected_context: "The Project Lead for Orion-7 is Maria Conti [...] Polaris Systems shall not move Orion-7 data outside the European Economic Area without prior written consent of the Customer's Data Protection Officer."
+  source_documents: ["01_internal_policy.txt", "02_service_contract.txt"]
+  query_type: "multi_hop"
+
+- id: q19
+  question: "How often must Anya Volkov, in her Article-14 capacity, review the access list?"
+  ground_truth: "At least once per calendar quarter."
+  expected_context: "For Orion-7 the Data Steward is Anya Volkov [...] The Data Steward bears personal responsibility for [...] reviewing the access list at least once per calendar quarter."
+  source_documents: ["01_internal_policy.txt", "05_regulation_excerpt.txt"]
+  query_type: "multi_hop"
+
+- id: q20
+  question: "The 8 May incident reported in the weekly review affected which classification tier of data?"
+  ground_truth: "Restricted."
+  expected_context: "Polaris Systems reported a Severity-2 incident affecting GraphVault [...] The primary system covered by this section is GraphVault [...] examples of Restricted data include onboarding records covered by Project Orion-7."
+  source_documents: ["03_security_manual.txt", "04_meeting_minutes.txt"]
+  query_type: "multi_hop"
+
+- id: q21
+  question: "What is the relationship between Polaris Systems and the system that holds Orion-7 onboarding records?"
+  ground_truth: "Polaris Systems hosts and operationally supports GraphVault, which holds the Orion-7 onboarding records classified as Restricted."
+  expected_context: "Polaris Systems shall provide hosting, operational support, and incident response [...] Components in scope include the GraphVault knowledge store [...] examples of Restricted data include onboarding records covered by Project Orion-7."
+  source_documents: ["02_service_contract.txt", "03_security_manual.txt"]
+  query_type: "multi_hop"
+
+- id: q22
+  question: "Who is accountable for reporting the 8 May GraphVault incident to the supervisory authority, and within what timeline?"
+  ground_truth: "The Data Steward (Anya Volkov), within seventy-two hours."
+  expected_context: "For Orion-7 the Data Steward is Anya Volkov [...] Polaris Systems reported a Severity-2 incident affecting GraphVault [...] The Data Steward bears personal responsibility for [...] reporting suspected unauthorised access to the supervisory authority within seventy-two hours."
+  source_documents: ["01_internal_policy.txt", "04_meeting_minutes.txt", "05_regulation_excerpt.txt"]
+  query_type: "multi_hop"
+
+- id: q23
+  question: "What training must Orion-7 team members complete under Helios policy, and how many engineers cleared at the equivalent level must Polaris Systems maintain?"
+  ground_truth: "Orion-7 team members must complete Tier-2 Privacy Training; Polaris Systems must maintain at least two engineers cleared at the equivalent level."
+  expected_context: "all members of the project team are required to complete the Tier-2 Privacy Training before being granted system access. [...] Polaris Systems shall maintain at least two engineers cleared at the equivalent of Customer's Tier-2 Privacy Training at all times."
+  source_documents: ["01_internal_policy.txt", "02_service_contract.txt"]
+  query_type: "multi_hop"
+
+- id: q24
+  question: "What two Helios-internal requirements must a person meet to act as Data Steward, given that Article 14 also requires a level of seniority appropriate to the dataset?"
+  ground_truth: "They must be a permanent employee at grade L4 or above and must have completed the Data Stewardship Accreditation."
+  expected_context: "Each Data Steward must be a permanent employee at grade L4 or above and must have completed the Data Stewardship Accreditation. [...] The Data Steward shall be an employee of the controller and shall hold a level of seniority appropriate to the sensitivity of the dataset."
+  source_documents: ["01_internal_policy.txt", "05_regulation_excerpt.txt"]
+  query_type: "multi_hop"
+
+# ------------------------------------------------------------------ summary
+
+- id: q25
+  question: "Summarise the responsibilities and qualifications of the Data Steward as they appear across Helios internal policy and EU Directive 2025/41 Article 14."
+  ground_truth: "The Data Steward is the named single-person owner of a dataset for access-control, retention, and incident-reporting purposes. Under Helios policy they must be a permanent employee at grade L4 or above with the Data Stewardship Accreditation; under Article 14 they must hold seniority appropriate to the dataset's sensitivity. They approve access requests, sign the quarterly attestation, review the access list at least quarterly, and must report suspected unauthorised access to the supervisory authority within 72 hours. Their accountability cannot be delegated to a processor."
+  expected_context: "The role of Data Steward is the named owner of a dataset [...] Each Data Steward must be a permanent employee at grade L4 or above [...] The Data Steward bears personal responsibility for the following: approving access requests; reviewing the access list at least once per calendar quarter; reporting suspected unauthorised access to the supervisory authority within seventy-two hours; and signing the annual attestation of compliance. [...] The Data Steward remains accountable for compliance and may not delegate that accountability."
+  source_documents: ["01_internal_policy.txt", "05_regulation_excerpt.txt"]
+  query_type: "summary"
+
+- id: q26
+  question: "Summarise the open operational risks and outstanding actions for Project Orion-7 as recorded in the 12 May weekly review."
+  ground_truth: "Capacity is at 62% of allocated storage with a forecast of 80% by end of Q3, triggering an action to scope a capacity upgrade. A Severity-2 GraphVault latency incident on 8 May was caused by concurrent community-recompute and index-rebuild jobs and led to a schedule change plus follow-up assigned to Sara Klein. The vendor-concentration risk on Polaris Systems for both hosting and ingestion remains on the register pending a contingency plan. The key-rotation drill is rescheduled to the week of 19 May."
+  expected_context: "Polaris Systems reported a Severity-2 incident affecting GraphVault between 03:14 and 03:47 UTC on 8 May [...] GraphVault is currently at 62% of allocated storage [...] keep the risk \"Vendor concentration on Polaris Systems for both GraphVault hosting and ingestion connectors\" on the register [...] Outstanding action AC-31 (key rotation drill) is rescheduled to the week of 19 May."
+  source_documents: ["04_meeting_minutes.txt"]
+  query_type: "summary"
+
+- id: q27
+  question: "Summarise why GraphVault falls under the highest security tier, citing both the security manual and the project that drives the classification."
+  ground_truth: "GraphVault is the canonical home for entity-relationship data extracted from customer documents and holds Restricted records, the highest classification tier. Restricted is defined as material that would cause regulatory, contractual, or reputational harm if disclosed; examples explicitly include the onboarding records covered by Project Orion-7. Restricted data triggers AES-256-GCM at rest, TLS 1.3 in transit, key rotation at most every 90 days, immutable audit logging retained seven years, and a one-hour incident reporting window."
+  expected_context: "Restricted is the highest tier [...] Examples of Restricted data include onboarding records covered by Project Orion-7 [...] The primary system covered by this section is GraphVault [...] Restricted records are encrypted at rest using AES-256-GCM and in transit using TLS 1.3. [...] Audit entries are retained for seven years."
+  source_documents: ["01_internal_policy.txt", "03_security_manual.txt"]
+  query_type: "summary"
+
+- id: q28
+  question: "Summarise the contractual obligations Polaris Systems has regarding cross-border data movement and personnel clearance under the Orion-7 annex."
+  ground_truth: "Polaris Systems may not move Orion-7 data outside the European Economic Area without prior written consent of the Customer's Data Protection Officer. The Provider must maintain at least two engineers cleared at the equivalent of the Customer's Tier-2 Privacy Training at all times, with the list of cleared personnel kept in Appendix B-2 and updated quarterly."
+  expected_context: "Polaris Systems shall not move Orion-7 data outside the European Economic Area without prior written consent of the Customer's Data Protection Officer. [...] Polaris Systems shall maintain at least two engineers cleared at the equivalent of Customer's Tier-2 Privacy Training at all times. Cleared personnel shall be listed in Appendix B-2 and updated quarterly."
+  source_documents: ["02_service_contract.txt"]
+  query_type: "summary"
+
+- id: q29
+  question: "Summarise the consequences and process for downgrading or misclassifying a Restricted dataset under Article 14."
+  ground_truth: "A Restricted classification may be downgraded only by a documented decision of the Data Steward, countersigned by the Data Protection Officer; the decision must include the rationale and the residual risk assessment and is subject to supervisory-authority review. Failing to designate a Data Steward, or failing to perform the duties of the role, is a serious infringement subject to the Chapter VIII penalties."
+  expected_context: "A Restricted classification may be downgraded to a lower tier only by a documented decision of the Data Steward, countersigned by the Data Protection Officer. [...] Failure to designate a Data Steward, or failure of the Data Steward to perform the duties listed in Paragraph 2, constitutes a serious infringement and is subject to the penalties set out in Chapter VIII."
+  source_documents: ["05_regulation_excerpt.txt"]
+  query_type: "summary"
+
+- id: q30
+  question: "Summarise how membership in the \"orion7-engineering\" identity-provider group connects to access control over Orion-7 Restricted records."
+  ground_truth: "Members of the Orion-7 team belong to the orion7-engineering group in the corporate identity provider, with membership reviewed quarterly by the Data Steward (Anya Volkov) and revoked within five working days of role change or departure. Read access to Restricted records in GraphVault then additionally requires the requester to be named in the record's policy tag, to have completed Tier-2 Privacy Training, and to have an explicit grant by the record's Data Steward — all recorded in the identity provider and auditable."
+  expected_context: "Members of the Orion-7 team belong to the \"orion7-engineering\" group in the corporate identity provider. Group membership is reviewed every quarter by Anya and revoked within five working days of role change or departure. [...] Read access to Restricted records in GraphVault requires (a) membership in a security group named in the record's policy tag, (b) completion of the Tier-2 Privacy Training, and (c) an explicit grant by the record's Data Steward."
+  source_documents: ["01_internal_policy.txt", "03_security_manual.txt"]
+  query_type: "summary"

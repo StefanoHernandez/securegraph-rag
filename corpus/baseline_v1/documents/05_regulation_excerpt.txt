@@ -1,0 +1,15 @@
+EU Data Stewardship Directive 2025/41 — Article 14 Excerpt (illustrative)
+
+This excerpt reproduces Article 14 of the fabricated EU Data Stewardship Directive 2025/41 for internal training purposes. The Directive applies to processors of high-sensitivity personal data established in the Union.
+
+Article 14 — Designated Data Stewards and Records Classified as Restricted.
+
+Paragraph 1. Every controller subject to this Directive shall designate, for each dataset classified as Restricted, a single natural person to act as Data Steward. The Data Steward shall be an employee of the controller and shall hold a level of seniority appropriate to the sensitivity of the dataset. The designation shall be recorded in the controller's register of processing activities within ten working days of the dataset being classified as Restricted.
+
+Paragraph 2. The Data Steward bears personal responsibility for the following: approving access requests; reviewing the access list at least once per calendar quarter; reporting suspected unauthorised access to the supervisory authority within seventy-two hours; and signing the annual attestation of compliance.
+
+Paragraph 3. The classification of a dataset as Restricted shall trigger the application of all controls required by Article 9 of this Directive (encryption at rest and in transit), Article 10 (auditable read logging), and Article 11 (incident reporting). Where the controller delegates technical custody of Restricted data to a processor, the Data Steward remains accountable for compliance and may not delegate that accountability.
+
+Paragraph 4. A Restricted classification may be downgraded to a lower tier only by a documented decision of the Data Steward, countersigned by the Data Protection Officer. The decision shall include the rationale and the residual risk assessment. Downgrades are subject to review by the supervisory authority.
+
+Paragraph 5. Failure to designate a Data Steward, or failure of the Data Steward to perform the duties listed in Paragraph 2, constitutes a serious infringement and is subject to the penalties set out in Chapter VIII.
