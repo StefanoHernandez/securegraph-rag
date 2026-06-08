@@ -8,7 +8,7 @@ from enum import StrEnum
 
 import structlog
 from openfga_sdk import OpenFgaClient
-from openfga_sdk.models import CheckRequest, TupleKey
+from openfga_sdk.client.models import ClientCheckRequest
 from pydantic import Field
 
 from securgraph.domain.base import SGModel, Subject, TenantId, TraceId, UserId, utcnow
@@ -84,14 +84,14 @@ class OpenFGAPolicyAdapter:
 
         async def check_chunk(chunk: Chunk) -> tuple[Chunk, PolicyDecision]:
             # Construct check request: Can user Bob view chunk c_001?
-            tuple_key = TupleKey(  # type: ignore[no-untyped-call]
+            req = ClientCheckRequest(
                 user=subject.fga_user,
                 relation="viewer",
                 object=f"chunk:{chunk.chunk_id}",
             )
 
             try:
-                response = await self.client.check(CheckRequest(tuple_key=tuple_key))  # type: ignore[arg-type, no-untyped-call]
+                response = await self.client.check(req)
                 allowed = response.allowed or False
             except Exception as e:
                 logger.error(
@@ -128,7 +128,7 @@ class OpenFGAPolicyAdapter:
                     object_type=PolicyObjectType.CHUNK.value,
                     decision=decision.decision.value,
                 ).inc()
-            except Exception:
+            except Exception:  # noqa: S110 — metrics emission is best-effort
                 pass
 
             return chunk, decision

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from neo4j import AsyncDriver
 from openfga_sdk import OpenFgaClient
-from openfga_sdk.models import CheckRequest
+from openfga_sdk.client.models import ClientCheckRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.domain import Chunk, Classification, Subject
@@ -34,8 +34,8 @@ async def test_policy_adapter_allow_deny() -> None:
     mock_client = AsyncMock(spec=OpenFgaClient)
 
     # Let's mock checks: allow chk_1, deny chk_2
-    async def side_effect(request: CheckRequest) -> MockCheckResponse:
-        obj = request.tuple_key.object
+    async def side_effect(request: ClientCheckRequest) -> MockCheckResponse:
+        obj = request.object
         if "chk_1" in obj:
             return MockCheckResponse(allowed=True)
         return MockCheckResponse(allowed=False)

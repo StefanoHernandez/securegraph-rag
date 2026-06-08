@@ -6,7 +6,7 @@ import asyncio
 from typing import Any
 
 from neo4j import AsyncDriver
-from openfga_sdk.models import CheckRequest, TupleKey
+from openfga_sdk.client.models import ClientCheckRequest
 
 from securgraph.domain.community import Community, CommunitySummaryResponse
 from securgraph.domain.policy import (
@@ -91,13 +91,13 @@ class AuthorizedCommunityRetriever:
         """Return the subset of class keys the subject may view (one check each)."""
 
         async def check(key: str) -> tuple[str, bool]:
-            tuple_key = TupleKey(  # type: ignore[no-untyped-call]
+            req = ClientCheckRequest(
                 user=subject.fga_user,
                 relation="viewer",
                 object=f"policy_class:{key}",
             )
             try:
-                resp = await self.fga.client.check(CheckRequest(tuple_key=tuple_key))  # type: ignore[arg-type, no-untyped-call]
+                resp = await self.fga.client.check(req)
                 return key, bool(resp.allowed)
             except Exception as e:
                 _LOG.warning(
@@ -124,7 +124,7 @@ class AuthorizedCommunityRetriever:
 
         async def check_community(c: Community) -> tuple[Community, bool]:
             # Construct check request: Can user Bob view community c_001?
-            tuple_key = TupleKey(  # type: ignore[no-untyped-call]
+            req = ClientCheckRequest(
                 user=subject.fga_user,
                 relation="viewer",
                 object=f"community:{c.community_id}",
@@ -132,7 +132,7 @@ class AuthorizedCommunityRetriever:
 
             try:
                 # Direct FGA client check
-                response = await self.fga.client.check(CheckRequest(tuple_key=tuple_key))  # type: ignore[arg-type, no-untyped-call]
+                response = await self.fga.client.check(req)
                 allowed = response.allowed or False
             except Exception as e:
                 _LOG.warning(

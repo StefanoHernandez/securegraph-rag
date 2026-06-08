@@ -22,8 +22,9 @@ from datasets import Dataset
 from httpx import ASGITransport, AsyncClient
 from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
 
-from securgraph.api.dependencies import AsyncSessionLocal
+from securgraph.api.dependencies import AsyncSessionLocal, bootstrap_openfga
 from securgraph.api.main import create_app
+from securgraph.config import get_settings
 from securgraph.ingestion.service import IngestionRequest, ingest_document
 
 try:
@@ -100,7 +101,9 @@ async def _run_mode(client: AsyncClient, mode: str, qa_pairs: list[dict]) -> lis
 def _ragas_evaluate(rows: list[dict]) -> pd.DataFrame:
     """Compute RAGAS core metrics on the collected rows, grouped by mode."""
     llm = LangchainLLMWrapper(Ollama(model="granite4.1:3b"))
-    emb = LangchainEmbeddingsWrapper(OllamaEmbeddings(model="granite4.1:3b"))
+    # nomic-embed-text is a dedicated embedding model; granite4.1:3b is generative
+    # only and Ollama refuses to serve embeddings from it (HTTP 500).
+    emb = LangchainEmbeddingsWrapper(OllamaEmbeddings(model="nomic-embed-text"))
     faithfulness_metric = Faithfulness()
     answer_relevance_metric = AnswerRelevancy()
     context_precision_metric = LLMContextPrecisionWithReference()
@@ -203,8 +206,15 @@ async def main() -> None:
 
     # Use the ASGI client wrapped around the app: this triggers the FastAPI
     # lifespan, which bootstraps OpenFGA + the policy adapter.
+    # ASGITransport does NOT trigger FastAPI lifespan in httpx, so OpenFGA
+    # is never bootstrapped via the ASGI client. Bootstrap it explicitly here
+    # so document/chunk authorization checks find a valid store+model and the
+    # FGA owner-tuple seeding below succeeds.
+    print("--- Bootstrapping OpenFGA ---")
+    await bootstrap_openfga(get_settings())
+
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Trigger lifespan by issuing a cheap call.
+        # Health hit as a sanity check; lifespan is already bootstrapped above.
         with contextlib.suppress(Exception):
             await client.get("/health", timeout=30.0)
 
