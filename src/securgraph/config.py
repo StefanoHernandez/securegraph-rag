@@ -69,6 +69,26 @@ class Settings(BaseSettings):
     llm_model_extract: str = "gemma3:1b"
     llm_model_judge: str = "gemma3:1b"
     llm_num_ctx: int = Field(default=4096, ge=512, le=131072)
+    llm_thinking: bool = Field(
+        default=True,
+        description=(
+            "Forwarded as the `think` argument to Ollama chat for the online "
+            "query/synthesis path (vector_draft, graph_draft, synthesis, "
+            "judge_nli, community generator, self healing). Only effective on "
+            "models that expose the 'thinking' capability."
+        ),
+    )
+    llm_thinking_extract: bool = Field(
+        default=True,
+        description=(
+            "Separate `think` flag for the offline graph extractor "
+            "(extract_graph_slice). Extract benefits from thinking on small "
+            "models even when the online query path runs with thinking off, "
+            "because JSON-strict schemas are fragile without internal "
+            "reasoning. Defaults to True so production extraction is "
+            "high-quality unless explicitly disabled."
+        ),
+    )
 
     # ---------------------------------------------------------------- tokenizer
     # HuggingFace tokenizer used by the chunker for token budgeting. Default is

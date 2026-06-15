@@ -22,6 +22,56 @@ from securgraph.observability import get_tracer
 _LOG = get_logger(__name__)
 
 
+def _heuristic_seeds(query: str) -> list[str]:
+    """Fallback seed extraction: capitalized words stripped of trailing punctuation."""
+    return [word.strip(",.?!") for word in query.split() if word and word[0].isupper()]
+
+
+async def _extract_seeds_from_catalog(driver: Any, tenant_id: str, query: str) -> list[str]:
+    """Extract seed entity names by substring-matching the query against the Neo4j entity catalog.
+
+    Strategy:
+      1. Pull all (e:Entity {tenant_id}) names from Neo4j.
+      2. Bidirectional case-insensitive substring match:
+         - entity_name.lower() in query.lower()  -> include entity_name
+         - query_token.lower() in entity_name.lower() (token len >= 3) -> include entity_name
+      3. Deduplicate while preserving canonical (catalog) form.
+      4. If the catalog is empty (cold start) or any error occurs, fall back to the
+         capitalized-word heuristic.
+    """
+    try:
+        async with driver.session() as session:
+            result = await session.run(
+                "MATCH (e:Entity) WHERE e.tenant_id = $tid RETURN e.name AS name",
+                tid=tenant_id,
+            )
+            records = await result.data()
+    except Exception as exc:  # pragma: no cover - degrade gracefully on infra error
+        _LOG.warning("seed_catalog_fetch_failed", error=str(exc))
+        return _heuristic_seeds(query)
+
+    entity_names = [r["name"] for r in records if r.get("name")]
+    if not entity_names:
+        return _heuristic_seeds(query)
+
+    query_lower = query.lower()
+    tokens = [t.strip(",.?!:;()[]\"'").lower() for t in query.split()]
+    tokens = [t for t in tokens if len(t) >= 3]
+
+    seeds: list[str] = []
+    seen: set[str] = set()
+    for name in entity_names:
+        if not isinstance(name, str):
+            continue
+        name_lower = name.lower()
+        match = name_lower in query_lower or any(tok in name_lower for tok in tokens)
+        if match and name_lower not in seen:
+            seeds.append(name)
+            seen.add(name_lower)
+
+    return seeds
+
+
 class QueryState(TypedDict):
     query: str
     subject: Subject
@@ -105,7 +155,15 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             if mode in ("vector", "lexical"):
                 return {"graph_context": []}
 
-            seeds = [word.strip(",.?!") for word in state["query"].split() if word and word[0].isupper()]
+            driver = getattr(graph, "driver", None)
+            if driver is None:
+                from securgraph.adapters.neo4j import get_neo4j_driver
+                driver = get_neo4j_driver()
+            seeds = await _extract_seeds_from_catalog(
+                driver=driver,
+                tenant_id=state["subject"].tenant_id,
+                query=state["query"],
+            )
             async with AsyncSessionLocal() as session:
                 paths = await graph.traverse_authorized_subgraph(
                     session=session,
@@ -137,7 +195,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     {"role": "system", "content": "You are a secure factual RAG assistant. Output a concise answer based ONLY on the context. If no context matches or is provided, state that there is no available information."},
                     {"role": "user", "content": prompt}
                 ],
-                options={"num_ctx": settings.llm_num_ctx}
+                options={"num_ctx": settings.llm_num_ctx},
+                think=settings.llm_thinking,
             )
             return {"vector_draft": response.message.content or ""}
 
@@ -159,7 +218,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     {"role": "system", "content": "You are a secure factual RAG assistant. Output a concise answer based ONLY on the context. If no context matches or is provided, state that there is no available information."},
                     {"role": "user", "content": prompt}
                 ],
-                options={"num_ctx": settings.llm_num_ctx}
+                options={"num_ctx": settings.llm_num_ctx},
+                think=settings.llm_thinking,
             )
             return {"graph_draft": response.message.content or ""}
 
@@ -297,7 +357,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                         {"role": "system", "content": "You are a global synthesis agent. Produce a comprehensive, secure, structured answer summarizing the community summaries. Do not extrapolate outside the context."},
                         {"role": "user", "content": final_prompt}
                     ],
-                    options={"num_ctx": settings.llm_num_ctx}
+                    options={"num_ctx": settings.llm_num_ctx},
+                    think=settings.llm_thinking,
                 )
                 return {"final_answer": Answer(text=response.message.content or "", citations=tuple())}
 
@@ -313,7 +374,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     {"role": "system", "content": "You are a synthesis agent. Produce a secure, unified answer grounded strictly in both drafts. Do not extrapolate, only summarize agreement areas. If there is no agreement and the score is below the threshold, warn that agreement could not be reached and synthesize a cautious minimal response."},
                     {"role": "user", "content": final_prompt}
                 ],
-                options={"num_ctx": settings.llm_num_ctx}
+                options={"num_ctx": settings.llm_num_ctx},
+                think=settings.llm_thinking,
             )
             return {"final_answer": Answer(text=response.message.content or "", citations=tuple())}
 

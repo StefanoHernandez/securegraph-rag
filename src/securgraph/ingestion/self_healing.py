@@ -67,7 +67,8 @@ async def resolve_graph_contradiction(
                 {"role": "user", "content": prompt}
             ],
             format="json",
-            options={"num_ctx": settings.llm_num_ctx}
+            options={"num_ctx": settings.llm_num_ctx},
+            think=settings.llm_thinking,
         )
         content = response.message.content or "{}"
         

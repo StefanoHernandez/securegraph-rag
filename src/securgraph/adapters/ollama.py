@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 
 from ollama import AsyncClient
 from pydantic import BaseModel, Field
@@ -26,60 +26,134 @@ def get_ollama_client() -> AsyncClient:
     return AsyncClient(host=settings.ollama_url)
 
 
-async def extract_graph_slice(text: str) -> ExtractedGraphSlice:
-    """Extract entities and relations from a text chunk using a local LLM.
+_EXTRACT_SYSTEM_PROMPT = (
+    "You are an expert knowledge graph extraction agent. Analyze the provided text chunk and "
+    "extract all entities and their semantic relationships.\n"
+    "Output strictly in JSON matching this schema:\n"
+    "{\n"
+    '  "entities": [{"name": "entity_name", "label": "ENTITY_TYPE"}],\n'
+    '  "relations": [{"source_entity_name": "name", "target_entity_name": "name", '
+    '"relationship_type": "TYPE", "confidence": 0.9}]\n'
+    "}\n"
+    "If no entities/relations are found, return empty lists. Do not write "
+    "markdown blocks or text, return ONLY the raw JSON."
+)
 
-    Ensures robust parsing by stripping out markdown blocks and wraps errors in a
-    safe empty-slice fallback to prevent crashing the ingestion pipeline.
-    """
+
+async def _extract_once(text: str, temperature: float = 0.0) -> ExtractedGraphSlice:
+    """Single extract call. Parses JSON, normalizes, returns the slice."""
     settings = get_settings()
     client = get_ollama_client()
 
-    system_prompt = (
-        "You are an expert knowledge graph extraction agent. Analyze the provided text chunk and "
-        "extract all entities and their semantic relationships.\n"
-        "Output strictly in JSON matching this schema:\n"
-        "{\n"
-        '  "entities": [{"name": "entity_name", "label": "ENTITY_TYPE"}],\n'
-        '  "relations": [{"source_entity_name": "name", "target_entity_name": "name", '
-        '"relationship_type": "TYPE", "confidence": 0.9}]\n'
-        "}\n"
-        "If no entities/relations are found, return empty lists. Do not write "
-        "markdown blocks or text, return ONLY the raw JSON."
+    response = await client.chat(
+        model=settings.llm_model_extract,
+        messages=[
+            {"role": "system", "content": _EXTRACT_SYSTEM_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        format="json",
+        options={"num_ctx": settings.llm_num_ctx, "temperature": temperature},
+        think=settings.llm_thinking_extract,
     )
 
+    content = response.message.content
+    if not content:
+        return ExtractedGraphSlice(entities=[], relations=[])
+
+    content_stripped = content.strip()
+    if content_stripped.startswith("```"):
+        lines = content_stripped.splitlines()
+        if lines[0].startswith("```json") or lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        content_stripped = "\n".join(lines).strip()
+
+    data = json.loads(content_stripped)
+    return _normalize_extracted_slice(data)
+
+
+def _merge_slices(a: ExtractedGraphSlice, b: ExtractedGraphSlice) -> ExtractedGraphSlice:
+    """Union entities by lowercase name (first occurrence wins). Concat relations."""
+    by_name: dict[str, Any] = {}
+    for e in list(a.entities) + list(b.entities):
+        key = (e.name or "").strip().lower()
+        if key and key not in by_name:
+            by_name[key] = e
+    return ExtractedGraphSlice(
+        entities=list(by_name.values()),
+        relations=list(a.relations) + list(b.relations),
+    )
+
+
+async def extract_graph_slice(text: str) -> ExtractedGraphSlice:
+    """Extract entities and relations from a text chunk using a local LLM.
+
+    Small JSON-strict models (gemma4, granite) occasionally emit
+    ``{"entities": [...], "relations": []}`` even when relations are
+    obviously present in the source. The audit
+    ``eval/results/extract_audit_20260611T105341Z.json`` measured this at
+    ~67% of trials on gemma4 think=True. When entities are present but
+    relations are empty, we re-issue the same prompt with a small
+    temperature bump to draw a different sample and merge the two results
+    (union entities by name, concat relations). All other failures
+    (parse error, network exception) collapse to an empty slice to keep
+    the ingestion pipeline alive.
+    """
     try:
-        response = await client.chat(
-            model=settings.llm_model_extract,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": text},
-            ],
-            format="json",
-            options={"num_ctx": settings.llm_num_ctx},
-        )
-
-        content = response.message.content
-        if not content:
-            return ExtractedGraphSlice(entities=[], relations=[])
-
-        # Strip markdown code blocks if any (fallback for older LLM outputs)
-        content_stripped = content.strip()
-        if content_stripped.startswith("```"):
-            lines = content_stripped.splitlines()
-            if lines[0].startswith("```json") or lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            content_stripped = "\n".join(lines).strip()
-
-        data = json.loads(content_stripped)
-        return ExtractedGraphSlice.model_validate(data)
-
+        first = await _extract_once(text, temperature=0.0)
     except Exception as e:
         _LOG.warning("ollama_extraction_failed", error=str(e), text_sample=text[:100])
-        # Graceful fallback to prevent breaking the caller
         return ExtractedGraphSlice(entities=[], relations=[])
+
+    if len(first.entities) < 3 or first.relations:
+        return first
+
+    settings = get_settings()
+    _LOG.warning(
+        "extract_zero_relations_retrying",
+        n_entities=len(first.entities),
+        model=settings.llm_model_extract,
+    )
+    try:
+        second = await _extract_once(text, temperature=0.2)
+    except Exception as e:
+        _LOG.warning(
+            "extract_retry_failed", error=str(e), text_sample=text[:100]
+        )
+        return first
+    return _merge_slices(first, second)
+
+
+def _normalize_extracted_slice(data: dict) -> ExtractedGraphSlice:
+    """Validate entities/relations one-by-one so a single bad item doesn't
+    drop the entire slice. Small LLMs occasionally emit a relation without
+    ``confidence``; default to 0.5 (neutral) rather than throwing away the
+    whole graph fragment for that chunk.
+    """
+    from securgraph.domain.graph import ExtractedEntity, ExtractedRelation
+
+    entities: list[ExtractedEntity] = []
+    for item in data.get("entities", []) or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            entities.append(ExtractedEntity.model_validate(item))
+        except Exception as e:
+            _LOG.warning("dropping_malformed_entity", error=str(e), item=str(item)[:120])
+
+    relations: list[ExtractedRelation] = []
+    for item in data.get("relations", []) or []:
+        if not isinstance(item, dict):
+            continue
+        if "confidence" not in item or item.get("confidence") is None:
+            item["confidence"] = 0.5
+        try:
+            relations.append(ExtractedRelation.model_validate(item))
+        except Exception as e:
+            _LOG.warning("dropping_malformed_relation", error=str(e), item=str(item)[:120])
+
+    return ExtractedGraphSlice(entities=entities, relations=relations)
 
 
 class AtomicClaim(BaseModel):
@@ -127,9 +201,10 @@ async def extract_claims(text: str) -> ClaimDecomposition:
             ],
             format="json",
             options={"num_ctx": settings.llm_num_ctx},
+            think=settings.llm_thinking,
         )
         content = response.message.content or "{}"
-        
+
         # Robust parsing: strip potential markdown wrapper
         content_stripped = content.strip()
         if content_stripped.startswith("```"):
@@ -199,7 +274,8 @@ async def judge_nli(claim: str, reference: str) -> NLIResult:
                     {"role": "user", "content": user_prompt}
                 ],
                 format="json",
-                options={"num_ctx": settings.llm_num_ctx, "temperature": temperature}
+                options={"num_ctx": settings.llm_num_ctx, "temperature": temperature},
+                think=settings.llm_thinking,
             )
             content = response.message.content or "{}"
             

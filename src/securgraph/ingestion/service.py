@@ -231,6 +231,11 @@ async def ingest_document(
     # Run indexing. Any exception raised here aborts the database transaction.
     upsert_chunks_to_qdrant(q_client, chunks, embed_adapter)
 
+    # --- 5b. FGA: write chunk -> parent_document tuples ---------------------
+    # Without these tuples, chunk.viewer cannot resolve via document.viewer and
+    # ReBAC-gated retrieval will return zero contexts for legitimate readers.
+    await _write_chunk_parent_tuples(document_id, [c.chunk_id for c in chunks])
+
     # --- Neo4j Graph Extraction & Persistence -------------------------------
     from securgraph.adapters.neo4j import get_neo4j_driver
     from securgraph.adapters.neo4j_writer import write_graph_slice
@@ -298,3 +303,41 @@ class IngestionError(RuntimeError):
 def load_file(path: str | Path) -> bytes:
     """Helper for CLI/scripts; not used by the HTTP path (which receives bytes)."""
     return Path(path).read_bytes()
+
+
+async def _write_chunk_parent_tuples(doc_id: str, chunk_ids: list[str]) -> None:
+    """Write chunk:<id>#parent_document@document:<doc_id> tuples to OpenFGA.
+
+    Required so chunk.viewer resolves transitively via document.viewer (the
+    chunk type uses a tupleToUserset over parent_document -> viewer).
+    Idempotent: re-ingest of the same corpus may hit "already exists"; we
+    log+swallow so reseeding doesn't break.
+    """
+    from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
+
+    from securgraph.api import dependencies as deps
+
+    client = deps._fga_client
+    if client is None:
+        return
+    writes = [
+        ClientTuple(
+            user=f"document:{doc_id}",
+            relation="parent_document",
+            object=f"chunk:{cid}",
+        )
+        for cid in chunk_ids
+    ]
+    try:
+        await client.write(ClientWriteRequest(writes=writes))
+    except Exception as e:  # noqa: BLE001
+        # Idempotent reseeds raise 'write_failed_due_to_invalid_input' /
+        # 'already exists'; log+swallow so re-ingest doesn't break.
+        import structlog
+
+        structlog.get_logger(__name__).warning(
+            "fga_chunk_parent_tuple_write_failed",
+            error=str(e),
+            doc_id=doc_id,
+            n=len(chunk_ids),
+        )

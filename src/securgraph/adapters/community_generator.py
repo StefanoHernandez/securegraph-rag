@@ -173,6 +173,7 @@ async def _summarize_and_write_community(
             ],
             format="json",
             options={"num_ctx": settings.llm_num_ctx},
+            think=settings.llm_thinking,
         )
         content = (response.message.content or "{}").strip()
         if content.startswith("```"):
