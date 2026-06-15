@@ -41,6 +41,11 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+.env.bak-*
+
+# Obsidian scratch (some directories carry these alongside docs)
+.obsidian/
+docs/.obsidian/
 
 # Logs
 *.log
