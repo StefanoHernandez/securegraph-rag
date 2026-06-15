@@ -29,7 +29,9 @@ from securgraph.ingestion.service import IngestionRequest, ingest_document
 
 try:
     from langchain_community.embeddings import OllamaEmbeddings
-    from langchain_community.llms import Ollama
+    from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
+    from langchain_core.language_models.llms import LLM
+    from ollama import AsyncClient as OllamaAsyncClient
     from ragas import evaluate
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.llms import LangchainLLMWrapper
@@ -37,9 +39,61 @@ try:
     from ragas.metrics._context_precision import LLMContextPrecisionWithReference
     from ragas.metrics._context_recall import LLMContextRecall
     from ragas.metrics._faithfulness import Faithfulness
+    from ragas.run_config import RunConfig
 except ImportError as e:
     print(f"ragas/langchain-community not installed in this env: {e}")
     sys.exit(2)
+
+
+class OllamaThinkOff(LLM):
+    """Minimal langchain LLM that calls Ollama with ``think=False``.
+
+    The RAGAS judge model (qwen3.5:2b) is a thinking model. Leaving thinking
+    enabled balloons latency on long prompts (context_recall ~3500 tokens) and
+    causes RAGAS to time out. ``langchain_community.Ollama`` does not surface
+    the ``think`` kwarg at the top level of the request body, so we call the
+    official ollama client directly here.
+    """
+
+    model: str = "qwen3.5:2b"
+    base_url: str = "http://localhost:11434"
+    num_ctx: int = 16384
+    temperature: float = 0.0
+
+    @property
+    def _llm_type(self) -> str:
+        return "ollama-think-off"
+
+    def _call(
+        self,
+        prompt: str,
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs,
+    ) -> str:
+        return asyncio.run(self._acall(prompt, stop=stop, run_manager=None, **kwargs))
+
+    async def _acall(
+        self,
+        prompt: str,
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs,
+    ) -> str:
+        client = OllamaAsyncClient(host=self.base_url)
+        opts: dict[str, object] = {
+            "num_ctx": self.num_ctx,
+            "temperature": self.temperature,
+        }
+        if stop:
+            opts["stop"] = stop
+        resp = await client.chat(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            options=opts,
+            think=False,
+        )
+        return resp.message.content or ""
 
 MODES = ("vector", "lexical", "graph", "hybrid")
 CORPUS_PATH = Path(__file__).parent.parent / "corpus" / "baseline_v1" / "qa_pairs.yaml"
@@ -99,10 +153,14 @@ async def _run_mode(client: AsyncClient, mode: str, qa_pairs: list[dict]) -> lis
 
 
 def _ragas_evaluate(rows: list[dict]) -> pd.DataFrame:
-    """Compute RAGAS core metrics on the collected rows, grouped by mode."""
-    llm = LangchainLLMWrapper(Ollama(model="granite4.1:3b"))
-    # nomic-embed-text is a dedicated embedding model; granite4.1:3b is generative
-    # only and Ollama refuses to serve embeddings from it (HTTP 500).
+    """Compute RAGAS core metrics on the collected rows, grouped by mode.
+
+    Judge model: qwen3.5:2b with thinking disabled (independent from the
+    production judge to satisfy P1.4 — the eval judge must not be the same
+    model as the pipeline's internal NLI judge). nomic-embed-text is a
+    dedicated embedding model.
+    """
+    llm = LangchainLLMWrapper(OllamaThinkOff(model="qwen3.5:2b", num_ctx=16384))
     emb = LangchainEmbeddingsWrapper(OllamaEmbeddings(model="nomic-embed-text"))
     faithfulness_metric = Faithfulness()
     answer_relevance_metric = AnswerRelevancy()
@@ -114,6 +172,10 @@ def _ragas_evaluate(rows: list[dict]) -> pd.DataFrame:
         context_precision_metric,
         context_recall_metric,
     ]
+    # Give each metric call up to 5 minutes and retry transient failures twice.
+    # Default RAGAS timeout is 60s, which the prior granite-judge runs blew
+    # through on context_recall every time.
+    run_config = RunConfig(timeout=300, max_retries=2)
 
     per_mode: dict[str, pd.DataFrame] = {}
     for mode in MODES:
@@ -121,7 +183,7 @@ def _ragas_evaluate(rows: list[dict]) -> pd.DataFrame:
         if not subset:
             continue
         ds = Dataset.from_list(subset)
-        res = evaluate(ds, metrics=metrics, llm=llm, embeddings=emb)
+        res = evaluate(ds, metrics=metrics, llm=llm, embeddings=emb, run_config=run_config)
         per_mode[mode] = res.to_pandas()
 
     summary = []
