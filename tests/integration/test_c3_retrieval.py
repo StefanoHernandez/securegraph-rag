@@ -41,7 +41,7 @@ async def test_user_authorized_only_to_one_class() -> None:
     # FGA allows only objects ending in key_a (both policy_class:key_a and
     # community:comm_l1_0_key_a_t1 — defense-in-depth check passes too).
     async def fake_check(req: Any) -> Any:
-        obj = req.tuple_key.object
+        obj = req.object if hasattr(req, "object") else req.tuple_key.object
         resp = MagicMock()
         resp.allowed = key_a in obj
         return resp

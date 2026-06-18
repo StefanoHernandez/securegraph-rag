@@ -19,11 +19,31 @@ from securgraph.logging import get_logger
 _LOG = get_logger(__name__)
 
 
+import re
+
+def _robust_json_loads(content: str) -> Any:
+    """Robust JSON parser that strips markdown fences and removes trailing commas."""
+    content_stripped = content.strip()
+    if not content_stripped:
+        return {}
+    if content_stripped.startswith("```"):
+        lines = content_stripped.splitlines()
+        if lines[0].startswith("```json") or lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        content_stripped = "\n".join(lines).strip()
+
+    # Remove trailing commas before closing braces/brackets
+    content_stripped = re.sub(r',(\s*[}\]])', r'\1', content_stripped)
+
+    return json.loads(content_stripped)
+
+
 @lru_cache(maxsize=1)
 def get_ollama_client() -> AsyncClient:
     """Process-wide cached Ollama AsyncClient instance."""
-    settings = get_settings()
-    return AsyncClient(host=settings.ollama_url)
+    return AsyncClient(host=get_settings().ollama_url)
 
 
 _EXTRACT_SYSTEM_PROMPT = (
@@ -56,20 +76,8 @@ async def _extract_once(text: str, temperature: float = 0.0) -> ExtractedGraphSl
         think=settings.llm_thinking_extract,
     )
 
-    content = response.message.content
-    if not content:
-        return ExtractedGraphSlice(entities=[], relations=[])
-
-    content_stripped = content.strip()
-    if content_stripped.startswith("```"):
-        lines = content_stripped.splitlines()
-        if lines[0].startswith("```json") or lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        content_stripped = "\n".join(lines).strip()
-
-    data = json.loads(content_stripped)
+    content = response.message.content or ""
+    data = _robust_json_loads(content)
     return _normalize_extracted_slice(data)
 
 
@@ -200,22 +208,12 @@ async def extract_claims(text: str) -> ClaimDecomposition:
                 {"role": "user", "content": text},
             ],
             format="json",
-            options={"num_ctx": settings.llm_num_ctx},
+            options={"num_ctx": settings.llm_num_ctx, "temperature": 0.0},
             think=settings.llm_thinking,
         )
         content = response.message.content or "{}"
 
-        # Robust parsing: strip potential markdown wrapper
-        content_stripped = content.strip()
-        if content_stripped.startswith("```"):
-            lines = content_stripped.splitlines()
-            if lines[0].startswith("```json") or lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            content_stripped = "\n".join(lines).strip()
-
-        data = json.loads(content_stripped)
+        data = _robust_json_loads(content)
 
         # Robust normalizer in case the LLM used different keys/structures
         normalized_claims = []
@@ -278,18 +276,7 @@ async def judge_nli(claim: str, reference: str) -> NLIResult:
                 think=settings.llm_thinking,
             )
             content = response.message.content or "{}"
-            
-            # Robust parsing: strip potential markdown wrapper
-            content_stripped = content.strip()
-            if content_stripped.startswith("```"):
-                lines = content_stripped.splitlines()
-                if lines[0].startswith("```json") or lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].startswith("```"):
-                    lines = lines[:-1]
-                content_stripped = "\n".join(lines).strip()
-
-            data = json.loads(content_stripped)
+            data = _robust_json_loads(content)
 
             # Normalize keys
             label = data.get("label")

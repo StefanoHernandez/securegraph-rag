@@ -43,7 +43,7 @@ class MockQdrant:
                 original_rank=0,
                 original_score=0.9,
                 policy_check_id="policy_1",
-                text="Stefano is a software engineer. He is leading the development of SecureGraph, a high-trust RAG system."
+                text="Stefano is a software engineer on the Advanced Agentic Coding team based in Milan."
             )
         ]
 
@@ -61,7 +61,7 @@ class MockGraph:
                 edges=("LIVES_IN",),
                 source_chunk_ids=("chk_2",),
                 confidence=1.0,
-                text="Stefano is based in Milan. Stefano is a member of the Advanced Agentic Coding team."
+                text="Stefano is a software engineer based in Milan on the Advanced Agentic Coding team."
             )
         ]
 
