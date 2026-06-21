@@ -208,3 +208,42 @@ async def test_ingest_route_rejects_empty_file(client: AsyncClient) -> None:
     resp = await client.post("/ingest", files=files, data=data)
     assert resp.status_code == status.HTTP_400_BAD_REQUEST
     assert "empty" in resp.json()["detail"].lower()
+
+
+def test_ingestion_request_rejects_colon_in_owner_id() -> None:
+    """Verify IngestionRequest raises ValueError if owner_id contains colons."""
+    with pytest.raises(ValueError, match="owner_id cannot contain ':'"):
+        IngestionRequest(
+            tenant_id="mrd",
+            source_uri="file://test.txt",
+            owner_id="group:eng",
+            data=b"hello",
+        )
+
+
+def test_ingestion_request_rejects_colon_in_direct_viewers() -> None:
+    """Verify IngestionRequest raises ValueError if direct_viewers elements contain colons."""
+    with pytest.raises(ValueError, match="direct_viewers elements cannot contain ':'"):
+        IngestionRequest(
+            tenant_id="mrd",
+            source_uri="file://test.txt",
+            owner_id="alice",
+            direct_viewers=("group:eng",),
+            data=b"hello",
+        )
+
+
+@pytest.mark.asyncio
+async def test_ingest_route_rejects_colon_in_owner_id(client: AsyncClient) -> None:
+    """Verify `/ingest` rejects owner_id containing colons with 400 Bad Request."""
+    files = {"file": ("test.txt", io.BytesIO(b"data"), "text/plain")}
+    data = {
+        "tenant_id": "mrd",
+        "owner_id": "group:eng",
+        "document_type": "policy",
+        "classification": "internal",
+    }
+
+    resp = await client.post("/ingest", files=files, data=data)
+    assert resp.status_code == status.HTTP_400_BAD_REQUEST
+    assert "cannot contain ':'" in resp.json()["detail"].lower()

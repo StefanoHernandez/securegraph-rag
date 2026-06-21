@@ -71,6 +71,12 @@ async def ingest_file(
     redis: ArqRedis = Depends(get_redis_pool),  # noqa: B008
 ) -> IngestResponse:
     """Run full ingestion pipeline: parse, chunk, bind policy, and index."""
+    if ":" in owner_id and not owner_id.startswith("user:"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="owner_id cannot contain ':' unless prefixed with 'user:' to prevent FGA-namespace ambiguity.",
+        )
+
     settings = get_settings()
     data = await file.read()
     if not data:

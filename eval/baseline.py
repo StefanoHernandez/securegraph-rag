@@ -364,6 +364,20 @@ async def _seed_fga_owner_tuples(doc_ids: list[str]) -> None:
 
 
 async def main() -> None:
+    # Load .env manually to populate os.environ for RAGAS and other libraries
+    dotenv_path = Path(__file__).parent.parent / ".env"
+    if dotenv_path.exists():
+        for line in dotenv_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k:
+                    os.environ[k] = v
+
     if not CORPUS_PATH.exists():
         print(f"Missing corpus: {CORPUS_PATH}")
         sys.exit(2)

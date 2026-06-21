@@ -172,6 +172,58 @@ async def bootstrap_openfga(app_settings: Settings) -> None:
                         }
                     },
                 },
+                {
+                    "type": "policy_class",
+                    "relations": {
+                        "owner": {"this": {}, "allowed_types": [{"type": "user"}]},
+                        "group_viewer": {
+                            "this": {},
+                            "allowed_types": [{"type": "group", "relation": "member"}],
+                        },
+                        "direct_viewer": {"this": {}, "allowed_types": [{"type": "user"}]},
+                        "viewer": {
+                            "union": {
+                                "child": [
+                                    {"computedUserset": {"relation": "owner"}},
+                                    {"computedUserset": {"relation": "group_viewer"}},
+                                    {"computedUserset": {"relation": "direct_viewer"}},
+                                ]
+                            }
+                        },
+                    },
+                    "metadata": {
+                        "relations": {
+                            "owner": {"directly_related_user_types": [{"type": "user"}]},
+                            "group_viewer": {
+                                "directly_related_user_types": [
+                                    {"type": "group", "relation": "member"}
+                                ]
+                            },
+                            "direct_viewer": {"directly_related_user_types": [{"type": "user"}]},
+                            "viewer": {"directly_related_user_types": []},
+                        }
+                    },
+                },
+                {
+                    "type": "community",
+                    "relations": {
+                        "in_class": {"this": {}, "allowed_types": [{"type": "policy_class"}]},
+                        "viewer": {
+                            "tupleToUserset": {
+                                "tupleset": {"relation": "in_class"},
+                                "computedUserset": {"relation": "viewer"},
+                            }
+                        },
+                    },
+                    "metadata": {
+                        "relations": {
+                            "in_class": {
+                                "directly_related_user_types": [{"type": "policy_class"}]
+                            },
+                            "viewer": {"directly_related_user_types": []},
+                        }
+                    },
+                },
             ]
 
             defs = [TypeDefinition(**td) for td in type_definitions]  # type: ignore[no-untyped-call, arg-type]

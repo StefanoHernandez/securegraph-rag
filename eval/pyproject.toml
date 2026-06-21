@@ -30,6 +30,7 @@ dependencies = [
     "matplotlib>=3.9",
     "pandas>=2.2",
     "arq>=0.28.0",
+    "tabulate",
 ]
 
 [tool.uv.sources]

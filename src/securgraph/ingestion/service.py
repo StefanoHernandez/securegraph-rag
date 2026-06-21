@@ -91,6 +91,13 @@ class IngestionRequest:
     title_override: str | None = None
     source_format: SourceFormat | None = None
 
+    def __post_init__(self) -> None:
+        if ":" in self.owner_id and not self.owner_id.startswith("user:"):
+            raise ValueError("owner_id cannot contain ':' unless prefixed with 'user:' to prevent FGA-namespace ambiguity.")
+        for viewer in self.direct_viewers:
+            if ":" in viewer and not viewer.startswith("user:"):
+                raise ValueError("direct_viewers elements cannot contain ':' unless prefixed with 'user:' to prevent FGA-namespace ambiguity.")
+
 
 @dataclass(frozen=True, slots=True)
 class IngestionResult:

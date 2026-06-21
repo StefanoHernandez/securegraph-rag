@@ -56,6 +56,7 @@ class Neo4jGraphRetriever:
         async with self.driver.session() as session:
             result = await session.run(cypher, tenant_id=tenant_id, seeds=seed_entities)
             paths = []
+            seen_path_ids = set()
 
             async for record in result:
                 path_nodes = record["path_nodes"]
@@ -74,6 +75,10 @@ class Neo4jGraphRetriever:
                 # Deterministic path ID generation (stable across process restarts)
                 node_seq = ",".join(nodes)
                 path_id = f"path_{hashlib.md5(node_seq.encode('utf-8')).hexdigest()}"  # noqa: S324
+
+                if path_id in seen_path_ids:
+                    continue
+                seen_path_ids.add(path_id)
 
                 paths.append(
                     GraphPath(
