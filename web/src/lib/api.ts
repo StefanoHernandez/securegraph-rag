@@ -85,7 +85,7 @@ export const healthApi = {
 
 export const ingestApi = {
   uploadFile: (formData: FormData) =>
-    api.postMultipart<{ job_id: string; document_id: string }>("/api/ingest", formData),
+    api.postMultipart<{ job_id: string; document_id: string; trace_id: string; status: string; chunks_created: number }>("/api/ingest", formData),
   
   getStatus: (jobId: string) =>
     api.get<{
@@ -96,3 +96,89 @@ export const ingestApi = {
       error?: string | null;
     }>(`/api/ingest/status/${jobId}`),
 };
+
+export const adminApi = {
+  getAuditTraces: (tenantId: string, page: number = 1, size: number = 20) =>
+    api.get<{
+      total: number;
+      page: number;
+      size: number;
+      traces: Array<{
+        trace_id: string;
+        tenant_id: string;
+        user_id: string;
+        query: string;
+        answer: string | null;
+        started_at: string;
+        completed_at: string | null;
+        latency_ms: number | null;
+        tamper_hash: string | null;
+      }>;
+    }>(`/api/admin/audit/traces?tenant_id=${encodeURIComponent(tenantId)}&page=${page}&size=${size}`),
+
+  verifyAuditChain: (tenantId: string) =>
+    api.post<{
+      tenant_id: string;
+      is_intact: boolean;
+      tables: Record<
+        string,
+        {
+          is_intact: boolean;
+          tampered_count: number;
+          tampered_ids: string[];
+        }
+      >;
+    }>("/api/admin/audit/verify-chain", { tenant_id: tenantId }),
+
+  listPermissions: () =>
+    api.get<{
+      tuples: Array<{
+        user: string;
+        relation: string;
+        object: string;
+      }>;
+    }>("/api/admin/permissions"),
+
+  grantPermission: (user: string, relation: string, object: string) =>
+    api.post<{ status: string; message: string }>("/api/admin/permissions/grant", {
+      user,
+      relation,
+      object,
+    }),
+
+  revokePermission: (user: string, relation: string, object: string) =>
+    api.post<{ status: string; message: string }>("/api/admin/permissions/revoke", {
+      user,
+      relation,
+      object,
+    }),
+
+  getGraphNodes: (tenantId: string) =>
+    api.get<{
+      nodes: Array<{
+        id: string;
+        type: string;
+        description: string;
+        classification: string;
+      }>;
+      links: Array<{
+        source: string;
+        target: string;
+        type: string;
+        description: string;
+        confidence: number;
+        classification: string;
+      }>;
+    }>(`/api/admin/graph/nodes?tenant_id=${encodeURIComponent(tenantId)}`),
+
+  getGraphCommunities: (tenantId: string) =>
+    api.get<{
+      communities: Array<{
+        id: string;
+        title: string;
+        level: number;
+        summary: string;
+      }>;
+    }>(`/api/admin/graph/communities?tenant_id=${encodeURIComponent(tenantId)}`),
+};
+

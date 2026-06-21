@@ -96,12 +96,9 @@ export interface ExplainReport {
     object_id: string;
     original_rank: number;
     original_score: number;
-    fused_rank: number | null;
-    fused_score: number | null;
-    policy_check_id: string;
     included_in_prompt: boolean;
-    text: string | null;
-    is_allowed: boolean;
+    status: "allowed" | "redacted";
+    object_data: string;
   }>;
   policy_summary: {
     allowed: number;

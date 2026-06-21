@@ -22,6 +22,7 @@ from securgraph.api.routes import ingest as ingest_routes
 from securgraph.api.routes import query as query_routes
 from securgraph.api.routes import explain as explain_routes
 from securgraph.api.routes import auth as auth_routes
+from securgraph.api.routes import admin as admin_routes
 from securgraph.config import get_settings
 from securgraph.logging import configure_logging, get_logger
 from securgraph.observability import setup_observability, shutdown_observability
@@ -119,6 +120,7 @@ def create_app() -> FastAPI:
     application.include_router(query_routes.router)
     application.include_router(explain_routes.router)
     application.include_router(auth_routes.router)
+    application.include_router(admin_routes.router)
 
     # OTel FastAPI instrumentation wraps every request in a server span and
     # injects the trace context downstream.
