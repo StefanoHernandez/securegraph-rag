@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from neo4j import AsyncDriver
 
+from securgraph.adapters.llm import get_llm_adapter_for, robust_json_loads
 from securgraph.adapters.neo4j_writer import flag_or_delete_relationship
-from securgraph.adapters.ollama import get_ollama_client
 from securgraph.config import get_settings
 from securgraph.logging import get_logger
 from securgraph.observability.otel import GRAPH_SELF_HEALING_COUNT
@@ -31,7 +30,7 @@ async def resolve_graph_contradiction(
         tenant_id=tenant_id,
         claim_text=claim_text[:60],
     )
-    client = get_ollama_client()
+    adapter = get_llm_adapter_for("judge")
     settings = get_settings()
 
     system_prompt = (
@@ -60,30 +59,15 @@ async def resolve_graph_contradiction(
     )
 
     try:
-        response = await client.chat(
-            model=settings.llm_model_judge,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            format="json",
-            options={"num_ctx": settings.llm_num_ctx},
+        content = await adapter.chat(
+            system=system_prompt,
+            user=prompt,
+            json_mode=True,
             think=settings.llm_thinking,
+            keep_alive=300,
         )
-        content = response.message.content or "{}"
-        
-        # Robust parsing: strip potential markdown wrapper
-        content_stripped = content.strip()
-        if content_stripped.startswith("```"):
-            lines = content_stripped.splitlines()
-            if lines[0].startswith("```json") or lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            content_stripped = "\n".join(lines).strip()
+        data = robust_json_loads(content)
 
-        data = json.loads(content_stripped)
-        
         source = data.get("source_entity")
         incorrect_target = data.get("incorrect_target_entity")
         corrected_target = data.get("corrected_target_entity")

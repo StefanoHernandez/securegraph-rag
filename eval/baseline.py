@@ -1,18 +1,41 @@
-"""Four-mode baseline harness: vector / lexical / graph / hybrid.
+"""Five-mode baseline harness: vector / lexical / graph / hybrid / global.
 
-Re-runs the same QA corpus four times through the production /query endpoint,
+Re-runs the same QA corpus five times through the production /query endpoint,
 each time with a different `retrieval_mode`, and computes RAGAS core metrics.
 Writes `eval/results/baseline-<UTC-date>.csv` and a markdown table.
 
 Synthesis is held fixed by going through the production workflow; only the
 retrieval branch differs. This experimental design lets the paper attribute
 deltas to the retriever, not to the synthesizer.
+
+Two independent LLM layers, each configurable separately:
+
+1. **Pipeline LLM** (extract / draft / synthesis / NLI judge): configured via
+   `SECURGRAPH_LLM_PROVIDER` (default `ollama`; can be `mistral` / `openai` /
+   `google` / `anthropic` for cloud runs). See `docs/research/model_substitution.md`.
+
+2. **RAGAS eval judge + embeddings**: configured via `RAGAS_JUDGE_PROVIDER`
+   (default `openai`; can be `ollama` for a fully-local, zero-cost run).
+
+Judge independence (P1.4): the RAGAS judge is a different provider/model from
+the pipeline's internal NLI judge. For the local-only run the separation is
+achieved by using different Ollama models (pipeline judge = granite4.1:3b,
+RAGAS judge = qwen3.5:2b). For the cloud run the separation is by provider.
+
+Run profiles:
+  - **Local-only** (zero cloud cost): SECURGRAPH_LLM_PROVIDER=ollama,
+    RAGAS_JUDGE_PROVIDER=ollama.
+  - **Cloud pipeline, cloud RAGAS**: SECURGRAPH_LLM_PROVIDER=mistral,
+    RAGAS_JUDGE_PROVIDER=openai, MISTRAL_API_KEY=..., OPENAI_API_KEY=...
+  - **Local pipeline, cloud RAGAS**: SECURGRAPH_LLM_PROVIDER=ollama,
+    RAGAS_JUDGE_PROVIDER=openai, OPENAI_API_KEY=...
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import datetime as dt
+import os
 import sys
 from pathlib import Path
 
@@ -28,10 +51,7 @@ from securgraph.config import get_settings
 from securgraph.ingestion.service import IngestionRequest, ingest_document
 
 try:
-    from langchain_community.embeddings import OllamaEmbeddings
-    from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
-    from langchain_core.language_models.llms import LLM
-    from ollama import AsyncClient as OllamaAsyncClient
+    from langchain_openai import ChatOpenAI, OpenAIEmbeddings
     from ragas import evaluate
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.llms import LangchainLLMWrapper
@@ -41,18 +61,35 @@ try:
     from ragas.metrics._faithfulness import Faithfulness
     from ragas.run_config import RunConfig
 except ImportError as e:
-    print(f"ragas/langchain-community not installed in this env: {e}")
+    print(f"ragas/langchain-openai not installed in this env: {e}")
     sys.exit(2)
+
+# Optional: Ollama-backed RAGAS judge for the local-only run profile.
+# Imported lazily so the ollama package isn't required when RAGAS_JUDGE_PROVIDER
+# is "openai" (the default).
+try:
+    from langchain_community.embeddings import OllamaEmbeddings
+    from langchain_core.callbacks import (
+        AsyncCallbackManagerForLLMRun,
+        CallbackManagerForLLMRun,
+    )
+    from langchain_core.language_models.llms import LLM
+    from ollama import AsyncClient as OllamaAsyncClient
+
+    _OLLAMA_RAGAS_AVAILABLE = True
+except ImportError:
+    _OLLAMA_RAGAS_AVAILABLE = False
 
 
 class OllamaThinkOff(LLM):
     """Minimal langchain LLM that calls Ollama with ``think=False``.
 
-    The RAGAS judge model (qwen3.5:2b) is a thinking model. Leaving thinking
-    enabled balloons latency on long prompts (context_recall ~3500 tokens) and
-    causes RAGAS to time out. ``langchain_community.Ollama`` does not surface
-    the ``think`` kwarg at the top level of the request body, so we call the
-    official ollama client directly here.
+    Used only when RAGAS_JUDGE_PROVIDER=ollama. The RAGAS judge model
+    (qwen3.5:2b) is a thinking model; leaving thinking enabled balloons
+    latency on long prompts and causes RAGAS to time out.
+    ``langchain_community.Ollama`` does not surface the ``think`` kwarg at the
+    top level of the request body, so we call the official ollama client
+    directly here.
     """
 
     model: str = "qwen3.5:2b"
@@ -92,10 +129,12 @@ class OllamaThinkOff(LLM):
             messages=[{"role": "user", "content": prompt}],
             options=opts,
             think=False,
+            keep_alive=0,
         )
         return resp.message.content or ""
 
-MODES = ("vector", "lexical", "graph", "hybrid")
+
+MODES = ("vector", "lexical", "graph", "hybrid", "global")
 CORPUS_PATH = Path(__file__).parent.parent / "corpus" / "baseline_v1" / "qa_pairs.yaml"
 CORPUS_DOCS_DIR = Path(__file__).parent.parent / "corpus" / "baseline_v1" / "documents"
 RESULTS_DIR = Path(__file__).parent / "results"
@@ -105,18 +144,28 @@ USER_ID = "user:stefano"
 
 async def _run_mode(client: AsyncClient, mode: str, qa_pairs: list[dict]) -> list[dict]:
     rows: list[dict] = []
+    # "global" mode exercises C3 (policy-partitioned communities + global RAG).
+    # It routes through the community summaries path by setting query_type=global
+    # and using hybrid retrieval_mode as the underlying carrier.
+    if mode == "global":
+        retrieval_mode = "hybrid"
+        query_type = "global"
+    else:
+        retrieval_mode = mode
+        query_type = "standard"
     for idx, item in enumerate(qa_pairs, start=1):
         payload = {
             "tenant_id": "mrd",
             "user_id": "user:stefano",
             "query": item["question"],
             "options": {
-                "retrieval_mode": mode,
+                "retrieval_mode": retrieval_mode,
+                "query_type": query_type,
                 "top_k": 5,
                 "consensus_threshold": 0.6,
             },
         }
-        resp = await client.post("/query", json=payload, timeout=120.0)
+        resp = await client.post("/query", json=payload, timeout=180.0)
         if resp.status_code != 200:
             print(f"  [{mode}] [{idx}] HTTP {resp.status_code}: {resp.text[:200]}")
             continue
@@ -134,6 +183,9 @@ async def _run_mode(client: AsyncClient, mode: str, qa_pairs: list[dict]) -> lis
         vec_summary = (channels.get("vector") or {}).get("draft_summary")
         if vec_summary:
             contexts.append(vec_summary)
+        graph_summary = (channels.get("graph") or {}).get("draft_summary")
+        if graph_summary:
+            contexts.append(graph_summary)
         graph_paths = (channels.get("graph") or {}).get("paths", []) or []
         for path in graph_paths:
             contexts.append(str(path))
@@ -155,13 +207,74 @@ async def _run_mode(client: AsyncClient, mode: str, qa_pairs: list[dict]) -> lis
 def _ragas_evaluate(rows: list[dict]) -> pd.DataFrame:
     """Compute RAGAS core metrics on the collected rows, grouped by mode.
 
-    Judge model: qwen3.5:2b with thinking disabled (independent from the
-    production judge to satisfy P1.4 — the eval judge must not be the same
-    model as the pipeline's internal NLI judge). nomic-embed-text is a
-    dedicated embedding model.
+    Two judge backends, selected by ``RAGAS_JUDGE_PROVIDER``:
+
+    - ``openai`` (default): ``ChatOpenAI`` + ``OpenAIEmbeddings``. Requires
+      ``OPENAI_API_KEY``. Models via ``RAGAS_JUDGE_MODEL`` (default
+      ``gpt-4o-mini``) and ``RAGAS_EMBEDDING_MODEL`` (default
+      ``text-embedding-3-small``).
+
+    - ``ollama``: ``OllamaThinkOff`` + ``OllamaEmbeddings``. Requires the
+      local Ollama service. Models via ``RAGAS_JUDGE_MODEL`` (default
+      ``qwen3.5:2b``) and ``RAGAS_EMBEDDING_MODEL`` (default
+      ``nomic-embed-text``).
+
+    Judge independence (P1.4): the RAGAS judge is a different provider/model
+    from the pipeline's internal NLI judge regardless of which backend is
+    selected.
     """
-    llm = LangchainLLMWrapper(OllamaThinkOff(model="qwen3.5:2b", num_ctx=16384))
-    emb = LangchainEmbeddingsWrapper(OllamaEmbeddings(model="nomic-embed-text"))
+    judge_provider = os.environ.get("RAGAS_JUDGE_PROVIDER", "openai").lower()
+    judge_model = os.environ.get(
+        "RAGAS_JUDGE_MODEL", "gpt-4o-mini" if judge_provider == "openai" else "qwen3.5:2b"
+    )
+    embedding_model = os.environ.get(
+        "RAGAS_EMBEDDING_MODEL",
+        "text-embedding-3-small" if judge_provider == "openai" else "nomic-embed-text",
+    )
+
+    if judge_provider == "ollama":
+        if not _OLLAMA_RAGAS_AVAILABLE:
+            print(
+                "RAGAS_JUDGE_PROVIDER=ollama but langchain-community / ollama "
+                "packages are not installed in the eval venv."
+            )
+            sys.exit(2)
+        ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+        print(f"  RAGAS judge: Ollama {judge_model} @ {ollama_url}")
+        llm = LangchainLLMWrapper(
+            OllamaThinkOff(model=judge_model, num_ctx=16384, base_url=ollama_url)
+        )
+        emb = LangchainEmbeddingsWrapper(
+            OllamaEmbeddings(model=embedding_model, base_url=ollama_url)
+        )
+    elif judge_provider == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        base_url = os.environ.get("OPENAI_BASE_URL") or None
+        if not api_key:
+            print(
+                "RAGAS_JUDGE_PROVIDER=openai but OPENAI_API_KEY is not set. "
+                "Either set the key or switch RAGAS_JUDGE_PROVIDER=ollama."
+            )
+            sys.exit(2)
+        print(f"  RAGAS judge: OpenAI {judge_model}")
+        llm = LangchainLLMWrapper(
+            ChatOpenAI(
+                model=judge_model,
+                temperature=0.0,
+                api_key=api_key,
+                base_url=base_url,
+            )
+        )
+        emb = LangchainEmbeddingsWrapper(
+            OpenAIEmbeddings(model=embedding_model, api_key=api_key, base_url=base_url)
+        )
+    else:
+        print(
+            f"Unknown RAGAS_JUDGE_PROVIDER={judge_provider!r}. "
+            "Supported: 'openai', 'ollama'."
+        )
+        sys.exit(2)
+
     faithfulness_metric = Faithfulness()
     answer_relevance_metric = AnswerRelevancy()
     context_precision_metric = LLMContextPrecisionWithReference()
@@ -172,9 +285,6 @@ def _ragas_evaluate(rows: list[dict]) -> pd.DataFrame:
         context_precision_metric,
         context_recall_metric,
     ]
-    # Give each metric call up to 5 minutes and retry transient failures twice.
-    # Default RAGAS timeout is 60s, which the prior granite-judge runs blew
-    # through on context_recall every time.
     run_config = RunConfig(timeout=300, max_retries=2)
 
     per_mode: dict[str, pd.DataFrame] = {}
@@ -275,6 +385,15 @@ async def main() -> None:
     print("--- Bootstrapping OpenFGA ---")
     await bootstrap_openfga(get_settings())
 
+    # ASGITransport does NOT trigger FastAPI lifespan, so we must also
+    # initialize the Qdrant collection (payload indexes, full-text index)
+    # before ingestion writes vectors. Idempotent.
+    print("--- Initializing Qdrant collection ---")
+    from securgraph.adapters.qdrant_init import init_qdrant_collection
+
+    init_qdrant_collection()
+    print("  qdrant collection ready")
+
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Health hit as a sanity check; lifespan is already bootstrapped above.
         with contextlib.suppress(Exception):
@@ -286,6 +405,23 @@ async def main() -> None:
 
         print("--- Seeding FGA owner tuples ---")
         await _seed_fga_owner_tuples(doc_ids)
+
+        print("--- Generating hierarchical communities (C3) ---")
+        try:
+            from securgraph.adapters.community_generator import (
+                generate_hierarchical_communities,
+            )
+            from securgraph.adapters.neo4j import get_neo4j_driver
+            from securgraph.api.dependencies import _fga_client  # type: ignore[attr-defined]
+
+            await generate_hierarchical_communities(
+                driver=get_neo4j_driver(),
+                tenant_id=TENANT_ID,
+                fga=_fga_client,
+            )
+            print("  communities generated")
+        except Exception as e:
+            print(f"  community generation warning: {e}")
 
         all_rows: list[dict] = []
         for mode in MODES:

@@ -237,14 +237,16 @@ async def ingest_document(
     await _write_chunk_parent_tuples(document_id, [c.chunk_id for c in chunks])
 
     # --- Neo4j Graph Extraction & Persistence -------------------------------
+    from securgraph.adapters.llm import get_llm_adapter_for
     from securgraph.adapters.neo4j import get_neo4j_driver
     from securgraph.adapters.neo4j_writer import write_graph_slice
-    from securgraph.adapters.ollama import extract_graph_slice
 
     n4j_driver = neo4j_driver or get_neo4j_driver()
+    extract_adapter = get_llm_adapter_for("extract")
     for chunk in chunks:
-        # Extract graph slice from chunk text using local LLM (gemma4:e2b)
-        graph_slice = await extract_graph_slice(chunk.text)
+        # Extract graph slice from chunk text using the configured LLM provider
+        # (default Ollama; can be OpenAI/Google/Mistral/Anthropic via config).
+        graph_slice = await extract_adapter.extract_graph_slice(chunk.text)
         # Write graph slice to Neo4j database
         await write_graph_slice(
             n4j_driver,

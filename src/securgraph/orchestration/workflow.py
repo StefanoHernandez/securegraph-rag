@@ -4,7 +4,7 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from securgraph.adapters.ollama import extract_claims, get_ollama_client, judge_nli
+from securgraph.adapters.llm import get_llm_adapter, get_llm_adapter_for
 from securgraph.api.dependencies import AsyncSessionLocal
 from securgraph.config import get_settings
 from securgraph.domain import (
@@ -184,21 +184,18 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             return {"vector_draft": ""}
         tracer = get_tracer()
         with tracer.start_as_current_span("vector_draft"):
-            client = get_ollama_client()
+            adapter = get_llm_adapter()
             settings = get_settings()
             context_text = "\n".join([str(ev) for ev in state["vector_context"]])
             prompt = f"Answer using vector sources only:\nContext: {context_text}\nQuery: {state['query']}"
 
-            response = await client.chat(
-                model=settings.llm_model,
-                messages=[
-                    {"role": "system", "content": "You are a secure factual RAG assistant. Output a concise answer based ONLY on the context. If no context matches or is provided, state that there is no available information."},
-                    {"role": "user", "content": prompt}
-                ],
-                options={"num_ctx": settings.llm_num_ctx},
+            content = await adapter.chat(
+                system="You are a secure factual RAG assistant. Output a concise answer based ONLY on the context. If no context matches or is provided, state that there is no available information.",
+                user=prompt,
                 think=settings.llm_thinking,
+                keep_alive=300,
             )
-            return {"vector_draft": response.message.content or ""}
+            return {"vector_draft": content}
 
     async def graph_draft_node(state: QueryState) -> dict[str, Any]:
         if state["options"].get("query_type") == "global":
@@ -207,26 +204,23 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             return {"graph_draft": ""}
         tracer = get_tracer()
         with tracer.start_as_current_span("graph_draft"):
-            client = get_ollama_client()
+            adapter = get_llm_adapter()
             settings = get_settings()
             context_text = "\n".join([str(ev) for ev in state["graph_context"]])
             prompt = f"Answer using graph sources only:\nContext: {context_text}\nQuery: {state['query']}"
 
-            response = await client.chat(
-                model=settings.llm_model,
-                messages=[
-                    {"role": "system", "content": "You are a secure factual RAG assistant. Output a concise answer based ONLY on the context. If no context matches or is provided, state that there is no available information."},
-                    {"role": "user", "content": prompt}
-                ],
-                options={"num_ctx": settings.llm_num_ctx},
+            content = await adapter.chat(
+                system="You are a secure factual RAG assistant. Output a concise answer based ONLY on the context. If no context matches or is provided, state that there is no available information.",
+                user=prompt,
                 think=settings.llm_thinking,
+                keep_alive=300,
             )
-            return {"graph_draft": response.message.content or ""}
+            return {"graph_draft": content}
 
     async def vector_claim_extraction_node(state: QueryState) -> dict[str, Any]:
         if state["options"].get("query_type") == "global" or not state["vector_draft"]:
             return {"vector_claims": []}
-        decomp = await extract_claims(state["vector_draft"])
+        decomp = await get_llm_adapter().extract_claims(state["vector_draft"])
         claims = [
             Claim(
                 claim_id=c.claim_id,
@@ -241,7 +235,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
     async def graph_claim_extraction_node(state: QueryState) -> dict[str, Any]:
         if state["options"].get("query_type") == "global" or not state["graph_draft"]:
             return {"graph_claims": []}
-        decomp = await extract_claims(state["graph_draft"])
+        decomp = await get_llm_adapter().extract_claims(state["graph_draft"])
         claims = [
             Claim(
                 claim_id=c.claim_id,
@@ -262,9 +256,10 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             g_claims = list(state["graph_claims"])
 
             # Run live NLI judgments bidirectionally
+            nli_adapter = get_llm_adapter_for("judge")
             updated_v_claims = []
             for c in v_claims:
-                res = await judge_nli(c.text, state["graph_draft"] or "")
+                res = await nli_adapter.judge_nli(c.text, state["graph_draft"] or "")
                 updated_v_claims.append(
                     c.model_copy(
                         update={
@@ -277,7 +272,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
 
             updated_g_claims = []
             for c in g_claims:
-                res = await judge_nli(c.text, state["vector_draft"] or "")
+                res = await nli_adapter.judge_nli(c.text, state["vector_draft"] or "")
                 updated_g_claims.append(
                     c.model_copy(
                         update={
@@ -341,7 +336,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
     async def synthesis_node(state: QueryState) -> dict[str, Any]:
         tracer = get_tracer()
         with tracer.start_as_current_span("synthesis"):
-            client = get_ollama_client()
+            adapter = get_llm_adapter()
             settings = get_settings()
 
             if state["options"].get("query_type") == "global":
@@ -351,16 +346,13 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     f"{state['graph_draft']}\n\n"
                     f"Query: {state['query']}"
                 )
-                response = await client.chat(
-                    model=settings.llm_model,
-                    messages=[
-                        {"role": "system", "content": "You are a global synthesis agent. Produce a comprehensive, secure, structured answer summarizing the community summaries. Do not extrapolate outside the context."},
-                        {"role": "user", "content": final_prompt}
-                    ],
-                    options={"num_ctx": settings.llm_num_ctx},
+                content = await adapter.chat(
+                    system="You are a global synthesis agent. Produce a comprehensive, secure, structured answer summarizing the community summaries. Do not extrapolate outside the context.",
+                    user=final_prompt,
                     think=settings.llm_thinking,
+                    keep_alive=300,
                 )
-                return {"final_answer": Answer(text=response.message.content or "", citations=tuple())}
+                return {"final_answer": Answer(text=content, citations=tuple())}
 
             final_prompt = (
                 f"Synthesize a final unified secure response based on two draft reviews:\n"
@@ -368,16 +360,13 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                 f"Graph Draft: {state['graph_draft']}\n"
                 f"Agreement Score: {state['consensus_report'].agreement_score if state['consensus_report'] else 0.0}"
             )
-            response = await client.chat(
-                model=settings.llm_model,
-                messages=[
-                    {"role": "system", "content": "You are a synthesis agent. Produce a secure, unified answer grounded strictly in both drafts. Do not extrapolate, only summarize agreement areas. If there is no agreement and the score is below the threshold, warn that agreement could not be reached and synthesize a cautious minimal response."},
-                    {"role": "user", "content": final_prompt}
-                ],
-                options={"num_ctx": settings.llm_num_ctx},
+            content = await adapter.chat(
+                system="You are a synthesis agent. Produce a secure, unified answer grounded strictly in both drafts. Do not extrapolate, only summarize agreement areas. If there is no agreement and the score is below the threshold, warn that agreement could not be reached and synthesize a cautious minimal response.",
+                user=final_prompt,
                 think=settings.llm_thinking,
+                keep_alive=300,
             )
-            return {"final_answer": Answer(text=response.message.content or "", citations=tuple())}
+            return {"final_answer": Answer(text=content, citations=tuple())}
 
     # Add all nodes
     builder.add_node("vector_retrieval", vector_retrieval_node)

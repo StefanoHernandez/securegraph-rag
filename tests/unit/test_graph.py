@@ -18,7 +18,8 @@ from securgraph.adapters.neo4j import (
     reset_neo4j_driver_cache,
 )
 from securgraph.adapters.neo4j_writer import write_graph_slice
-from securgraph.adapters.ollama import extract_graph_slice, get_ollama_client
+from securgraph.adapters.llm.ollama import get_ollama_client
+from securgraph.adapters.ollama import extract_graph_slice
 from securgraph.domain import Chunk, Classification
 from securgraph.domain.graph import (
     ExtractedEntity,
@@ -173,7 +174,7 @@ async def test_extract_graph_slice_success() -> None:
     )
     mock_client.chat.return_value = mock_response
 
-    with patch("securgraph.adapters.ollama.get_ollama_client", return_value=mock_client):
+    with patch("securgraph.adapters.llm.ollama.get_ollama_client", return_value=mock_client):
         slice_res = await extract_graph_slice("Some text...")
         assert len(slice_res.entities) == 1
         assert slice_res.entities[0].name == "Neo4j"
@@ -196,7 +197,7 @@ async def test_extract_graph_slice_with_markdown_fences() -> None:
     )
     mock_client.chat.return_value = mock_response
 
-    with patch("securgraph.adapters.ollama.get_ollama_client", return_value=mock_client):
+    with patch("securgraph.adapters.llm.ollama.get_ollama_client", return_value=mock_client):
         slice_res = await extract_graph_slice("Some text...")
         assert len(slice_res.entities) == 1
         assert slice_res.entities[0].name == "Python"
@@ -209,7 +210,7 @@ async def test_extract_graph_slice_error_fallback() -> None:
     mock_client = AsyncMock()
     mock_client.chat.side_effect = Exception("Ollama connection timed out")
 
-    with patch("securgraph.adapters.ollama.get_ollama_client", return_value=mock_client):
+    with patch("securgraph.adapters.llm.ollama.get_ollama_client", return_value=mock_client):
         slice_res = await extract_graph_slice("Some text...")
         # Graceful empty recovery
         assert len(slice_res.entities) == 0
@@ -424,13 +425,19 @@ async def test_ingest_document_triggers_graph_processing() -> None:
         patch("securgraph.ingestion.service.write_ingestion_provenance"),
         patch("securgraph.indexing.qdrant_writer.upsert_chunks_to_qdrant"),
         patch("securgraph.adapters.embeddings.get_embedding_adapter"),
-        patch("securgraph.adapters.ollama.extract_graph_slice") as mock_extract,
+        patch("securgraph.adapters.llm.get_llm_adapter_for") as mock_get_adapter,
         patch("securgraph.adapters.neo4j_writer.write_graph_slice") as mock_write,
     ):
-        mock_extract.return_value = ExtractedGraphSlice(
-            entities=[ExtractedEntity(name="ProjectA", label="Project")],
-            relations=[],
+        # The ingest path now calls get_llm_adapter_for("extract").extract_graph_slice.
+        # Wire a mock adapter whose extract_graph_slice returns a fixed slice.
+        mock_adapter = MagicMock()
+        mock_adapter.extract_graph_slice = AsyncMock(
+            return_value=ExtractedGraphSlice(
+                entities=[ExtractedEntity(name="ProjectA", label="Project")],
+                relations=[],
+            )
         )
+        mock_get_adapter.return_value = mock_adapter
 
         request = IngestionRequest(
             tenant_id="tenant_1",
@@ -446,5 +453,7 @@ async def test_ingest_document_triggers_graph_processing() -> None:
         assert res.chunks_created == 1
 
         # Extractor and Neo4j writer should be called exactly once (since we had 1 chunk)
-        mock_extract.assert_called_once_with("SecureGraph is an awesome local RAG ProjectA.")
+        mock_adapter.extract_graph_slice.assert_awaited_once_with(
+            "SecureGraph is an awesome local RAG ProjectA."
+        )
         mock_write.assert_called_once()

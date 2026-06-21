@@ -90,13 +90,33 @@ async def ping_neo4j() -> ComponentReport:
 
 
 async def ping_ollama() -> ComponentReport:
-    """Check connectivity to local Ollama instance."""
+    """Check connectivity to the configured LLM provider.
+
+    For ``ollama`` (default) this pings the local Ollama ``/api/tags``
+    endpoint. For cloud providers (OpenAI, Google, Mistral, Anthropic) we
+    issue a trivial chat completion against the active adapter; a 200/OK
+    means credentials and endpoint are valid.
+    """
     start = time.perf_counter()
     try:
-        from securgraph.adapters.ollama import get_ollama_client
+        from securgraph.adapters.llm import get_llm_adapter
+        from securgraph.config import get_settings
 
-        client = get_ollama_client()
-        await client.list()
+        settings = get_settings()
+        if settings.llm_provider == "ollama":
+            # Native Ollama ping — list installed models (no token cost).
+            from securgraph.adapters.llm.ollama import get_ollama_client
+
+            await get_ollama_client().list()
+        else:
+            # Cloud provider: minimal chat to validate credentials + endpoint.
+            # Use a 1-token reply to keep cost negligible.
+            adapter = get_llm_adapter()
+            await adapter.chat(
+                system="Reply with the single word: ok",
+                user="ping",
+                temperature=0.0,
+            )
         latency = (time.perf_counter() - start) * 1000.0
         return ComponentReport(status=ComponentStatus.OK, latency_ms=latency)
     except Exception as e:

@@ -90,6 +90,39 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --------------------------------------------------------------- llm provider
+    # LLM-agnostic design (blueprint "Recommended Technology
+    # Stack"). The pipeline never imports a vendor SDK directly; it asks
+    # `get_llm_adapter()` for an `LLMAdapter` implementation. The default
+    # stays `ollama` so sovereign/offline deployments keep working with zero
+    # extra dependencies. Per-role overrides allow a mixed deployment, e.g.
+    # local Ollama for extraction of sensitive data and a cloud model for the
+    # NLI judge over already-authorized evidence (blueprint §5.2).
+    llm_provider: Literal["ollama", "openai", "google", "mistral", "anthropic"] = "ollama"
+    llm_provider_extract: str = ""
+    llm_provider_judge: str = ""
+
+    # Cloud provider API keys. Read by the corresponding adapter lazily; if a
+    # provider is not configured the key stays empty and that adapter is never
+    # instantiated.
+    openai_api_key: SecretStr = Field(
+        default=SecretStr(""), validation_alias="OPENAI_API_KEY"
+    )
+    openai_base_url: str = Field(
+        default="https://api.openai.com/v1",
+        validation_alias="OPENAI_BASE_URL",
+        description=(
+            "OpenAI-compatible endpoint. Set to https://api.mistral.ai/v1 for "
+            "the Mistral adapter, or to a local vLLM/LiteLLLM proxy."
+        ),
+    )
+    google_api_key: SecretStr = Field(
+        default=SecretStr(""), validation_alias="GOOGLE_API_KEY"
+    )
+    anthropic_api_key: SecretStr = Field(
+        default=SecretStr(""), validation_alias="ANTHROPIC_API_KEY"
+    )
+
     # ---------------------------------------------------------------- tokenizer
     # HuggingFace tokenizer used by the chunker for token budgeting. Default is
     # Granite 4.0 H-Tiny (matches the granite4.1:3b Ollama default closely

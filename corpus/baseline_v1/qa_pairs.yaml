@@ -230,3 +230,44 @@
   expected_context: "Members of the Orion-7 team belong to the \"orion7-engineering\" group in the corporate identity provider. Group membership is reviewed every quarter by Anya and revoked within five working days of role change or departure. [...] Read access to Restricted records in GraphVault requires (a) membership in a security group named in the record's policy tag, (b) completion of the Tier-2 Privacy Training, and (c) an explicit grant by the record's Data Steward."
   source_documents: ["01_internal_policy.txt", "03_security_manual.txt"]
   query_type: "summary"
+
+# -------------------------------------------------- global / community-level
+# These questions are designed to exercise the C3 hierarchical-community path
+# (query_type=global). They ask for cross-document thematic synthesis rather
+# than a single fact, so a retriever that only pulls individual chunks should
+# underperform one that consults community summaries.
+
+- id: q31
+  question: "What are the recurring data-governance themes across the Helios corpus, and which documents contribute to each theme?"
+  ground_truth: "Three recurring themes emerge: (1) role accountability for sensitive data — the Data Steward figure appears in the internal staffing policy and in EU Directive 2025/41 Article 14; (2) Restricted-data handling controls — AES-256-GCM at rest, TLS 1.3 in transit, 90-day key rotation, seven-year audit retention, one-hour internal reporting, appearing in the security manual and reinforced by the regulation; (3) vendor concentration on Polaris Systems for both hosting of GraphVault and ingestion connectors, recorded as an open risk in the 12 May weekly review and shaped by the service contract annex."
+  expected_context: "Data Steward [...] AES-256-GCM [...] Polaris Systems [...] GraphVault [...] orion7-engineering"
+  source_documents: ["01_internal_policy.txt", "02_service_contract.txt", "03_security_manual.txt", "04_meeting_minutes.txt", "05_regulation_excerpt.txt"]
+  query_type: "summary"
+
+- id: q32
+  question: "Summarise the chain of accountability that connects the Orion-7 Project Lead to the supervisory authority in the event of a Restricted-data incident."
+  ground_truth: "The Orion-7 Project Lead is Maria Conti, who is the Customer-side contractual escalation contact. The Data Steward for Orion-7 is Anya Volkov, who bears personal responsibility for reporting suspected unauthorised access to the supervisory authority within 72 hours, and for internal escalation to the Data Protection Officer within one hour. Polaris Systems (Luca Ferrari) is the Provider-side escalation contact and must notify the Customer side under Severity-1 within 30 minutes. The chain therefore runs Polaris Systems -> Maria Conti (Customer escalation) -> Anya Volkov (Data Steward, 1-hour DPO notification) -> supervisory authority (72-hour Article 14 notification)."
+  expected_context: "Maria Conti [...] Anya Volkov [...] Luca Ferrari [...] Data Protection Officer within one hour [...] supervisory authority within seventy-two hours"
+  source_documents: ["01_internal_policy.txt", "02_service_contract.txt", "03_security_manual.txt", "04_meeting_minutes.txt", "05_regulation_excerpt.txt"]
+  query_type: "summary"
+
+- id: q33
+  question: "Which entities recur across at least three documents, and what does their recurrence reveal about the corpus structure?"
+  ground_truth: "The recurring entities are Project Orion-7 (internal policy, service contract annex, weekly review), Polaris Systems (contract, weekly review, security manual as the host of GraphVault), GraphVault (contract, security manual, weekly review), and the Data Steward role / Anya Volkov (internal policy, security manual, regulation). Their recurrence reveals that the corpus is organised around a single sensitive project (Orion-7), a single hosted system (GraphVault), a single vendor (Polaris Systems), and a single accountability role (Data Steward) — so cross-document reasoning is essential for any governance question."
+  expected_context: "Project Orion-7 [...] Polaris Systems [...] GraphVault [...] Data Steward"
+  source_documents: ["01_internal_policy.txt", "02_service_contract.txt", "03_security_manual.txt", "04_meeting_minutes.txt"]
+  query_type: "summary"
+
+- id: q34
+  question: "Summarise the contractual, technical, and regulatory controls that together protect Orion-7 onboarding records, grouped by source."
+  ground_truth: "Contractual (02_service_contract): Polaris Systems hosts GraphVault, commits to 99.9% monthly availability, 30-minute Severity-1 response, EEA data residency, and two cleared engineers. Technical (03_security_manual): Restricted classification, AES-256-GCM at rest, TLS 1.3 in transit, 90-day key rotation, seven-year audit retention. Regulatory (05_regulation_excerpt / Article 14): Data Steward designation, 72-hour supervisory notification, documented downgrade decisions, personal accountability. Internal (01_internal_policy): orion7-engineering group, quarterly access review, Tier-2 Privacy Training prerequisite."
+  expected_context: "99.9% monthly availability [...] AES-256-GCM [...] seventy-two hours [...] orion7-engineering [...] Tier-2 Privacy Training"
+  source_documents: ["01_internal_policy.txt", "02_service_contract.txt", "03_security_manual.txt", "05_regulation_excerpt.txt"]
+  query_type: "summary"
+
+- id: q35
+  question: "What are the main open risks for the Orion-7 programme and which controls or actions are in place to mitigate each?"
+  ground_truth: "Open risks: (1) vendor concentration on Polaris Systems for hosting and ingestion — on the risk register pending a contingency plan; (2) capacity pressure — GraphVault at 62% of allocated storage, forecast 80% by end of Q3, action to scope a capacity upgrade; (3) incident recurrence — the 8 May Severity-2 latency incident led to a schedule change for community-recompute and index-rebuild jobs and a follow-up assigned to Sara Klein; (4) key-rotation readiness — the key-rotation drill rescheduled to the week of 19 May. Mitigations combine contractual penalties, technical controls (segmentation of jobs, capacity planning), and governance reviews (quarterly access review by the Data Steward)."
+  expected_context: "Vendor concentration [...] 62% of allocated storage [...] Severity-2 incident affecting GraphVault [...] key rotation drill"
+  source_documents: ["01_internal_policy.txt", "02_service_contract.txt", "04_meeting_minutes.txt"]
+  query_type: "summary"

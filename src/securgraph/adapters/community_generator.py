@@ -10,7 +10,8 @@ from neo4j import AsyncDriver
 from networkx.algorithms.community import louvain_communities
 from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
 
-from securgraph.adapters.ollama import get_ollama_client
+from securgraph.adapters.llm import get_llm_adapter, robust_json_loads
+from securgraph.adapters.llm.base import LLMAdapter
 from securgraph.community.policy_class import (
     AccessLabel,
     partition_edges_by_class,
@@ -74,7 +75,7 @@ async def generate_hierarchical_communities(
         )
 
     settings = get_settings()
-    client = get_ollama_client()
+    adapter = get_llm_adapter()
     written: list[dict[str, Any]] = []
 
     # 3. Per class: Louvain level0 + level1, summarize, write
@@ -95,7 +96,7 @@ async def generate_hierarchical_communities(
         for level, comms in ((0, level_0), (1, level_1)):
             for idx, members in enumerate(comms):
                 comm = await _summarize_and_write_community(
-                    driver, client, settings, tenant_id,
+                    driver, adapter, settings, tenant_id,
                     class_key, class_edges, members, level, idx,
                 )
                 written.append(comm)
@@ -131,7 +132,7 @@ async def generate_hierarchical_communities(
 
 async def _summarize_and_write_community(
     driver: AsyncDriver,
-    client: Any,
+    adapter: LLMAdapter,
     settings: Any,
     tenant_id: str,
     class_key: str,
@@ -165,25 +166,14 @@ async def _summarize_and_write_community(
     )
 
     try:
-        response = await client.chat(
-            model=settings.llm_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            format="json",
-            options={"num_ctx": settings.llm_num_ctx},
+        content = await adapter.chat(
+            system=system_prompt,
+            user=prompt,
+            json_mode=True,
             think=settings.llm_thinking,
+            keep_alive=300,
         )
-        content = (response.message.content or "{}").strip()
-        if content.startswith("```"):
-            lines = content.splitlines()
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            content = "\n".join(lines).strip()
-        data = json.loads(content)
+        data = robust_json_loads(content)
         title = data.get("title") or f"Community L{level} {idx}"
         summary = data.get("summary") or "No summary generated."
     except Exception as e:

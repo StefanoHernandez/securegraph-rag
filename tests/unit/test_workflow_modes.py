@@ -40,12 +40,32 @@ def _build_mocks() -> tuple[Any, Any]:
     return qdrant, graph
 
 
+def _fake_adapter(text: str = "draft") -> Any:
+    """Build a fake LLMAdapter whose chat() returns ``text`` and whose
+    extract_claims / judge_nli return empty results. Used so the workflow
+    exercises its LLM call sites without hitting any real provider."""
+    adapter = MagicMock()
+    adapter.chat = AsyncMock(return_value=text)
+    adapter.extract_claims = AsyncMock(
+        return_value=MagicMock(claims=[])
+    )
+    adapter.judge_nli = AsyncMock(
+        return_value=MagicMock(label="neutral", confidence=0.5, reason="mock")
+    )
+    return adapter
+
+
 @pytest.mark.asyncio
 async def test_vector_mode_skips_graph_retrieval(monkeypatch: pytest.MonkeyPatch) -> None:
     qdrant, graph = _build_mocks()
-    chat = AsyncMock()
-    chat.chat.return_value = MagicMock(message=MagicMock(content="vector answer"))
-    monkeypatch.setattr("securgraph.orchestration.workflow.get_ollama_client", lambda: chat)
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("vector answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("vector answer"),
+    )
 
     workflow = compile_workflow(qdrant, graph)
     result = await workflow.ainvoke(_empty_state("vector"))
@@ -60,9 +80,14 @@ async def test_vector_mode_skips_graph_retrieval(monkeypatch: pytest.MonkeyPatch
 @pytest.mark.asyncio
 async def test_lexical_mode_skips_dense_and_graph(monkeypatch: pytest.MonkeyPatch) -> None:
     qdrant, graph = _build_mocks()
-    chat = AsyncMock()
-    chat.chat.return_value = MagicMock(message=MagicMock(content="lexical answer"))
-    monkeypatch.setattr("securgraph.orchestration.workflow.get_ollama_client", lambda: chat)
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("lexical answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("lexical answer"),
+    )
 
     workflow = compile_workflow(qdrant, graph)
     await workflow.ainvoke(_empty_state("lexical"))
@@ -75,9 +100,14 @@ async def test_lexical_mode_skips_dense_and_graph(monkeypatch: pytest.MonkeyPatc
 @pytest.mark.asyncio
 async def test_graph_mode_skips_vector(monkeypatch: pytest.MonkeyPatch) -> None:
     qdrant, graph = _build_mocks()
-    chat = AsyncMock()
-    chat.chat.return_value = MagicMock(message=MagicMock(content="graph answer"))
-    monkeypatch.setattr("securgraph.orchestration.workflow.get_ollama_client", lambda: chat)
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("graph answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("graph answer"),
+    )
 
     workflow = compile_workflow(qdrant, graph)
     await workflow.ainvoke(_empty_state("graph"))
@@ -90,9 +120,14 @@ async def test_graph_mode_skips_vector(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.asyncio
 async def test_hybrid_mode_runs_both(monkeypatch: pytest.MonkeyPatch) -> None:
     qdrant, graph = _build_mocks()
-    chat = AsyncMock()
-    chat.chat.return_value = MagicMock(message=MagicMock(content="hybrid answer"))
-    monkeypatch.setattr("securgraph.orchestration.workflow.get_ollama_client", lambda: chat)
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("hybrid answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("hybrid answer"),
+    )
 
     workflow = compile_workflow(qdrant, graph)
     await workflow.ainvoke(_empty_state("hybrid"))
@@ -105,9 +140,14 @@ async def test_hybrid_mode_runs_both(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.asyncio
 async def test_auto_mode_defaults_to_hybrid(monkeypatch: pytest.MonkeyPatch) -> None:
     qdrant, graph = _build_mocks()
-    chat = AsyncMock()
-    chat.chat.return_value = MagicMock(message=MagicMock(content="auto answer"))
-    monkeypatch.setattr("securgraph.orchestration.workflow.get_ollama_client", lambda: chat)
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("auto answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("auto answer"),
+    )
 
     workflow = compile_workflow(qdrant, graph)
     await workflow.ainvoke(_empty_state("auto"))

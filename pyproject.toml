@@ -120,6 +120,33 @@ verifier_alt = [
 load_test = [
     "locust>=2.31",
 ]
+# ---------------------------------------------------------------------------
+# LLM provider extras (blueprint §5.2: "LLM providers through stable
+# abstractions"). The default provider is Ollama, which needs no extra deps
+# (already in the core dependencies). Install the extras for the cloud
+# providers you want to enable:
+#   uv pip install -e ".[llm_openai,llm_google,llm_anthropic]"
+# Mistral reuses the OpenAI SDK (OpenAI-compatible endpoint), so it has no
+# separate extra.
+# ---------------------------------------------------------------------------
+llm_openai = [
+    "openai>=1.50",
+]
+llm_google = [
+    "google-genai>=0.5",
+]
+llm_anthropic = [
+    "anthropic>=0.40",
+]
+llm_mistral = [
+    # Mistral's public API is OpenAI-compatible; same SDK, different base_url.
+    "openai>=1.50",
+]
+llm_all = [
+    "openai>=1.50",
+    "google-genai>=0.5",
+    "anthropic>=0.40",
+]
 
 [project.urls]
 Homepage = "https://github.com/meridianlabs/securgraph"
