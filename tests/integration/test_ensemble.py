@@ -3,10 +3,17 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 
-from securgraph.adapters.ollama import judge_nli
+from securgraph.adapters.llm import get_llm_adapter_for, reset_llm_adapter_cache
 from securgraph.config import get_settings
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(autouse=True)
+def clear_adapter_cache():
+    reset_llm_adapter_cache()
+    yield
+    reset_llm_adapter_cache()
 
 
 @pytest.mark.asyncio
@@ -15,29 +22,18 @@ async def test_verifier_ensemble_voting_success(monkeypatch: pytest.MonkeyPatch)
     settings = get_settings()
     settings.feature_verifier_ensemble = True
 
-    mock_client = AsyncMock()
-    
-    # Voter 1 returns contradiction
-    mock_res_1 = MagicMock()
-    mock_res_1.message.content = '{"label": "contradiction", "confidence": 0.9, "reason": "direct contradiction"}'
-    
-    # Voter 2 returns contradiction
-    mock_res_2 = MagicMock()
-    mock_res_2.message.content = '{"label": "contradiction", "confidence": 0.8, "reason": "strict contradiction"}'
-    
-    # Voter 3 returns entailment
-    mock_res_3 = MagicMock()
-    mock_res_3.message.content = '{"label": "entailment", "confidence": 0.75, "reason": "some support"}'
+    adapter = get_llm_adapter_for("judge")
 
-    # Sequential chat returns
-    mock_client.chat.side_effect = [mock_res_1, mock_res_2, mock_res_3]
+    # Sequential chat returns (raw JSON strings)
+    mock_chat = AsyncMock(side_effect=[
+        '{"label": "contradiction", "confidence": 0.9, "reason": "direct contradiction"}',
+        '{"label": "contradiction", "confidence": 0.8, "reason": "strict contradiction"}',
+        '{"label": "entailment", "confidence": 0.75, "reason": "some support"}'
+    ])
 
-    monkeypatch.setattr(
-        "securgraph.adapters.ollama.get_ollama_client",
-        lambda: mock_client
-    )
+    monkeypatch.setattr(adapter, "chat", mock_chat)
 
-    result = await judge_nli("Cane e gatto", "Cane e uccello")
+    result = await adapter.judge_nli("Cane e gatto", "Cane e uccello")
     
     assert result is not None
     # Winning vote should be contradiction since 2/3 voted contradiction
@@ -48,7 +44,7 @@ async def test_verifier_ensemble_voting_success(monkeypatch: pytest.MonkeyPatch)
     assert "strict contradiction" in result.reason
     
     # Verify it called chat 3 times
-    assert mock_client.chat.call_count == 3
+    assert mock_chat.call_count == 3
     
     # Clean up
     settings.feature_verifier_ensemble = False
@@ -60,19 +56,17 @@ async def test_verifier_ensemble_single_voter_fallback(monkeypatch: pytest.Monke
     settings = get_settings()
     settings.feature_verifier_ensemble = False
 
-    mock_client = AsyncMock()
-    mock_res = MagicMock()
-    mock_res.message.content = '{"label": "entailment", "confidence": 0.95, "reason": "clear support"}'
-    mock_client.chat.return_value = mock_res
+    adapter = get_llm_adapter_for("judge")
 
-    monkeypatch.setattr(
-        "securgraph.adapters.ollama.get_ollama_client",
-        lambda: mock_client
+    mock_chat = AsyncMock(
+        return_value='{"label": "entailment", "confidence": 0.95, "reason": "clear support"}'
     )
 
-    result = await judge_nli("Cane e gatto", "Cane e gatto")
+    monkeypatch.setattr(adapter, "chat", mock_chat)
+
+    result = await adapter.judge_nli("Cane e gatto", "Cane e gatto")
     
     assert result is not None
     assert result.label == "entailment"
     assert result.confidence == 0.95
-    assert mock_client.chat.call_count == 1
+    assert mock_chat.call_count == 1

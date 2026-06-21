@@ -1,7 +1,7 @@
 import pytest
 from typing import Any
 from pydantic import ConfigDict
-from securgraph.adapters.ollama import get_ollama_client
+from securgraph.adapters.llm import reset_llm_adapter_cache
 from securgraph.domain import Subject, VerifierStatus, NLILabel
 from securgraph.domain.retrieval import RetrievalEvidence, RetrieverId
 from securgraph.domain.graph import GraphPath
@@ -10,10 +10,10 @@ from securgraph.orchestration.workflow import compile_workflow, QueryState
 pytestmark = pytest.mark.integration
 
 @pytest.fixture(autouse=True)
-def clear_ollama_client_cache():
-    get_ollama_client.cache_clear()
+def clear_adapter_cache():
+    reset_llm_adapter_cache()
     yield
-    get_ollama_client.cache_clear()
+    reset_llm_adapter_cache()
 
 class MockRetrievalEvidence(RetrievalEvidence):
     model_config = ConfigDict(extra="allow")

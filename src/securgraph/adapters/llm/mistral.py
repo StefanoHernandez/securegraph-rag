@@ -54,12 +54,10 @@ class MistralLLMAdapter(OpenAILLMAdapter):
 
 
 def _resolve_mistral_key(settings: Settings) -> str:
-    """Prefer MISTRAL_API_KEY; fall back to OPENAI_API_KEY."""
-    import os
-
-    explicit = os.environ.get("MISTRAL_API_KEY") or ""
-    if explicit:
-        return explicit
+    """Prefer mistral_api_key from settings; fall back to openai_api_key."""
+    key = settings.mistral_api_key.get_secret_value()
+    if key:
+        return key
     return settings.openai_api_key.get_secret_value()
 
 

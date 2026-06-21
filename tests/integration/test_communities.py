@@ -66,12 +66,10 @@ async def test_community_generation_partitions_by_policy_class(
     mock_driver = MagicMock()
     mock_driver.session = lambda: MockSession()
 
-    mock_chat_response = MagicMock()
-    mock_chat_response.message.content = '{"title": "T", "summary": "S"}'
-    mock_ollama = AsyncMock()
-    mock_ollama.chat.return_value = mock_chat_response
+    mock_adapter = AsyncMock()
+    mock_adapter.chat.return_value = '{"title": "T", "summary": "S"}'
     monkeypatch.setattr(
-        "securgraph.adapters.community_generator.get_ollama_client", lambda: mock_ollama
+        "securgraph.adapters.community_generator.get_llm_adapter", lambda: mock_adapter
     )
 
     await generate_hierarchical_communities(driver=mock_driver, tenant_id="t1")
@@ -163,15 +161,11 @@ async def test_global_workflow_routing_and_synthesis(monkeypatch: pytest.MonkeyP
         mock_retrieve
     )
 
-    # Mock Ollama chat synthesis response
-    mock_synthesis_response = MagicMock()
-    mock_synthesis_response.message.content = "Risposta sintetica globale basata sulle comunità."
-    mock_synthesis_client = AsyncMock()
-    mock_synthesis_client.chat.return_value = mock_synthesis_response
-
+    mock_adapter = AsyncMock()
+    mock_adapter.chat.return_value = "Risposta sintetica globale basata sulle comunità."
     monkeypatch.setattr(
-        "securgraph.orchestration.workflow.get_ollama_client",
-        lambda: mock_synthesis_client
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda: mock_adapter
     )
 
     # 1. Compile LangGraph workflow

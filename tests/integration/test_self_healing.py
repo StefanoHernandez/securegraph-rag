@@ -42,9 +42,9 @@ async def test_self_healing_pipeline_execution(monkeypatch: pytest.MonkeyPatch) 
     mock_driver = MagicMock()
     mock_driver.session = lambda: MockSession()
 
-    # 2. Mock Ollama Client for self-healing JSON response
-    mock_chat_response = MagicMock()
-    mock_chat_response.message.content = (
+    # 2. Mock LLM adapter for self-healing JSON response
+    mock_adapter = AsyncMock()
+    mock_adapter.chat.return_value = (
         '{\n'
         '  "source_entity": "Cane",\n'
         '  "incorrect_target_entity": "Rosso",\n'
@@ -53,13 +53,10 @@ async def test_self_healing_pipeline_execution(monkeypatch: pytest.MonkeyPatch) 
         '  "reason": "Il testo originale dichiara esplicitamente che il cane è blu."\n'
         '}'
     )
-    
-    mock_ollama_client = AsyncMock()
-    mock_ollama_client.chat.return_value = mock_chat_response
 
     monkeypatch.setattr(
-        "securgraph.ingestion.self_healing.get_ollama_client",
-        lambda: mock_ollama_client
+        "securgraph.ingestion.self_healing.get_llm_adapter_for",
+        lambda role: mock_adapter
     )
 
     # Reset metrics count before testing
@@ -134,9 +131,13 @@ async def test_workflow_self_healing_integration(monkeypatch: pytest.MonkeyPatch
     # Mock NLI judge return values sequentially
     # First: vector claim NLI check (returns entailment)
     # Second: graph claim NLI check (returns contradiction)
-    mock_judge = AsyncMock()
-    mock_judge.side_effect = [mock_nli_entailment, mock_nli_contradiction]
-    monkeypatch.setattr("securgraph.orchestration.workflow.judge_nli", mock_judge)
+    mock_adapter = MagicMock()
+    mock_adapter.judge_nli = AsyncMock()
+    mock_adapter.judge_nli.side_effect = [mock_nli_entailment, mock_nli_contradiction]
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda role: mock_adapter
+    )
 
     # 1. Construct State Graph inputs
     qdrant = MagicMock()

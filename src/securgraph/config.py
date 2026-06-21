@@ -122,6 +122,9 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr = Field(
         default=SecretStr(""), validation_alias="ANTHROPIC_API_KEY"
     )
+    mistral_api_key: SecretStr = Field(
+        default=SecretStr(""), validation_alias="MISTRAL_API_KEY"
+    )
 
     # ---------------------------------------------------------------- tokenizer
     # HuggingFace tokenizer used by the chunker for token budgeting. Default is
