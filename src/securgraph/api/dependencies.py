@@ -320,3 +320,48 @@ async def get_redis_pool() -> ArqRedis:
         _redis_pool = await create_pool(RedisSettings.from_dsn(_settings.redis_url))
     return _redis_pool
 
+
+async def bootstrap_users() -> None:
+    """Seed demo users if none exist in the database."""
+    import uuid
+    from sqlalchemy import select
+    from securgraph.api.routes.auth import hash_password
+    from securgraph.indexing.db import AuthUserRow
+
+    async with AsyncSessionLocal() as session:
+        try:
+            stmt = select(AuthUserRow)
+            result = await session.execute(stmt)
+            existing = result.scalars().first()
+            if not existing:
+                logger.info("No users found in database. Seeding default demo users.")
+                demo_users = [
+                    AuthUserRow(
+                        id=str(uuid.uuid4()),
+                        username="admin",
+                        password_hash=hash_password("admin123"),
+                        role="admin",
+                        tenant_id="default",
+                    ),
+                    AuthUserRow(
+                        id=str(uuid.uuid4()),
+                        username="analyst",
+                        password_hash=hash_password("analyst123"),
+                        role="analyst",
+                        tenant_id="default",
+                    ),
+                    AuthUserRow(
+                        id=str(uuid.uuid4()),
+                        username="viewer",
+                        password_hash=hash_password("viewer123"),
+                        role="viewer",
+                        tenant_id="default",
+                    ),
+                ]
+                session.add_all(demo_users)
+                await session.commit()
+                logger.info("Default demo users seeded successfully.")
+        except Exception:
+            logger.exception("user_seeding_failed")
+
+

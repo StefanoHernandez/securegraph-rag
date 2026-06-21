@@ -160,6 +160,13 @@ class Settings(BaseSettings):
     audit_tamper_evident: bool = False  # M7+
     feature_self_healing_enabled: bool = False
 
+    # ------------------------------------------------------------- auth settings
+    jwt_secret: SecretStr = Field(
+        default=SecretStr("securgraph-jwt-secret-very-secure-key-default-replace-me"),
+        validation_alias="JWT_SECRET"
+    )
+    auth_enabled: bool = True
+
     # ----------------------------------------------------------- audit integrity
     # HMAC key for tamper-evident audit chaining. Must be set to a random 32+
     # byte hex string and stored *outside* the database (env var, Docker secret,

@@ -209,3 +209,14 @@ class RetrievalEvidenceRow(Base):
     tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     trace: Mapped[QueryTraceRow] = relationship(back_populates="evidence")
+
+
+class AuthUserRow(Base):
+    __tablename__ = "auth_users"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    username: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(64), nullable=False, default="viewer")
+

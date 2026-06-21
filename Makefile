@@ -147,3 +147,10 @@ consistency-check: ## Cross-store consistency check (Postgres ↔ Qdrant ↔ Neo
 .PHONY: baseline
 baseline: ## Run vector/lexical/graph/hybrid baseline comparison (writes eval/results/).
 	eval/.venv/bin/python eval/baseline.py
+
+##@ Web UI
+
+.PHONY: web-dev
+web-dev: ## Run the Next.js development server.
+	npm --prefix web run dev
+
