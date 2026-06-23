@@ -243,6 +243,18 @@ async def ingest_document(
     # ReBAC-gated retrieval will return zero contexts for legitimate readers.
     await _write_chunk_parent_tuples(document_id, [c.chunk_id for c in chunks])
 
+    # --- 5c. FGA: write document owner + direct_viewer tuples --------------
+    # Until now these were seeded manually via /admin/permissions/grant, which
+    # meant a fresh ingest produced documents that even the uploader could not
+    # read. Emit them at ingest so the owner pipeline works zero-touch and the
+    # ReBAC graph reflects the ingestion contract (owner_id / direct_viewers
+    # on IngestionRequest).
+    await _write_document_owner_tuples(
+        document_id,
+        owner_id=request.owner_id,
+        direct_viewers=request.direct_viewers,
+    )
+
     # --- Neo4j Graph Extraction & Persistence -------------------------------
     from securgraph.adapters.llm import get_llm_adapter_for
     from securgraph.adapters.neo4j import get_neo4j_driver
@@ -314,6 +326,58 @@ def load_file(path: str | Path) -> bytes:
     return Path(path).read_bytes()
 
 
+def _fga_user_principal(principal: str) -> str:
+    """Return a fully-qualified FGA user reference (defaults to ``user:<id>``)."""
+    return principal if ":" in principal else f"user:{principal}"
+
+
+async def _write_document_owner_tuples(
+    doc_id: str,
+    *,
+    owner_id: str,
+    direct_viewers: tuple[str, ...] = (),
+) -> None:
+    """Write ``document#owner@user`` and ``document#direct_viewer@user`` tuples.
+
+    Idempotent: re-ingest of the same corpus may hit "already exists"; we
+    log+swallow so reseeding doesn't break.
+    """
+    from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
+
+    from securgraph.api import dependencies as deps
+
+    client = deps._fga_client
+    if client is None:
+        return
+
+    obj = f"document:{doc_id}"
+    writes: list[ClientTuple] = []
+    if owner_id:
+        writes.append(
+            ClientTuple(user=_fga_user_principal(owner_id), relation="owner", object=obj)
+        )
+    for viewer in direct_viewers:
+        if not viewer:
+            continue
+        writes.append(
+            ClientTuple(user=_fga_user_principal(viewer), relation="direct_viewer", object=obj)
+        )
+    if not writes:
+        return
+    try:
+        await client.write(ClientWriteRequest(writes=writes))
+    except Exception as e:
+        import structlog
+
+        structlog.get_logger(__name__).warning(
+            "fga_document_owner_tuple_write_failed",
+            error=str(e),
+            doc_id=doc_id,
+            owner_id=owner_id,
+            direct_viewers_count=len(direct_viewers),
+        )
+
+
 async def _write_chunk_parent_tuples(doc_id: str, chunk_ids: list[str]) -> None:
     """Write chunk:<id>#parent_document@document:<doc_id> tuples to OpenFGA.
 
@@ -339,7 +403,7 @@ async def _write_chunk_parent_tuples(doc_id: str, chunk_ids: list[str]) -> None:
     ]
     try:
         await client.write(ClientWriteRequest(writes=writes))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         # Idempotent reseeds raise 'write_failed_due_to_invalid_input' /
         # 'already exists'; log+swallow so re-ingest doesn't break.
         import structlog

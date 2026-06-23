@@ -37,7 +37,7 @@ import hashlib
 import hmac
 import logging
 from datetime import datetime
-from typing import Any, Type
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,7 +52,7 @@ _INSECURE_WARNED: bool = False  # emit the WARNING only once per process
 
 def _get_audit_key() -> bytes | None:
     """Return the HMAC key bytes, or None if not configured (insecure fallback)."""
-    global _INSECURE_WARNED  # noqa: PLW0603
+    global _INSECURE_WARNED
     raw = get_settings().audit_hmac_key.get_secret_value()
     if not raw:
         if not _INSECURE_WARNED:
@@ -154,9 +154,15 @@ async def chain_evidence_batch(
     """Compute and set sequential ``tamper_hash`` values for a batch of evidence rows.
 
     Uses ``SELECT FOR UPDATE`` to serialise concurrent writers for the same tenant.
+    Rows are sorted by ``evidence_id`` ASC before hashing so the chain assembled
+    here matches the ASC traversal used by :func:`verify_table_chain`. Without
+    this, callers that pass evidence in business order (vector then graph) would
+    produce a chain that verify cannot reproduce.
     """
     if not rows:
         return
+
+    rows = sorted(rows, key=lambda r: r.evidence_id)
 
     tenant_id = rows[0].tenant_id
     exclude_ids = [r.evidence_id for r in rows]
@@ -243,7 +249,7 @@ async def chain_policy_decisions(
 async def verify_table_chain(
     session: AsyncSession,
     tenant_id: str,
-    table_class: Type[Base],
+    table_class: type[Base],
 ) -> tuple[bool, list[str]]:
     """Verify the cryptographic chain for a specific audit table and tenant.
 

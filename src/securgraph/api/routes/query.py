@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from opentelemetry import trace
@@ -15,15 +15,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, get_graph_retriever, get_qdrant_retriever
-from securgraph.indexing.db import QueryTraceRow, RetrievalEvidenceRow
 from securgraph.config import get_settings
-from securgraph.indexing.tamper import chain_query_trace, chain_evidence_batch
-from securgraph.observability import get_tracer
-from securgraph.observability.otel import (
-    CONSENSUS_AGREEMENT,
-    QUERY_COUNT,
-    QUERY_LATENCY_SECS,
-)
 from securgraph.domain import (
     ChannelSummary,
     ConfidenceBlock,
@@ -33,6 +25,14 @@ from securgraph.domain import (
     Subject,
     classify_query,
     utcnow,
+)
+from securgraph.indexing.db import QueryTraceRow, RetrievalEvidenceRow
+from securgraph.indexing.tamper import chain_evidence_batch, chain_query_trace
+from securgraph.observability import get_tracer
+from securgraph.observability.otel import (
+    CONSENSUS_AGREEMENT,
+    QUERY_COUNT,
+    QUERY_LATENCY_SECS,
 )
 from securgraph.orchestration.workflow import compile_workflow
 
@@ -47,8 +47,8 @@ router = APIRouter(tags=["query"])
 )
 async def query_pipeline(
     request: QueryRequest,
-    qdrant: Annotated[any, Depends(get_qdrant_retriever)],
-    graph: Annotated[any, Depends(get_graph_retriever)],
+    qdrant: Annotated[Any, Depends(get_qdrant_retriever)],
+    graph: Annotated[Any, Depends(get_graph_retriever)],
     session: AsyncSession = Depends(get_db_session),
 ) -> QueryResponse:
     """Run the 8-node LangGraph workflow with consensus verification and policy pruning."""
@@ -71,11 +71,17 @@ async def query_pipeline(
         # It will be inserted after the workflow completes so the hash is computed
         # on the final, complete row (answer + latency_ms + completed_at populated).
         settings = get_settings()
+        # started_at is set explicitly here (not via server_default) so the
+        # value is present in the Python object when chain_query_trace hashes
+        # the row. Otherwise the writer hashes started_at=None while the
+        # verifier reads the server-default datetime back from the DB, and the
+        # chain reports every row as tampered.
         trace_row = QueryTraceRow(
             trace_id=trace_id,
             tenant_id=request.tenant_id,
             user_id=request.user_id,
             query=request.query,
+            started_at=utcnow(),
         )
 
         # Pre-classify query intent

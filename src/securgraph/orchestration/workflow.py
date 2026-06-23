@@ -117,9 +117,36 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             from securgraph.indexing.fusion import fuse_rankings
             fused = fuse_rankings(dense, lexical, limit=limit)
 
+            # ReBAC fail-closed BEFORE evidence reaches synthesis: filter the
+            # fused list through OpenFGA so an authenticated tenant member who
+            # is not a viewer of a specific chunk never sees it surface from
+            # the vector path. Without this, multi-tenant scoping alone would
+            # leak intra-tenant chunks across users.
+            fga = getattr(graph, "fga", None)
+            denied_count = 0
+            if fga is not None and fused:
+                chunk_ids = [ev.object_id for ev in fused if getattr(ev, "object_id", None)]
+                authorized_ids, decisions = await fga.filter_chunk_ids(
+                    subject=subject, chunk_ids=chunk_ids, trace_id=trace,
+                )
+                filtered = [ev for ev in fused if ev.object_id in authorized_ids]
+                denied_count = len(fused) - len(filtered)
+                fused = filtered
+
+                # Persist policy decisions for audit lineage. Best-effort: a
+                # failed audit write must not break the query — fail-closed
+                # already happened at the FGA layer.
+                try:
+                    from securgraph.indexing.postgres_writer import write_policy_decisions
+                    async with AsyncSessionLocal() as session:
+                        await write_policy_decisions(session, decisions)
+                except Exception as exc:  # pragma: no cover - audit-best-effort
+                    _LOG.warning("vector_policy_decisions_persist_failed", error=str(exc))
+
             span.set_attribute("securgraph.dense_count", len(dense))
             span.set_attribute("securgraph.lexical_count", len(lexical))
             span.set_attribute("securgraph.fused_count", len(fused))
+            span.set_attribute("securgraph.vector_denied_count", denied_count)
             return {"vector_context": fused}
 
     async def graph_retrieval_node(state: QueryState) -> dict[str, Any]:
