@@ -264,7 +264,7 @@ def _instantiate(provider_id: str, role: LLMRole, settings: Settings) -> LLMAdap
     import importlib
 
     module = importlib.import_module(_PROVIDER_MODULES[provider_id])
-    builder = getattr(module, "build_adapter")
+    builder = module.build_adapter
     return builder(role=role, settings=settings)
 
 
@@ -300,15 +300,15 @@ def reset_llm_adapter_cache() -> None:
 
 
 __all__ = [
-    "AtomicClaim",
     "CLAIM_DECOMPOSITION_SYSTEM_PROMPT",
     "EXTRACT_SYSTEM_PROMPT",
-    "LLMAdapter",
-    "LLMRole",
-    "NLIResult",
     "NLI_SYSTEM_PROMPT_V1",
     "NLI_SYSTEM_PROMPT_V2",
     "NLI_SYSTEM_PROMPT_V3",
+    "AtomicClaim",
+    "LLMAdapter",
+    "LLMRole",
+    "NLIResult",
     "get_llm_adapter",
     "get_llm_adapter_for",
     "reset_llm_adapter_cache",

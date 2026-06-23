@@ -5,11 +5,9 @@ Provides the entrypoint and configuration for arq task execution.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from arq.connections import RedisSettings
-from neo4j import AsyncDriver
 from qdrant_client import QdrantClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -108,7 +106,7 @@ async def async_ingest_task(
                 neo4j_driver=ctx.get("neo4j_driver"),
             )
             print(f"!!! [WORKER] ingest_document returned successfully. status={result.status} !!!")
-            
+
             # The transaction must be explicitly committed by the caller
             await session.commit()
             print("!!! [WORKER] transaction committed successfully !!!")

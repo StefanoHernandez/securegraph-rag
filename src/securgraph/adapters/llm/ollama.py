@@ -27,14 +27,14 @@ from ollama import AsyncClient
 from securgraph.adapters.llm.base import (
     CLAIM_DECOMPOSITION_SYSTEM_PROMPT,
     EXTRACT_SYSTEM_PROMPT,
-    LLMAdapter,
-    LLMRole,
     NLI_SYSTEM_PROMPT_V1,
     NLI_SYSTEM_PROMPT_V2,
     NLI_SYSTEM_PROMPT_V3,
-    NLIResult,
     AtomicClaim,
     ClaimDecomposition,
+    LLMAdapter,
+    LLMRole,
+    NLIResult,
     robust_json_loads,
 )
 from securgraph.config import Settings, get_settings
@@ -282,7 +282,7 @@ class OllamaLLMAdapter(LLMAdapter):
             return NLIResult(label=label, confidence=confidence, reason=reason)
         except Exception as e:
             _LOG.warning("single_nli_vote_failed", error=str(e), temperature=temperature)
-            return NLIResult(label="neutral", confidence=0.0, reason=f"Failed: {str(e)}")
+            return NLIResult(label="neutral", confidence=0.0, reason=f"Failed: {e!s}")
 
     async def judge_nli(self, claim: str, reference: str) -> NLIResult:
         prompt = f"Claim: {claim}\nReference Context: {reference}"

@@ -9,23 +9,24 @@ leveraging our local Ollama instance.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 import sys
-import yaml
-import pandas as pd
+from pathlib import Path
 
+import pandas as pd
+import yaml
 from datasets import Dataset
 from httpx import ASGITransport, AsyncClient
+
 from securgraph.api.main import create_app
 
 # Ragas imports
 try:
-    from ragas import evaluate
-    from ragas.metrics import faithfulness, answer_relevance, context_precision, context_recall
-    from langchain_community.llms import Ollama
     from langchain_community.embeddings import OllamaEmbeddings
-    from ragas.llms import LangchainLLMWrapper
+    from langchain_community.llms import Ollama
+    from ragas import evaluate
     from ragas.embeddings import LangchainEmbeddingsWrapper
+    from ragas.llms import LangchainLLMWrapper
+    from ragas.metrics import answer_relevance, context_precision, context_recall, faithfulness
     RAGAS_AVAILABLE = True
 except ImportError:
     RAGAS_AVAILABLE = False
@@ -41,15 +42,15 @@ async def main() -> None:
         print(f"Collection init warning: {e}")
 
     # Create and ingest a dummy source document for evaluation to populate databases
-    from securgraph.ingestion.service import IngestionRequest, ingest_document
     from securgraph.api.dependencies import AsyncSessionLocal
-    
+    from securgraph.ingestion.service import IngestionRequest, ingest_document
+
     doc_text = (
         "Stefano Hernandez is a software engineer. He is leading the development of SecureGraph, a high-trust Graph-RAG framework designed for regulated environments.\n\n"
         "Stefano is based in Milan. Stefano is a member of the Advanced Agentic Coding team.\n\n"
         "SecureGraph enforces fine-grained access control (ReBAC) on vector and graph databases, records W3C PROV-compliant explainability traces, and performs bidirectional NLI consensus claim verification.\n"
     )
-    
+
     print("Ingesting evaluation source document...")
     request = IngestionRequest(
         tenant_id="mrd",
@@ -58,7 +59,7 @@ async def main() -> None:
         data=doc_text.encode("utf-8"),
         policy_tags=("dev",)
     )
-    
+
     async with AsyncSessionLocal() as session:
         try:
             await ingest_document(session, request)
@@ -74,7 +75,7 @@ async def main() -> None:
         print(f"Error: Golden QA dataset not found at {corpus_path}")
         sys.exit(1)
 
-    with open(corpus_path, "r", encoding="utf-8") as f:
+    with open(corpus_path, encoding="utf-8") as f:
         qa_pairs = yaml.safe_load(f)
 
     print(f"Loaded {len(qa_pairs)} golden QA pairs.")
@@ -82,17 +83,17 @@ async def main() -> None:
     # 2. Build test cases by executing queries through the ASGI app
     app = create_app()
     transport = ASGITransport(app=app)
-    
+
     test_cases = []
-    
+
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         for idx, item in enumerate(qa_pairs, start=1):
             question = item["question"]
             ground_truth = item["ground_truth"]
             expected_context = item["expected_context"]
-            
+
             print(f"[{idx}/{len(qa_pairs)}] Executing Query: {question!r}...")
-            
+
             payload = {
                 "tenant_id": "mrd",
                 "user_id": "user:stefano",
@@ -102,17 +103,17 @@ async def main() -> None:
                     "top_k": 5
                 }
             }
-            
+
             try:
                 resp = await client.post("/query", json=payload)
                 if resp.status_code != 200:
                     print(f"  Warning: Query failed with status {resp.status_code}")
                     print(f"  Response: {resp.text}")
                     continue
-                
+
                 body = resp.json()
                 answer = body["answer"]
-                
+
                 # Reconstruct contexts from the channels summary
                 contexts = []
                 # Vector chunks
@@ -125,10 +126,10 @@ async def main() -> None:
                     graph_paths = body["channels"]["graph"].get("paths", [])
                     for path in graph_paths:
                         contexts.append(str(path))
-                
+
                 if not contexts:
                     contexts = [expected_context]
-                
+
                 test_cases.append({
                     "question": question,
                     "answer": answer,
@@ -137,7 +138,7 @@ async def main() -> None:
                 })
             except Exception as e:
                 print(f"  Error querying pipeline: {e}")
-                
+
     if not test_cases:
         print("No successful test cases executed. Evaluation aborted.")
         sys.exit(1)
@@ -151,7 +152,7 @@ async def main() -> None:
         "answer": [t["answer"] for t in test_cases],
         "ground_truth": [t["ground_truth"] for t in test_cases]
     }
-    
+
     dataset = Dataset.from_dict(data)
 
     # 4. Run Ragas evaluation using local Ollama model if available
@@ -161,10 +162,10 @@ async def main() -> None:
             # Wrap our local Ollama LLM and Embeddings
             local_llm = Ollama(model="granite4.1:3b", base_url="http://localhost:11434")
             local_emb = OllamaEmbeddings(model="granite4.1:3b", base_url="http://localhost:11434")
-            
+
             ragas_llm = LangchainLLMWrapper(local_llm)
             ragas_emb = LangchainEmbeddingsWrapper(local_emb)
-            
+
             # Configure metrics with our local wrappers
             faithfulness.llm = ragas_llm
             answer_relevance.llm = ragas_llm
@@ -172,9 +173,9 @@ async def main() -> None:
             context_precision.llm = ragas_llm
             context_precision.embeddings = ragas_emb
             context_recall.llm = ragas_llm
-            
+
             metrics = [faithfulness, answer_relevance, context_precision, context_recall]
-            
+
             print("Computing Ragas quality metrics (Faithfulness, Answer Relevance, Context Precision/Recall)...")
             result = evaluate(
                 dataset,
@@ -182,7 +183,7 @@ async def main() -> None:
                 llm=ragas_llm,
                 embeddings=ragas_emb
             )
-            
+
             print("\n" + "="*80)
             print("                      RAGAS EVALUATION METRICS REPORT")
             print("="*80)

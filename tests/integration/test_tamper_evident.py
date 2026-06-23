@@ -26,14 +26,10 @@ import pytest
 from sqlalchemy import select
 
 from securgraph.api.dependencies import AsyncSessionLocal
-from securgraph.config import get_settings
-from securgraph.domain import PolicyDecision, utcnow
-from securgraph.domain.policy import PolicyAction, PolicyDecisionValue, PolicyObjectType
-from securgraph.indexing.db import PolicyDecisionRow, QueryTraceRow
-from securgraph.indexing.postgres_writer import write_policy_decisions
+from securgraph.domain import utcnow
 from securgraph.indexing import tamper as tamper_module
+from securgraph.indexing.db import PolicyDecisionRow, QueryTraceRow
 from securgraph.indexing.tamper import (
-    chain_evidence_batch,
     chain_query_trace,
     compute_payload_hmac,
     verify_table_chain,
@@ -241,7 +237,6 @@ async def test_policy_decisions_chain_and_tamper_detection() -> None:
     """
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-    from securgraph.indexing.db import PolicyDecisionRow
     from securgraph.indexing.tamper import chain_policy_decisions
 
     tenant = f"tenant_{uuid.uuid4()}"

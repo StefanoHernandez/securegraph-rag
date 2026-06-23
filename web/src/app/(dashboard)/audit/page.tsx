@@ -50,7 +50,7 @@ interface VerificationReport {
 }
 
 export default function AuditPage() {
-  const [tenantId, setTenantId] = useState("tenant_a");
+  const [tenantId, setTenantId] = useState("default");
   const [traces, setTraces] = useState<AuditTrace[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -136,15 +136,17 @@ export default function AuditPage() {
           <select
             value={tenantId}
             onChange={(e) => {
-              setTenantId(e.target.value);
-              setPage(1);
-              setVerifReport(null);
+              const val = e.target.value;
+              setTenantId(val);
+              localStorage.setItem("securgraph_tenant", val);
+              window.location.reload();
             }}
             className="bg-black/45 border border-border/40 rounded-lg px-2.5 py-1.5 text-xs text-foreground font-mono focus:outline-none focus:border-accent-indigo"
           >
-            <option value="tenant_a">tenant_a (Default)</option>
+            <option value="default">default</option>
             <option value="mrd">mrd</option>
-            <option value="tenant_b">tenant_b</option>
+            <option value="demo_tenant">demo_tenant</option>
+            <option value="test_tenant_async">test_tenant_async</option>
           </select>
           <Button
             size="sm"

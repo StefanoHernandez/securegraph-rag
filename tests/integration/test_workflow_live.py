@@ -1,11 +1,13 @@
-import pytest
 from typing import Any
+
+import pytest
 from pydantic import ConfigDict
+
 from securgraph.adapters.llm import reset_llm_adapter_cache
-from securgraph.domain import Subject, VerifierStatus, NLILabel
-from securgraph.domain.retrieval import RetrievalEvidence, RetrieverId
+from securgraph.domain import Subject
 from securgraph.domain.graph import GraphPath
-from securgraph.orchestration.workflow import compile_workflow, QueryState
+from securgraph.domain.retrieval import RetrievalEvidence, RetrieverId
+from securgraph.orchestration.workflow import QueryState, compile_workflow
 
 pytestmark = pytest.mark.integration
 
@@ -95,12 +97,12 @@ async def test_workflow_live_compile_and_run() -> None:
     assert result["graph_draft"] is not None
     assert len(result["vector_claims"]) > 0
     assert len(result["graph_claims"]) > 0
-    
+
     report = result["consensus_report"]
     assert report is not None
     assert report.trace_id == "trace_workflow_test_123"
     assert report.agreement_score >= 0.0
-    
+
     final_answer = result["final_answer"]
     assert final_answer is not None
     assert "stefano" in final_answer.text.lower()

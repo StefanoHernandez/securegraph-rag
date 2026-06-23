@@ -5,16 +5,17 @@ Provides ReBAC tuple editing, cryptographic chain verification, and Neo4j graph 
 
 from __future__ import annotations
 
-import structlog
 from typing import Any
+
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from openfga_sdk import OpenFgaClient
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from openfga_sdk import OpenFgaClient
 
 from securgraph.api.dependencies import get_db_session, get_openfga_client
-from securgraph.indexing.db import QueryTraceRow, RetrievalEvidenceRow, PolicyDecisionRow
+from securgraph.indexing.db import PolicyDecisionRow, QueryTraceRow, RetrievalEvidenceRow
 from securgraph.indexing.tamper import verify_table_chain
 
 logger = structlog.get_logger(__name__)
@@ -125,8 +126,9 @@ async def list_permissions(
     client: OpenFgaClient = Depends(get_openfga_client),
 ):
     """List direct authorization tuples in the OpenFGA store."""
+    from openfga_sdk import ReadRequestTupleKey
     try:
-        response = await client.read()
+        response = await client.read(body=ReadRequestTupleKey())
         tuples = []
         if response and response.tuples:
             for t in response.tuples:
@@ -194,7 +196,7 @@ async def get_graph_nodes(
 ):
     """Export entities and relationships from Neo4j for force-directed visualizations."""
     from securgraph.adapters.neo4j import get_neo4j_driver
-    
+
     driver = get_neo4j_driver()
     nodes = []
     edges = []

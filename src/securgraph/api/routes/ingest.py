@@ -5,9 +5,9 @@ Allows uploading documents via multipart/form-data and running the full M1 inges
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Annotated
-import uuid
 
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
@@ -19,7 +19,8 @@ from securgraph.domain import Classification, DocumentType
 from securgraph.domain.base import SGModel
 from securgraph.indexing.db import IngestionJobRow
 from securgraph.indexing.postgres_writer import create_ingestion_job
-from securgraph.ingestion.metadata import derive_document_id, source_hash as compute_source_hash
+from securgraph.ingestion.metadata import derive_document_id
+from securgraph.ingestion.metadata import source_hash as compute_source_hash
 from securgraph.ingestion.service import IngestionRequest, ingest_document
 
 router = APIRouter(tags=["ingestion"])

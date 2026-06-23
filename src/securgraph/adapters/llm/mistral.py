@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from securgraph.adapters.llm.base import LLMAdapter, LLMRole
 from securgraph.adapters.llm.openai import OpenAILLMAdapter
-from securgraph.config import Settings, get_settings
+from securgraph.config import Settings
 from securgraph.logging import get_logger
 
 _LOG = get_logger(__name__)

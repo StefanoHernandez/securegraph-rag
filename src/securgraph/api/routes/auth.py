@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Annotated
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -59,7 +57,7 @@ class LoginResponse(BaseModel):
 # JWT helpers
 def create_access_token(user_id: str, username: str, role: str, tenant_id: str) -> str:
     settings = get_settings()
-    expire = datetime.now(timezone.utc) + timedelta(hours=8)
+    expire = datetime.now(UTC) + timedelta(hours=8)
     payload = {
         "sub": user_id,
         "username": username,

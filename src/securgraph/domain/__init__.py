@@ -20,6 +20,11 @@ from securgraph.domain.base import (
     utcnow,
 )
 from securgraph.domain.chunk import Chunk
+from securgraph.domain.community import (
+    Community,
+    CommunityHierarchy,
+    CommunitySummaryResponse,
+)
 from securgraph.domain.consensus import (
     Claim,
     ConsensusReport,
@@ -61,11 +66,6 @@ from securgraph.domain.query import (
     classify_query,
 )
 from securgraph.domain.retrieval import Citation, EvidenceType, RetrievalEvidence, RetrieverId
-from securgraph.domain.community import (
-    Community,
-    CommunityHierarchy,
-    CommunitySummaryResponse,
-)
 
 __all__ = [
     "AgentRun",
@@ -75,7 +75,6 @@ __all__ = [
     "Citation",
     "Claim",
     "Classification",
-    "classify_query",
     "Community",
     "CommunityHierarchy",
     "CommunitySummaryResponse",
@@ -115,6 +114,7 @@ __all__ = [
     "TraceStatus",
     "UserId",
     "VerifierStatus",
+    "classify_query",
     "dump_jsonable",
     "utcnow",
 ]

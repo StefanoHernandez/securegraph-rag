@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { 
   Network, 
@@ -54,6 +54,7 @@ interface GraphNode {
   x?: number;
   y?: number;
   z?: number;
+  __threeObj?: any;
 }
 
 interface GraphLink {
@@ -83,7 +84,7 @@ const CLASSIFICATION_COLORS: Record<string, string> = {
 };
 
 export default function GraphPage() {
-  const [tenantId, setTenantId] = useState("tenant_a");
+  const [tenantId, setTenantId] = useState("default");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -91,6 +92,7 @@ export default function GraphPage() {
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [links, setLinks] = useState<GraphLink[]>([]);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   
   // Filtering and Search
   const [searchQuery, setSearchQuery] = useState("");
@@ -99,6 +101,23 @@ export default function GraphPage() {
   
   // Graph control ref
   const fgRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 600, height: 500 });
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        const { width, height } = entry.contentRect;
+        setDimensions({
+          width: width || 600,
+          height: height || 500
+        });
+      }
+    });
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, []);
 
   useEffect(() => {
     const storedTenant = localStorage.getItem("securgraph_tenant");
@@ -161,22 +180,29 @@ export default function GraphPage() {
     setSelectedClassifications(["public", "internal", "restricted"]);
   };
 
-  // Filter nodes & links based on UI state
-  const filteredNodes = nodes.filter(node => {
+  // Filter nodes & links based on UI state — memoized to keep stable references
+  // (avoids react-force-graph restarting the simulation on every hover re-render)
+  const filteredNodes = useMemo(() => nodes.filter(node => {
     const matchesSearch = node.id.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           node.description.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = selectedTypes.includes(node.type.toLowerCase());
     const matchesClass = selectedClassifications.includes(node.classification.toLowerCase());
     return matchesSearch && matchesType && matchesClass;
-  });
+  }), [nodes, searchQuery, selectedTypes, selectedClassifications]);
 
-  const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+  const filteredNodeIds = useMemo(() => new Set(filteredNodes.map(n => n.id)), [filteredNodes]);
 
-  const filteredLinks = links.filter(link => {
+  const filteredLinks = useMemo(() => links.filter(link => {
     const srcId = typeof link.source === "object" ? link.source.id : link.source;
     const tgtId = typeof link.target === "object" ? link.target.id : link.target;
     return filteredNodeIds.has(srcId) && filteredNodeIds.has(tgtId);
-  });
+  }), [links, filteredNodeIds]);
+
+  // Stable graphData object — only changes when filtered data actually changes
+  const graphData = useMemo(() => ({
+    nodes: filteredNodes,
+    links: filteredLinks
+  }), [filteredNodes, filteredLinks]);
 
   // Unique types and classifications in full dataset
   const uniqueTypes = Array.from(new Set(nodes.map(n => n.type.toLowerCase())));
@@ -203,11 +229,60 @@ export default function GraphPage() {
     });
   };
 
-  // Color and sizing calculations
-  const getNodeColor = (node: any) => {
+  // Build adjacency set for the currently hovered node (O(E) once, then O(1) lookups)
+  const hoveredNeighborIds = useMemo(() => {
+    if (!hoveredNode) return null;
+    const set = new Set<string>();
+    set.add(hoveredNode.id);
+    for (const l of links) {
+      const srcId = typeof l.source === "object" ? l.source.id : l.source;
+      const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+      if (srcId === hoveredNode.id) set.add(tgtId);
+      if (tgtId === hoveredNode.id) set.add(srcId);
+    }
+    return set;
+  }, [hoveredNode, links]);
+
+  // Color and sizing calculations — Obsidian-style dimming on hover
+  const getNodeColor = useCallback((node: any) => {
     const t = (node.type || "").toLowerCase();
-    return ENTITY_COLORS[t] || ENTITY_COLORS.other;
-  };
+    const baseColor = ENTITY_COLORS[t] || ENTITY_COLORS.other;
+    if (!hoveredNeighborIds) return baseColor; // nothing hovered → full brightness
+    if (hoveredNeighborIds.has(node.id)) return baseColor; // neighbour → full brightness
+    // Dim non-neighbours by returning a translucent version
+    return `${baseColor}22`; // hex alpha ≈ 13% opacity
+  }, [hoveredNeighborIds]);
+
+  // Link color: highlight edges of hovered node, dim the rest
+  const getLinkColor = useCallback((link: any) => {
+    if (!hoveredNeighborIds) return "rgba(255,255,255,0.12)";
+    const srcId = typeof link.source === "object" ? link.source.id : link.source;
+    const tgtId = typeof link.target === "object" ? link.target.id : link.target;
+    if (hoveredNeighborIds.has(srcId) && hoveredNeighborIds.has(tgtId)) {
+      return "rgba(99,102,241,0.85)"; // accent-indigo glow for connected edges
+    }
+    return "rgba(255,255,255,0.03)"; // nearly invisible
+  }, [hoveredNeighborIds]);
+
+  // Link width: thicken edges connected to hovered node
+  const getLinkWidth = useCallback((link: any) => {
+    if (!hoveredNeighborIds) return 1.5;
+    const srcId = typeof link.source === "object" ? link.source.id : link.source;
+    const tgtId = typeof link.target === "object" ? link.target.id : link.target;
+    if (hoveredNeighborIds.has(srcId) && hoveredNeighborIds.has(tgtId)) return 3;
+    return 0.5;
+  }, [hoveredNeighborIds]);
+
+
+
+  // Hover handler
+  const handleNodeHover = useCallback((node: any) => {
+    setHoveredNode(node || null);
+    // Change cursor style
+    if (containerRef.current) {
+      containerRef.current.style.cursor = node ? "pointer" : "grab";
+    }
+  }, []);
 
   // Center node in viewport
   const handleFocusNode = (node: any) => {
@@ -256,12 +331,18 @@ export default function GraphPage() {
           <span className="text-xs text-foreground/50 font-mono">Scope Tenant:</span>
           <select
             value={tenantId}
-            onChange={(e) => setTenantId(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              setTenantId(val);
+              localStorage.setItem("securgraph_tenant", val);
+              window.location.reload();
+            }}
             className="bg-black/45 border border-border/40 rounded-lg px-2.5 py-1.5 text-xs text-foreground font-mono focus:outline-none focus:border-accent-indigo"
           >
-            <option value="tenant_a">tenant_a (Default)</option>
+            <option value="default">default</option>
             <option value="mrd">mrd</option>
-            <option value="tenant_b">tenant_b</option>
+            <option value="demo_tenant">demo_tenant</option>
+            <option value="test_tenant_async">test_tenant_async</option>
           </select>
           <Button
             size="sm"
@@ -402,19 +483,61 @@ export default function GraphPage() {
         </div>
 
         {/* Center pane: 3D Force Graph (2 cols) */}
-        <Card className="lg:col-span-2 glassmorphism border-border/50 text-foreground overflow-hidden relative flex flex-col">
-          <div className="flex-1 bg-[#0a0a14]/65 relative">
+        <Card className="lg:col-span-2 glassmorphism border-border/50 text-foreground overflow-hidden relative flex flex-col min-h-[500px]">
+          <div ref={containerRef} className="flex-1 w-full h-full bg-[#0a0a14]/65 relative min-h-[500px]">
+            {filteredNodes.length === 0 && !loading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[#0a0a14]/90 backdrop-blur-sm z-10 gap-4 border border-border/20 rounded-xl">
+                <div className="h-12 w-12 rounded-full bg-accent-indigo/10 flex items-center justify-center text-accent-indigo border border-accent-indigo/20">
+                  <Network className="h-6 w-6 animate-pulse" />
+                </div>
+                <div className="space-y-1.5 max-w-md">
+                  <h3 className="text-sm font-bold text-foreground">Nessun dato nel grafo 3D</h3>
+                  <p className="text-xs text-foreground/50 leading-relaxed font-sans">
+                    Non ci sono entità o relazioni caricate per il tenant <span className="font-mono text-accent-cyan font-bold">{tenantId}</span>.
+                  </p>
+                </div>
+                <div className="flex gap-2.5 mt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setTenantId("mrd");
+                      localStorage.setItem("securgraph_tenant", "mrd");
+                      window.location.reload();
+                    }}
+                    className="text-xs font-bold border-border/40 hover:bg-white/5 cursor-pointer h-8"
+                  >
+                    Passa a tenant "mrd" (Demo)
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={mockFallbackGraph}
+                    className="text-xs font-bold bg-accent-indigo hover:bg-accent-indigo/80 text-white cursor-pointer h-8"
+                  >
+                    Carica dati di test locali
+                  </Button>
+                </div>
+              </div>
+            )}
             <ForceGraph3D
               ref={fgRef}
-              graphData={{ nodes: filteredNodes, links: filteredLinks }}
+              graphData={graphData}
+              width={dimensions.width}
+              height={dimensions.height}
               nodeLabel={(n: any) => `${n.id} (${n.type})`}
               nodeColor={getNodeColor}
               nodeVal={4}
-              linkWidth={1.5}
-              linkColor={() => "rgba(255, 255, 255, 0.12)"}
+              nodeOpacity={1}
+              linkWidth={getLinkWidth}
+              linkColor={getLinkColor}
               linkDirectionalArrowLength={3.5}
               linkDirectionalArrowRelPos={1}
               onNodeClick={handleFocusNode}
+              onNodeHover={handleNodeHover}
+              enableNodeDrag={false}
+              cooldownTicks={100}
+              d3AlphaDecay={0.05}
+              d3VelocityDecay={0.3}
               controlType="trackball"
               backgroundColor="#0a0a14"
             />

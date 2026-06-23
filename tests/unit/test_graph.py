@@ -12,13 +12,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from neo4j import AsyncDriver
 
+from securgraph.adapters.llm.ollama import get_ollama_client
 from securgraph.adapters.neo4j import (
     close_neo4j_driver,
     get_neo4j_driver,
     reset_neo4j_driver_cache,
 )
 from securgraph.adapters.neo4j_writer import write_graph_slice
-from securgraph.adapters.llm.ollama import get_ollama_client
 from securgraph.adapters.ollama import extract_graph_slice
 from securgraph.domain import Chunk, Classification
 from securgraph.domain.graph import (

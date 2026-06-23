@@ -55,7 +55,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0); // 0: routing, 1: retrieval, 2: consensus, 3: synthesis
   const [user, setUser] = useState<any>(null);
-  const [tenantId, setTenantId] = useState("tenant_a");
+  const [tenantId, setTenantId] = useState("default");
   const [userId, setUserId] = useState("admin");
   
   // Query Engine Options
@@ -82,7 +82,7 @@ export default function ChatPage() {
         const parsed = JSON.parse(userStr);
         setUser(parsed);
         setUserId(parsed.id || parsed.username || "admin");
-        setTenantId(storedTenant || parsed.tenant_id || "tenant_a");
+        setTenantId(storedTenant || parsed.tenant_id || "default");
       } catch (e) {
         console.error("Error parsing user from localStorage", e);
       }

@@ -31,8 +31,8 @@ __all__ = [
     "NLIResult",
     "extract_claims",
     "extract_graph_slice",
-    "get_ollama_client",
     "get_ollama_adapter",
+    "get_ollama_client",
     "judge_nli",
 ]
 

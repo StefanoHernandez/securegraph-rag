@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
 import io
+from collections.abc import AsyncIterator
 from unittest.mock import MagicMock
-import pytest
 
+import pytest
 from arq.connections import RedisSettings
 from arq.worker import Worker
 from fastapi import FastAPI, status

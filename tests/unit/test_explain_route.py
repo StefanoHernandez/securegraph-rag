@@ -6,7 +6,7 @@ Exercises trace retrieval, multi-tenant isolation, and ReBAC redaction of denied
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -28,8 +28,8 @@ def mock_query_trace() -> QueryTraceRow:
         user_id="user:stefano",
         query="Who is Stefano?",
         answer="Stefano is a software engineer.",
-        started_at=datetime(2026, 5, 25, 12, 0, 0, tzinfo=timezone.utc),
-        completed_at=datetime(2026, 5, 25, 12, 0, 1, tzinfo=timezone.utc),
+        started_at=datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 5, 25, 12, 0, 1, tzinfo=UTC),
         latency_ms=1000.0,
     )
 
@@ -73,7 +73,7 @@ def mock_policy_decisions() -> list[PolicyDecisionRow]:
             object_type="chunk",
             object_id="chunk_allow_1",
             decision="allow",
-            evaluated_at=datetime(2026, 5, 25, 12, 0, 0, tzinfo=timezone.utc),
+            evaluated_at=datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC),
         ),
         PolicyDecisionRow(
             decision_id="dec_2",
@@ -83,7 +83,7 @@ def mock_policy_decisions() -> list[PolicyDecisionRow]:
             object_type="chunk",
             object_id="chunk_deny_2",
             decision="deny",
-            evaluated_at=datetime(2026, 5, 25, 12, 0, 0, tzinfo=timezone.utc),
+            evaluated_at=datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC),
         ),
     ]
 

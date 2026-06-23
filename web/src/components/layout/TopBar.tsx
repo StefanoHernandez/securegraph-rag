@@ -113,16 +113,22 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
               default
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => handleTenantChange("tenant_a")}
-              className={cn("text-xs cursor-pointer", tenant === "tenant_a" && "text-accent-cyan font-bold")}
+              onClick={() => handleTenantChange("mrd")}
+              className={cn("text-xs cursor-pointer", tenant === "mrd" && "text-accent-cyan font-bold")}
             >
-              tenant_a
+              mrd
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => handleTenantChange("tenant_b")}
-              className={cn("text-xs cursor-pointer", tenant === "tenant_b" && "text-accent-cyan font-bold")}
+              onClick={() => handleTenantChange("demo_tenant")}
+              className={cn("text-xs cursor-pointer", tenant === "demo_tenant" && "text-accent-cyan font-bold")}
             >
-              tenant_b
+              demo_tenant
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => handleTenantChange("test_tenant_async")}
+              className={cn("text-xs cursor-pointer", tenant === "test_tenant_async" && "text-accent-cyan font-bold")}
+            >
+              test_tenant_async
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -6,16 +6,13 @@ and manual span creation.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
 import pytest
 from prometheus_client import REGISTRY
 
 from securgraph.config import Settings
 from securgraph.observability.otel import (
-    CONSENSUS_AGREEMENT,
-    POLICY_DECISION_COUNT,
-    QUERY_COUNT,
-    QUERY_LATENCY_SECS,
     get_tracer,
     setup_observability,
 )

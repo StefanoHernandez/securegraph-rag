@@ -3,15 +3,15 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from securgraph.config import get_settings
-from securgraph.domain import Classification, NLILabel, Subject
+from securgraph.domain import Subject
 from securgraph.domain.consensus import Claim, VerifierStatus
-from securgraph.domain.graph import ExtractedGraphSlice
 from securgraph.ingestion.self_healing import resolve_graph_contradiction
 from securgraph.observability.otel import GRAPH_SELF_HEALING_COUNT
-from securgraph.orchestration.workflow import compile_workflow, QueryState
+from securgraph.orchestration.workflow import QueryState, compile_workflow
 
 pytestmark = pytest.mark.integration
 
@@ -24,7 +24,7 @@ async def test_self_healing_pipeline_execution(monkeypatch: pytest.MonkeyPatch) 
 
     # 1. Mock Neo4j driver and transaction recording
     mock_run = AsyncMock()
-    
+
     class MockTx:
         async def run(self, cypher: str, **kwargs) -> Any:
             return await mock_run(cypher, **kwargs)

@@ -6,7 +6,7 @@ Exercises audit traces pagination, tamper-evident verification, ReBAC tuple mana
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,8 +29,8 @@ def mock_traces() -> list[QueryTraceRow]:
             user_id="user:stefano",
             query="Query 1",
             answer="Answer 1",
-            started_at=datetime(2026, 6, 22, 1, 0, 0, tzinfo=timezone.utc),
-            completed_at=datetime(2026, 6, 22, 1, 0, 1, tzinfo=timezone.utc),
+            started_at=datetime(2026, 6, 22, 1, 0, 0, tzinfo=UTC),
+            completed_at=datetime(2026, 6, 22, 1, 0, 1, tzinfo=UTC),
             latency_ms=100.0,
             tamper_hash="hash-1"
         ),
@@ -40,8 +40,8 @@ def mock_traces() -> list[QueryTraceRow]:
             user_id="user:analyst",
             query="Query 2",
             answer="Answer 2",
-            started_at=datetime(2026, 6, 22, 1, 1, 0, tzinfo=timezone.utc),
-            completed_at=datetime(2026, 6, 22, 1, 1, 2, tzinfo=timezone.utc),
+            started_at=datetime(2026, 6, 22, 1, 1, 0, tzinfo=UTC),
+            completed_at=datetime(2026, 6, 22, 1, 1, 2, tzinfo=UTC),
             latency_ms=2000.0,
             tamper_hash="hash-2"
         )
@@ -59,7 +59,7 @@ async def test_get_audit_traces(
     # Mock execute for traces query
     mock_execute_res = MagicMock()
     mock_execute_res.scalars.return_value.all.return_value = mock_traces
-    
+
     # Mock count query
     mock_count_res = MagicMock()
     mock_count_res.scalar.return_value = 2
@@ -74,7 +74,7 @@ async def test_get_audit_traces(
 
     resp = await client.get("/admin/audit/traces?tenant_id=MRD&page=1&size=2")
     assert resp.status_code == 200
-    
+
     body = resp.json()
     assert body["total"] == 2
     assert len(body["traces"]) == 2
@@ -98,7 +98,7 @@ async def test_verify_audit_chain(
 
     resp = await client.post("/admin/audit/verify-chain", json={"tenant_id": "MRD"})
     assert resp.status_code == 200
-    
+
     body = resp.json()
     assert body["tenant_id"] == "MRD"
     assert body["is_intact"] is False
@@ -114,12 +114,12 @@ async def test_list_permissions(
 ) -> None:
     """Test reading direct permission tuples from OpenFGA store."""
     mock_fga_client = AsyncMock()
-    
+
     mock_tuple_1 = MagicMock()
     mock_tuple_1.key.user = "user:admin"
     mock_tuple_1.key.relation = "viewer"
     mock_tuple_1.key.object = "document:doc1"
-    
+
     mock_tuple_2 = MagicMock()
     mock_tuple_2.key.user = "group:analysts#member"
     mock_tuple_2.key.relation = "group_viewer"
@@ -136,7 +136,7 @@ async def test_list_permissions(
 
     resp = await client.get("/admin/permissions")
     assert resp.status_code == 200
-    
+
     body = resp.json()
     assert "tuples" in body
     assert len(body["tuples"]) == 2
@@ -211,7 +211,7 @@ async def test_get_graph_nodes(
         {"id": "Bob", "type": "Person", "description": "Bob is a person", "classification": "internal"},
         {"id": "Alice", "type": "Person", "description": "Alice is a person", "classification": "public"}
     ]
-    
+
     mock_edges_result = AsyncMock()
     mock_edges_result.data.return_value = [
         {"source": "Bob", "target": "Alice", "type": "KNOWS", "description": "Bob knows Alice", "confidence": 0.9, "classification": "internal"}
@@ -221,7 +221,7 @@ async def test_get_graph_nodes(
 
     resp = await client.get("/admin/graph/nodes?tenant_id=MRD")
     assert resp.status_code == 200
-    
+
     body = resp.json()
     assert "nodes" in body
     assert "links" in body
@@ -254,7 +254,7 @@ async def test_get_graph_communities(
 
     resp = await client.get("/admin/graph/communities?tenant_id=MRD")
     assert resp.status_code == 200
-    
+
     body = resp.json()
     assert "communities" in body
     assert len(body["communities"]) == 1

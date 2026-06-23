@@ -17,12 +17,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from securgraph import __version__
+from securgraph.api.routes import admin as admin_routes
+from securgraph.api.routes import auth as auth_routes
+from securgraph.api.routes import explain as explain_routes
 from securgraph.api.routes import health as health_routes
 from securgraph.api.routes import ingest as ingest_routes
 from securgraph.api.routes import query as query_routes
-from securgraph.api.routes import explain as explain_routes
-from securgraph.api.routes import auth as auth_routes
-from securgraph.api.routes import admin as admin_routes
 from securgraph.config import get_settings
 from securgraph.logging import configure_logging, get_logger
 from securgraph.observability import setup_observability, shutdown_observability

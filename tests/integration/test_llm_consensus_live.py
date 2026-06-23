@@ -1,4 +1,5 @@
 import pytest
+
 from securgraph.adapters.llm import get_llm_adapter, reset_llm_adapter_cache
 
 pytestmark = pytest.mark.integration
@@ -27,7 +28,7 @@ async def test_judge_nli_live() -> None:
     res = await adapter.judge_nli(claim, reference)
     assert res.label == "entailment"
     assert res.confidence >= 0.5
-    
+
     claim_false = "Marco is a lawyer."
     res_false = await adapter.judge_nli(claim_false, reference)
     assert res_false.label in ("contradiction", "neutral")

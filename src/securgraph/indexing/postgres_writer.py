@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from securgraph.config import get_settings
 from securgraph.domain import (
     Chunk,
     Document,
@@ -28,7 +29,6 @@ from securgraph.indexing.db import (
     IngestionProvenanceRow,
     PolicyDecisionRow,
 )
-from securgraph.config import get_settings
 from securgraph.indexing.tamper import chain_policy_decisions
 
 # ---------------------------------------------------------------------------
@@ -254,7 +254,7 @@ async def write_policy_decisions(session: AsyncSession, decisions: list[PolicyDe
     settings = get_settings()
     if settings.audit_tamper_evident:
         await chain_policy_decisions(session, rows, decisions[0].tenant_id)
-        
+
     stmt = pg_insert(PolicyDecisionRow).values(rows)
     # Use ON CONFLICT DO NOTHING to keep inserts idempotent
     stmt = stmt.on_conflict_do_nothing(index_elements=[PolicyDecisionRow.decision_id])

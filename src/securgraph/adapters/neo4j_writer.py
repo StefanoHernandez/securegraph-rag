@@ -170,7 +170,7 @@ async def _repair_transaction(
         DELETE r
         """
         await tx.run(delete_cypher, source_name=source_name, target_name=target_name, tenant_id=tenant_id)
-        
+
         if new_target_name:
             update_cypher = """
             MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})

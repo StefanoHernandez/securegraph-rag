@@ -6,19 +6,19 @@ and input normalization guards using property-based testing and mocks.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from hypothesis import given, strategies as st, assume
+from hypothesis import assume, given
+from hypothesis import strategies as st
 
 from securgraph.domain import Chunk, Classification, Subject
 from securgraph.domain.policy import (
     OpenFGAPolicyAdapter,
-    PolicyDecision,
     PolicyDecisionValue,
-    PolicyObjectType,
 )
 from securgraph.ingestion.parsers import normalize_text
-from securgraph.ingestion.service import IngestionRequest, ingest_document, IngestionError
+from securgraph.ingestion.service import IngestionError, IngestionRequest, ingest_document
 
 pytestmark = pytest.mark.integration
 
@@ -42,7 +42,7 @@ async def test_tenant_and_user_isolation_property(user_a: str, user_b: str, tena
     mock_fga_client.check.return_value = mock_response
 
     adapter = OpenFGAPolicyAdapter(mock_fga_client)
-    
+
     subject_b = Subject(user_id=f"user:{user_b}", tenant_id=tenant_id)
     trace_id = "trace_adversarial_123"
 

@@ -62,7 +62,7 @@ export default function IngestPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Form Fields
-  const [tenantId, setTenantId] = useState("tenant_a");
+  const [tenantId, setTenantId] = useState("default");
   const [ownerId, setOwnerId] = useState("user:admin");
   const [documentType, setDocumentType] = useState("policy");
   const [classification, setClassification] = useState("internal");
@@ -90,7 +90,7 @@ export default function IngestPage() {
     if (userStr) {
       try {
         const parsed = JSON.parse(userStr);
-        setTenantId(storedTenant || parsed.tenant_id || "tenant_a");
+        setTenantId(storedTenant || parsed.tenant_id || "default");
         setOwnerId(`user:${parsed.id || parsed.username || "admin"}`);
       } catch (e) {
         console.error(e);

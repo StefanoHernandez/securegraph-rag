@@ -33,7 +33,6 @@ pytestmark = pytest.mark.unit
 def _isolate_llm_env(monkeypatch):
     """Force a clean env for each test and clear the adapter cache so the
     factory re-reads settings on every call."""
-    import os
     # Clear any LLM-related environment variables that might have leaked from the shell/dotenv
     for key in list(os.environ.keys()):
         if key.startswith("SECURGRAPH_LLM_") or key in ("OPENAI_API_KEY", "MISTRAL_API_KEY"):
@@ -41,16 +40,16 @@ def _isolate_llm_env(monkeypatch):
 
     monkeypatch.setenv("SECURGRAPH_ENV", "test")
     monkeypatch.setenv("SECURGRAPH_OLLAMA_URL", "http://localhost:11434")
-    
+
     from securgraph.config import Settings
     # Build a mock settings loader that ignores the local `.env` file
     def mock_get_settings():
         return Settings(_env_file=None)
     mock_get_settings.cache_clear = lambda: None
-    
+
     monkeypatch.setattr("securgraph.config.get_settings", mock_get_settings)
     monkeypatch.setattr("securgraph.adapters.llm.base.get_settings", mock_get_settings)
-    
+
     reset_llm_adapter_cache()
     yield
     reset_llm_adapter_cache()

@@ -270,11 +270,11 @@ async def get_policy_adapter(
 # Retriever singletons (initialised lazily on first request)
 # ---------------------------------------------------------------------------
 
-_qdrant_retriever: "QdrantRetriever | None" = None  # type: ignore[name-defined]
-_graph_retriever: "AuthorizedGraphRetriever | None" = None  # type: ignore[name-defined]
+_qdrant_retriever: QdrantRetriever | None = None  # type: ignore[name-defined]
+_graph_retriever: AuthorizedGraphRetriever | None = None  # type: ignore[name-defined]
 
 
-async def get_qdrant_retriever() -> "QdrantRetriever":  # type: ignore[name-defined]
+async def get_qdrant_retriever() -> QdrantRetriever:  # type: ignore[name-defined]
     """Return a cached QdrantRetriever singleton.
 
     Uses the process-wide embedding adapter and a QdrantClient pointed at the
@@ -295,7 +295,7 @@ async def get_qdrant_retriever() -> "QdrantRetriever":  # type: ignore[name-defi
 
 async def get_graph_retriever(
     policy: OpenFGAPolicyAdapter = Depends(get_policy_adapter),  # noqa: B008
-) -> "AuthorizedGraphRetriever":  # type: ignore[name-defined]
+) -> AuthorizedGraphRetriever:  # type: ignore[name-defined]
     """Return a cached AuthorizedGraphRetriever singleton.
 
     Combines the Neo4j driver with the OpenFGA policy adapter to enforce
@@ -324,7 +324,9 @@ async def get_redis_pool() -> ArqRedis:
 async def bootstrap_users() -> None:
     """Seed demo users if none exist in the database."""
     import uuid
+
     from sqlalchemy import select
+
     from securgraph.api.routes.auth import hash_password
     from securgraph.indexing.db import AuthUserRow
 

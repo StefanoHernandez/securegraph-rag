@@ -23,17 +23,17 @@ from typing import Any
 from securgraph.adapters.llm.base import (
     CLAIM_DECOMPOSITION_SYSTEM_PROMPT,
     EXTRACT_SYSTEM_PROMPT,
-    LLMAdapter,
-    LLMRole,
     NLI_SYSTEM_PROMPT_V1,
     NLI_SYSTEM_PROMPT_V2,
     NLI_SYSTEM_PROMPT_V3,
-    NLIResult,
     AtomicClaim,
     ClaimDecomposition,
+    LLMAdapter,
+    LLMRole,
+    NLIResult,
     robust_json_loads,
 )
-from securgraph.config import Settings, get_settings
+from securgraph.config import Settings
 from securgraph.domain.graph import ExtractedGraphSlice
 from securgraph.logging import get_logger
 
@@ -133,16 +133,56 @@ class OpenAILLMAdapter(LLMAdapter):
         # ``think`` is mapped to reasoning_effort on models that expose it; we
         # don't pass it by default to avoid changing behaviour on models that
         # don't support it.
-        response = await self._client.chat.completions.create(
-            model=self._model,
-            messages=[
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            temperature=temperature,
-            response_format={"type": "json_object"} if json_mode else None,
-        )
-        return response.choices[0].message.content or ""
+            "temperature": temperature,
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        import asyncio
+
+        from openai import APIStatusError, RateLimitError
+
+        max_attempts = 5
+        delay = 2.0
+        backoff_factor = 2.0
+
+        for attempt in range(max_attempts):
+            try:
+                response = await self._client.chat.completions.create(**kwargs)
+                return response.choices[0].message.content or ""
+            except (RateLimitError, APIStatusError) as e:
+                is_rate_limit = isinstance(e, RateLimitError) or (
+                    isinstance(e, APIStatusError) and e.status_code == 429
+                )
+                if not is_rate_limit or attempt == max_attempts - 1:
+                    raise
+
+                # Parse retry-after from headers if present, else use current backoff delay
+                retry_after = None
+                if hasattr(e, "response") and e.response is not None:
+                    retry_after = e.response.headers.get("retry-after")
+
+                try:
+                    sleep_time = float(retry_after) if retry_after else delay
+                except (ValueError, TypeError):
+                    sleep_time = delay
+
+                _LOG.warning(
+                    "openai_rate_limited_retrying",
+                    attempt=attempt + 1,
+                    sleep_time=sleep_time,
+                    error=str(e),
+                )
+                await asyncio.sleep(sleep_time)
+                delay *= backoff_factor
+
+        return ""
 
     # ----- extract_graph_slice ----------------------------------------------
 
@@ -245,7 +285,7 @@ class OpenAILLMAdapter(LLMAdapter):
             return NLIResult(label=label, confidence=confidence, reason=reason)
         except Exception as e:
             _LOG.warning("openai_nli_vote_failed", error=str(e), temperature=temperature)
-            return NLIResult(label="neutral", confidence=0.0, reason=f"Failed: {str(e)}")
+            return NLIResult(label="neutral", confidence=0.0, reason=f"Failed: {e!s}")
 
     async def judge_nli(self, claim: str, reference: str) -> NLIResult:
         prompt = f"Claim: {claim}\nReference Context: {reference}"

@@ -25,12 +25,12 @@ def test_password_hashing() -> None:
     """Verify that hashed passwords can be verified and are unique."""
     password = "SuperSecurePassword123!"
     hashed = hash_password(password)
-    
+
     assert hashed != password
     assert ":" in hashed
     assert verify_password(password, hashed) is True
     assert verify_password("WrongPassword", hashed) is False
-    
+
     # Assert unique salts (two hashes of same password differ)
     hashed_2 = hash_password(password)
     assert hashed != hashed_2
@@ -39,6 +39,7 @@ def test_password_hashing() -> None:
 def test_access_token_creation() -> None:
     """Verify that access tokens encode payload correctly and can be decoded."""
     import jwt
+
     from securgraph.config import get_settings
 
     settings = get_settings()

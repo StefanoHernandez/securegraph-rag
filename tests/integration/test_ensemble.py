@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
+
 import pytest
 
 from securgraph.adapters.llm import get_llm_adapter_for, reset_llm_adapter_cache
@@ -34,7 +35,7 @@ async def test_verifier_ensemble_voting_success(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(adapter, "chat", mock_chat)
 
     result = await adapter.judge_nli("Cane e gatto", "Cane e uccello")
-    
+
     assert result is not None
     # Winning vote should be contradiction since 2/3 voted contradiction
     assert result.label == "contradiction"
@@ -42,10 +43,10 @@ async def test_verifier_ensemble_voting_success(monkeypatch: pytest.MonkeyPatch)
     assert result.confidence == 0.85
     assert "direct contradiction" in result.reason
     assert "strict contradiction" in result.reason
-    
+
     # Verify it called chat 3 times
     assert mock_chat.call_count == 3
-    
+
     # Clean up
     settings.feature_verifier_ensemble = False
 
@@ -65,7 +66,7 @@ async def test_verifier_ensemble_single_voter_fallback(monkeypatch: pytest.Monke
     monkeypatch.setattr(adapter, "chat", mock_chat)
 
     result = await adapter.judge_nli("Cane e gatto", "Cane e gatto")
-    
+
     assert result is not None
     assert result.label == "entailment"
     assert result.confidence == 0.95
