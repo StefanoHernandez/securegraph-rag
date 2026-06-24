@@ -9,7 +9,7 @@ from securgraph.domain.graph import GraphPath
 from securgraph.domain.retrieval import RetrievalEvidence, RetrieverId
 from securgraph.orchestration.workflow import QueryState, compile_workflow
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.live]
 
 @pytest.fixture(autouse=True)
 def clear_adapter_cache():

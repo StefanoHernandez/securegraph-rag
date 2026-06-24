@@ -35,7 +35,7 @@ Components:
 | Embeddings       | BGE-M3 (multilingual)    | Dense + sparse in one pass                       |
 | Chunker tokenizer | HF `ibm-granite/granite-4.0-h-tiny` | Token budgeting (offline after first cache) |
 | Workers          | Arq + Redis              | Async ingestion, community recompute             |
-| Frontend         | Next.js + react-flow (planned, not yet built) | Chat, explain, admin, audit views |
+| Frontend         | Next.js 16 + @xyflow/react + react-force-graph-3d (built) | Dashboard, chat, ingest, explain, permissions, graph, health, audit views |
 | Observability    | OpenTelemetry → Jaeger   | Distributed traces, metrics, audit               |
 
 ## Prerequisites
@@ -100,7 +100,7 @@ corpus/{seed,permissions,golden}/
 scripts/                    # eval, baselines, figures, load test
 docs/{eval,research,sprints,paper}/
 deploy/k8s/                 # Helm chart (planned)
-web/                        # Next.js frontend (planned, not yet built)
+web/                        # Next.js frontend (built — Forensic Vault UI)
 wiki/                       # Local project wiki and engineering documentation
 ```
 

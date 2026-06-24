@@ -2,7 +2,7 @@ import pytest
 
 from securgraph.adapters.llm import get_llm_adapter, reset_llm_adapter_cache
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.live]
 
 @pytest.fixture(autouse=True)
 def clear_adapter_cache():

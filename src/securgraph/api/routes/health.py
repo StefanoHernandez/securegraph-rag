@@ -141,8 +141,8 @@ async def ping_openfga(client: OpenFgaClient) -> ComponentReport:
     response_description="Service health and per-component status.",
 )
 async def health(
-    session: AsyncSession = Depends(get_db_session),  # noqa: B008
-    openfga_client: OpenFgaClient = Depends(get_openfga_client),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),
+    openfga_client: OpenFgaClient = Depends(get_openfga_client),
 ) -> JSONResponse:
     """Return overall health."""
     from securgraph.config import get_settings

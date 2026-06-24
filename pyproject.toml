@@ -189,7 +189,8 @@ select = [
     "S",    # bandit
 ]
 ignore = [
-    "S101", # asserts ok in tests
+    "S101",  # asserts ok in tests
+    "B008",  # Depends(...) in defaults is the FastAPI idiom, not a bug
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -234,6 +235,7 @@ markers = [
     "integration: requires running backends (docker compose up)",
     "adversarial: security property tests (Hypothesis)",
     "slow: long-running tests",
+    "live: hits a real LLM/network endpoint; flaky, excluded from default runs",
 ]
 
 # ----------------------------------------------------------------------------

@@ -14,10 +14,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, get_redis_pool
+from securgraph.api.routes.auth import require_user
 from securgraph.config import get_settings
 from securgraph.domain import Classification, DocumentType
 from securgraph.domain.base import SGModel
-from securgraph.indexing.db import IngestionJobRow
+from securgraph.indexing.db import AuthUserRow, IngestionJobRow
 from securgraph.indexing.postgres_writer import create_ingestion_job
 from securgraph.ingestion.metadata import derive_document_id
 from securgraph.ingestion.metadata import source_hash as compute_source_hash
@@ -68,10 +69,21 @@ async def ingest_file(
     ] = Classification.INTERNAL,
     policy_tags: Annotated[str, Form(description="Comma-separated policy tags for ReBAC")] = "",
     title_override: Annotated[str | None, Form(description="Optional custom title")] = None,
-    session: AsyncSession = Depends(get_db_session),  # noqa: B008
-    redis: ArqRedis = Depends(get_redis_pool),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),
+    redis: ArqRedis = Depends(get_redis_pool),
+    current_user: AuthUserRow | None = Depends(require_user),
 ) -> IngestResponse:
     """Run full ingestion pipeline: parse, chunk, bind policy, and index."""
+    # Tenant binding: a non-admin token may only ingest into its own tenant.
+    if (
+        current_user is not None
+        and current_user.role != "admin"
+        and tenant_id != current_user.tenant_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token tenant does not match the ingestion tenant.",
+        )
     if ":" in owner_id and not owner_id.startswith("user:"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -174,7 +186,7 @@ async def ingest_file(
 )
 async def get_ingest_status(
     job_id: str,
-    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),
 ) -> IngestionJobStatusResponse:
     """Look up current state and execution metrics of an ingestion job."""
     row = await session.get(IngestionJobRow, job_id)

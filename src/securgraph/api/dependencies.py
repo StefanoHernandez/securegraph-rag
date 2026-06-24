@@ -6,6 +6,7 @@ Provides reusable async database sessions and other API-level resources.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import structlog
 from fastapi import Depends
@@ -15,6 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from securgraph.config import Settings, get_settings
 from securgraph.domain.policy import OpenFGAPolicyAdapter
+
+if TYPE_CHECKING:
+    from securgraph.indexing.graph_retriever import AuthorizedGraphRetriever
+    from securgraph.indexing.vector_retriever import QdrantRetriever
 
 logger = structlog.get_logger(__name__)
 
@@ -257,7 +262,7 @@ async def get_openfga_client() -> OpenFgaClient:
 
 
 async def get_policy_adapter(
-    client: OpenFgaClient = Depends(get_openfga_client),  # noqa: B008
+    client: OpenFgaClient = Depends(get_openfga_client),
 ) -> OpenFGAPolicyAdapter:
     """Dependency provider for OpenFGAPolicyAdapter."""
     global _policy_adapter
@@ -270,11 +275,11 @@ async def get_policy_adapter(
 # Retriever singletons (initialised lazily on first request)
 # ---------------------------------------------------------------------------
 
-_qdrant_retriever: QdrantRetriever | None = None  # type: ignore[name-defined]
-_graph_retriever: AuthorizedGraphRetriever | None = None  # type: ignore[name-defined]
+_qdrant_retriever: QdrantRetriever | None = None
+_graph_retriever: AuthorizedGraphRetriever | None = None
 
 
-async def get_qdrant_retriever() -> QdrantRetriever:  # type: ignore[name-defined]
+async def get_qdrant_retriever() -> QdrantRetriever:
     """Return a cached QdrantRetriever singleton.
 
     Uses the process-wide embedding adapter and a QdrantClient pointed at the
@@ -294,8 +299,8 @@ async def get_qdrant_retriever() -> QdrantRetriever:  # type: ignore[name-define
 
 
 async def get_graph_retriever(
-    policy: OpenFGAPolicyAdapter = Depends(get_policy_adapter),  # noqa: B008
-) -> AuthorizedGraphRetriever:  # type: ignore[name-defined]
+    policy: OpenFGAPolicyAdapter = Depends(get_policy_adapter),
+) -> AuthorizedGraphRetriever:
     """Return a cached AuthorizedGraphRetriever singleton.
 
     Combines the Neo4j driver with the OpenFGA policy adapter to enforce

@@ -13,8 +13,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session
+from securgraph.api.routes.auth import require_user
 from securgraph.domain.base import SGModel
-from securgraph.indexing.db import PolicyDecisionRow, QueryTraceRow, RetrievalEvidenceRow
+from securgraph.indexing.db import (
+    AuthUserRow,
+    PolicyDecisionRow,
+    QueryTraceRow,
+    RetrievalEvidenceRow,
+)
 
 router = APIRouter(tags=["explainability"])
 
@@ -53,8 +59,19 @@ async def explain_query(
     tenant_id: str = Query(..., description="Tenant scope to enforce isolation"),
     user_id: str = Query(..., description="User ID requesting the audit"),
     session: AsyncSession = Depends(get_db_session),
+    current_user: AuthUserRow | None = Depends(require_user),
 ) -> ExplainReport:
     """Compile W3C-aligned provenance report for a past RAG trace."""
+    # Tenant binding: a non-admin token may only audit its own tenant.
+    if (
+        current_user is not None
+        and current_user.role != "admin"
+        and tenant_id != current_user.tenant_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token tenant does not match the requested tenant.",
+        )
     # 1. Fetch trace row
     trace = await session.get(QueryTraceRow, trace_id)
     if not trace:

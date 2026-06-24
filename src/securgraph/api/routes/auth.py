@@ -22,6 +22,9 @@ from securgraph.indexing.db import AuthUserRow
 
 router = APIRouter(tags=["authentication"])
 security = HTTPBearer()
+# Non-erroring bearer for gated dependencies: when auth is disabled we must be
+# able to skip the credential entirely instead of 403-ing on a missing header.
+bearer_optional = HTTPBearer(auto_error=False)
 
 # Password Hashing Utilities using PBKDF2 (standard library, zero dependencies)
 def hash_password(password: str) -> str:
@@ -67,12 +70,10 @@ def create_access_token(user_id: str, username: str, role: str, tenant_id: str) 
     }
     return jwt.encode(payload, settings.jwt_secret.get_secret_value(), algorithm="HS256")
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    session: AsyncSession = Depends(get_db_session),
-) -> AuthUserRow:
+async def _resolve_user(token: str, session: AsyncSession) -> AuthUserRow:
+    """Decode a JWT and load the backing user, or raise 401. Shared by the
+    hard (`get_current_user`) and gated (`require_user`) dependencies."""
     settings = get_settings()
-    token = credentials.credentials
     try:
         payload = jwt.decode(
             token, settings.jwt_secret.get_secret_value(), algorithms=["HS256"]
@@ -94,6 +95,48 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
+        )
+    return user
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    session: AsyncSession = Depends(get_db_session),
+) -> AuthUserRow:
+    """Hard authentication — always requires a valid token (used by /auth/me)."""
+    return await _resolve_user(credentials.credentials, session)
+
+
+async def require_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_optional),
+    session: AsyncSession = Depends(get_db_session),
+) -> AuthUserRow | None:
+    """Gated authentication for business routes.
+
+    When ``auth_enabled`` is False (tests / open demo) the route is left open
+    and this returns ``None``. When True, a valid Bearer token is mandatory.
+    """
+    if not get_settings().auth_enabled:
+        return None
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await _resolve_user(credentials.credentials, session)
+
+
+async def require_admin(
+    user: AuthUserRow | None = Depends(require_user),
+) -> AuthUserRow | None:
+    """Gated admin authorization. With auth on, requires an admin-role user."""
+    if not get_settings().auth_enabled:
+        return None
+    if user is None or user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator role required.",
         )
     return user
 

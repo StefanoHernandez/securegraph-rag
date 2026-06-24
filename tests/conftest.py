@@ -22,11 +22,13 @@ def _test_env_defaults() -> Iterator[None]:
     os.environ.setdefault("SECURGRAPH_ENV", "test")
     os.environ.setdefault("SECURGRAPH_OTEL_ENABLED", "false")
     os.environ.setdefault("SECURGRAPH_LOG_LEVEL", "WARNING")
+    # Auth is gated by this flag; unit/route tests run open (token-free) unless
+    # a test explicitly enables it (see test_auth_enforcement.py).
+    os.environ.setdefault("SECURGRAPH_AUTH_ENABLED", "false")
     # Flags that break unit-test isolation when the real .env enables them.
     os.environ.setdefault("SECURGRAPH_AUDIT_TAMPER_EVIDENT", "false")
     os.environ.setdefault("SECURGRAPH_FEATURE_SELF_HEALING_ENABLED", "false")
     os.environ.setdefault("SECURGRAPH_FEATURE_WORKERS_ENABLED", "false")
-    os.environ.setdefault("SECURGRAPH_FEATURE_COMMUNITIES_ENABLED", "false")
     os.environ.setdefault("SECURGRAPH_FEATURE_VERIFIER_ENSEMBLE", "false")
     # Clear cached Settings so the autouse env vars take effect on the first call.
     from securgraph.config import get_settings

@@ -155,7 +155,6 @@ class Settings(BaseSettings):
     # Feature flags that activate as later milestones land. Default OFF; set to
     # True in tests + when each milestone is wired.
     feature_workers_enabled: bool = False  # M6+
-    feature_communities_enabled: bool = False  # M6+
     feature_verifier_ensemble: bool = False  # M7+
     audit_tamper_evident: bool = False  # M7+
     feature_self_healing_enabled: bool = False

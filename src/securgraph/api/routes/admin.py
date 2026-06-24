@@ -15,7 +15,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, get_openfga_client
-from securgraph.indexing.db import PolicyDecisionRow, QueryTraceRow, RetrievalEvidenceRow
+from securgraph.api.routes.auth import require_admin
+from securgraph.indexing.db import (
+    AuthUserRow,
+    PolicyDecisionRow,
+    QueryTraceRow,
+    RetrievalEvidenceRow,
+)
 from securgraph.indexing.tamper import verify_table_chain
 
 logger = structlog.get_logger(__name__)
@@ -39,7 +45,8 @@ async def get_audit_traces(
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(20, ge=1, le=100, description="Page size"),
     session: AsyncSession = Depends(get_db_session),
-):
+    _admin: AuthUserRow | None = Depends(require_admin),
+) -> dict[str, Any]:
     """Retrieve paginated query traces for audit logs."""
     offset = (page - 1) * size
     stmt = (
@@ -81,7 +88,8 @@ async def get_audit_traces(
 async def verify_audit_chain(
     body: dict[str, Any],
     session: AsyncSession = Depends(get_db_session),
-):
+    _admin: AuthUserRow | None = Depends(require_admin),
+) -> dict[str, Any]:
     """Cryptographically verify the integrity of the audit databases using HMAC-chaining."""
     tenant_id = body.get("tenant_id")
     if not tenant_id:
@@ -124,7 +132,8 @@ async def verify_audit_chain(
 @router.get("/permissions")
 async def list_permissions(
     client: OpenFgaClient = Depends(get_openfga_client),
-):
+    _admin: AuthUserRow | None = Depends(require_admin),
+) -> dict[str, Any]:
     """List direct authorization tuples in the OpenFGA store."""
     from openfga_sdk import ReadRequestTupleKey
     try:
@@ -150,7 +159,8 @@ async def list_permissions(
 async def grant_permission(
     req: PermissionTupleRequest,
     client: OpenFgaClient = Depends(get_openfga_client),
-):
+    _admin: AuthUserRow | None = Depends(require_admin),
+) -> dict[str, Any]:
     """Write a direct relationship tuple to OpenFGA (grant access)."""
     from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
     try:
@@ -170,7 +180,8 @@ async def grant_permission(
 async def revoke_permission(
     req: PermissionTupleRequest,
     client: OpenFgaClient = Depends(get_openfga_client),
-):
+    _admin: AuthUserRow | None = Depends(require_admin),
+) -> dict[str, Any]:
     """Delete a direct relationship tuple from OpenFGA (revoke access)."""
     from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
     try:
@@ -193,7 +204,8 @@ async def revoke_permission(
 @router.get("/graph/nodes")
 async def get_graph_nodes(
     tenant_id: str = Query(..., description="Tenant scope identifier"),
-):
+    _admin: AuthUserRow | None = Depends(require_admin),
+) -> dict[str, Any]:
     """Export entities and relationships from Neo4j for force-directed visualizations."""
     from securgraph.adapters.neo4j import get_neo4j_driver
 
@@ -247,7 +259,8 @@ async def get_graph_nodes(
 @router.get("/graph/communities")
 async def get_graph_communities(
     tenant_id: str = Query(..., description="Tenant scope identifier"),
-):
+    _admin: AuthUserRow | None = Depends(require_admin),
+) -> dict[str, Any]:
     """Retrieve community summaries from Neo4j community nodes."""
     from securgraph.adapters.neo4j import get_neo4j_driver
 

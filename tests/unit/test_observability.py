@@ -39,10 +39,10 @@ def test_setup_observability_idempotent() -> None:
 
     with (
         patch("securgraph.observability.otel.TracerProvider") as mock_provider_cls,
-        patch("securgraph.observability.otel.BatchSpanProcessor") as mock_processor,
-        patch("securgraph.observability.otel.OTLPSpanExporter") as mock_exporter,
+        patch("securgraph.observability.otel.BatchSpanProcessor"),
+        patch("securgraph.observability.otel.OTLPSpanExporter"),
         patch("securgraph.observability.otel.start_http_server") as mock_start_http,
-        patch("opentelemetry.trace.set_tracer_provider") as mock_set_provider,
+        patch("opentelemetry.trace.set_tracer_provider"),
         patch("opentelemetry.instrumentation.httpx.HTTPXClientInstrumentor") as mock_httpx_inst,
         patch("opentelemetry.instrumentation.asyncpg.AsyncPGInstrumentor") as mock_asyncpg_inst,
     ):
