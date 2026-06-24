@@ -41,7 +41,7 @@ import json
 import re
 from abc import ABC, abstractmethod
 from functools import lru_cache
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
@@ -265,7 +265,7 @@ def _instantiate(provider_id: str, role: LLMRole, settings: Settings) -> LLMAdap
 
     module = importlib.import_module(_PROVIDER_MODULES[provider_id])
     builder = module.build_adapter
-    return builder(role=role, settings=settings)
+    return cast(LLMAdapter, builder(role=role, settings=settings))
 
 
 # Cached per (provider_id, role) so repeated calls reuse the same instance.

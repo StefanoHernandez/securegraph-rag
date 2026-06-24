@@ -124,7 +124,7 @@ def _overlap_tail(text: str, overlap_tokens: int) -> str:
     if len(ids) <= overlap_tokens:
         return text
     tail_ids = ids[-overlap_tokens:]
-    return enc.decode(tail_ids, skip_special_tokens=True)
+    return str(enc.decode(tail_ids, skip_special_tokens=True))
 
 
 # ---------------------------------------------------------------------------

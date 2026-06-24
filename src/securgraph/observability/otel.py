@@ -110,7 +110,7 @@ def setup_observability(settings: Settings) -> None:
             from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
             HTTPXClientInstrumentor().instrument()
-            AsyncPGInstrumentor().instrument()
+            AsyncPGInstrumentor().instrument()  # type: ignore[no-untyped-call]
             _LOG.info("otel_automatic_instrumentations_configured")
         except Exception as exc:
             _LOG.warning("otel_automatic_instrumentations_failed", error=str(exc))

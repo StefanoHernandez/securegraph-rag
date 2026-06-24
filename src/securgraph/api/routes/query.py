@@ -193,7 +193,7 @@ async def query_pipeline(
             trace_row.claim_nli_score = confidence.claim_nli_score
 
             evidence_rows = []
-            for rank, ev in enumerate(vector_context):
+            for ev in vector_context:
                 evidence_rows.append(
                     RetrievalEvidenceRow(
                         evidence_id=ev.evidence_id,

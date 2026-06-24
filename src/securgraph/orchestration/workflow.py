@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -20,6 +21,11 @@ from securgraph.logging import get_logger
 from securgraph.observability import get_tracer
 
 _LOG = get_logger(__name__)
+
+# Strong references to fire-and-forget background tasks. asyncio only keeps a
+# weak reference to a bare create_task() result, so without this a self-healing
+# task could be garbage-collected mid-run and silently cancelled (RUF006).
+_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
 
 
 def _bounded_context(items: list[Any], token_budget: int) -> str:
@@ -186,7 +192,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
 
                 retriever = AuthorizedCommunityRetriever(
                     driver=getattr(graph, "driver", None) or get_neo4j_driver(),
-                    fga=getattr(graph, "fga", None),
+                    fga=getattr(graph, "fga", None),  # type: ignore[arg-type]
                 )
 
                 summaries = await retriever.retrieve_communities(
@@ -374,12 +380,11 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                             from securgraph.adapters.neo4j import get_neo4j_driver
                             driver = get_neo4j_driver()
 
-                        import asyncio
-
                         from securgraph.ingestion.self_healing import resolve_graph_contradiction
 
-                        # Run self-healing as a background task
-                        asyncio.create_task(
+                        # Run self-healing as a background task. Hold a strong
+                        # reference until it finishes so the loop can't GC it.
+                        _healing_task = asyncio.create_task(
                             resolve_graph_contradiction(
                                 driver=driver,
                                 tenant_id=state["subject"].tenant_id,
@@ -387,6 +392,8 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                                 vector_context=state["vector_draft"] or "",
                             )
                         )
+                        _BACKGROUND_TASKS.add(_healing_task)
+                        _healing_task.add_done_callback(_BACKGROUND_TASKS.discard)
 
             span.set_attribute("securgraph.agreement_score", report.agreement_score)
             span.set_attribute("securgraph.high_trust", report.high_trust)

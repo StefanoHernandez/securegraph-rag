@@ -27,7 +27,7 @@ DOC_PATH = Path(__file__).parent.parent / "corpus" / "baseline_v1" / "documents"
 async def main() -> None:
     text = DOC_PATH.read_text(encoding="utf-8")
     print(f"chunk len: {len(text)} chars, N_TRIALS={N_TRIALS}")
-    print(f"baseline (pre-fix audit): 33% rate of relations>0, mean rel=8.0 stdev=8.0\n")
+    print("baseline (pre-fix audit): 33% rate of relations>0, mean rel=8.0 stdev=8.0\n")
 
     rel_counts: list[int] = []
     ent_counts: list[int] = []

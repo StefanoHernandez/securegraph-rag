@@ -137,7 +137,7 @@ async def list_permissions(
     """List direct authorization tuples in the OpenFGA store."""
     from openfga_sdk import ReadRequestTupleKey
     try:
-        response = await client.read(body=ReadRequestTupleKey())
+        response = await client.read(body=ReadRequestTupleKey())  # type: ignore[no-untyped-call]
         tuples = []
         if response and response.tuples:
             for t in response.tuples:
@@ -152,7 +152,7 @@ async def list_permissions(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch FGA tuples from store: {e}"
-        )
+        ) from e
 
 
 @router.post("/permissions/grant")
@@ -173,7 +173,7 @@ async def grant_permission(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to write FGA tuple: {e}"
-        )
+        ) from e
 
 
 @router.post("/permissions/revoke")
@@ -194,7 +194,7 @@ async def revoke_permission(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete FGA tuple: {e}"
-        )
+        ) from e
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +253,7 @@ async def get_graph_nodes(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch Neo4j graph nodes: {e}"
-        )
+        ) from e
 
 
 @router.get("/graph/communities")
@@ -288,4 +288,4 @@ async def get_graph_communities(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch communities from Neo4j: {e}"
-        )
+        ) from e

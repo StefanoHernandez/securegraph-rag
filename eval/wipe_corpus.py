@@ -48,7 +48,9 @@ async def wipe_postgres(tenant_id: str) -> dict[str, int]:
     async with AsyncSessionLocal() as session:
         for table in PG_TABLES_WITH_TENANT:
             result = await session.execute(
-                text(f"DELETE FROM {table} WHERE tenant_id = :tid"),
+                # {table} comes from the trusted PG_TABLES_WITH_TENANT constant,
+                # never user input; the tenant value is bound as a parameter.
+                text(f"DELETE FROM {table} WHERE tenant_id = :tid"),  # noqa: S608
                 {"tid": tenant_id},
             )
             counts[table] = result.rowcount or 0

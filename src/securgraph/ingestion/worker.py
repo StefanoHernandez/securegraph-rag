@@ -5,7 +5,7 @@ Provides the entrypoint and configuration for arq task execution.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from arq.connections import RedisSettings
 from qdrant_client import QdrantClient
@@ -139,7 +139,7 @@ async def async_ingest_task(
 class WorkerSettings:
     """arq Worker configuration."""
 
-    functions = [async_ingest_task]
+    functions: ClassVar = [async_ingest_task]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

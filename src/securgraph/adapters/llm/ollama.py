@@ -11,7 +11,7 @@ the baseline harness:
       offline ingestion phase is the only place where the heavy extract model
       runs, and we want the VRAM back before the online query phase).
     - extract_claims / judge_nli / generation keep the model warm for
-      ``keep_alive=300`` seconds so the 35×5 baseline queries do not pay a
+      ``keep_alive=300`` seconds so the 35x5 baseline queries do not pay a
       reload penalty on every call.
 
 ``build_adapter`` is the entry point used by the factory in ``base.py``.

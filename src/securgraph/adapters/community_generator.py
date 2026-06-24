@@ -233,19 +233,19 @@ async def emit_community_authorization_tuples(
 
     tuples: list[ClientTuple] = []
     for key in buckets:
-        label = label_by_key.get(key)
-        if label is None:
+        lbl = label_by_key.get(key)
+        if lbl is None:
             continue
         obj = f"policy_class:{key}"
-        if label.owner:
+        if lbl.owner:
             tuples.append(
-                ClientTuple(user=_fga_user(label.owner), relation="owner", object=obj)
+                ClientTuple(user=_fga_user(lbl.owner), relation="owner", object=obj)
             )
-        for g in sorted(label.group_viewers):
+        for g in sorted(lbl.group_viewers):
             tuples.append(
                 ClientTuple(user=f"group:{g}#member", relation="group_viewer", object=obj)
             )
-        for d in sorted(label.direct_viewers):
+        for d in sorted(lbl.direct_viewers):
             tuples.append(
                 ClientTuple(user=_fga_user(d), relation="direct_viewer", object=obj)
             )

@@ -185,4 +185,4 @@ def test_backcompat_shim_still_works():
     assert callable(extract_claims)
     assert callable(extract_graph_slice)
     assert callable(judge_nli)
-    assert hasattr(get_ollama_client, "__call__")
+    assert callable(get_ollama_client)

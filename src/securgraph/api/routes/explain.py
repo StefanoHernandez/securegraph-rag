@@ -143,7 +143,7 @@ async def explain_query(
     ]
 
     # Map sources and outputs as entities
-    prov_entities = [
+    prov_entities: list[dict[str, Any]] = [
         {
             "id": f"entity:query:{trace_id}",
             "type": "prov:Entity",

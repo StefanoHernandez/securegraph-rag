@@ -228,7 +228,7 @@ async def main() -> None:
                 if result.get("parse_ok"):
                     by_combo[combo_key]["parse_ok_count"] += 1
                     per_doc["parse_ok"] += 1
-                    recall, hits = _entity_recall(result["entities"], gt)
+                    recall, _hits = _entity_recall(result["entities"], gt)
                     by_combo[combo_key]["recalls"].append(recall)
                     by_combo[combo_key]["rel_counts"].append(result["n_relations"])
                     by_combo[combo_key]["ent_counts"].append(result["n_entities"])

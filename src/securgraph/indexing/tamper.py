@@ -39,7 +39,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.config import get_settings
@@ -103,9 +103,9 @@ def compute_payload_hmac(data: dict[str, Any], prev_hash: str) -> str:
     canonical = "|".join(parts) + f"|prev_hash={prev_hash}"
     message = canonical.encode("utf-8")
 
-    key = _get_audit_key()
-    if key is not None:
-        return hmac.new(key, message, hashlib.sha256).hexdigest()
+    hmac_key = _get_audit_key()
+    if hmac_key is not None:
+        return hmac.new(hmac_key, message, hashlib.sha256).hexdigest()
     # Insecure fallback: plain SHA-256 without a secret key
     return hashlib.sha256(message).hexdigest()
 
@@ -284,7 +284,7 @@ async def verify_table_chain(
         Backfill them by re-running the appropriate ``chain_*`` function.
     """
     if table_class == QueryTraceRow:
-        stmt = (
+        stmt: Select[Any] = (
             select(QueryTraceRow)
             .where(QueryTraceRow.tenant_id == tenant_id)
             .order_by(QueryTraceRow.started_at.asc())
