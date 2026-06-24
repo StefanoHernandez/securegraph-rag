@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Menu, LogOut, Settings, User, Building } from "lucide-react";
+import { Menu, LogOut, Settings, User, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ClassificationStamp } from "@/components/forensic";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,47 +19,38 @@ interface TopBarProps {
   setSidebarCollapsed: () => void;
 }
 
+const TENANTS = ["default", "mrd", "demo_tenant", "test_tenant_async"];
+
+const TITLES: Record<string, { eyebrow: string; title: string }> = {
+  "/": { eyebrow: "section 00", title: "Operator Briefing" },
+  "/chat": { eyebrow: "section 01", title: "Query Console" },
+  "/ingest": { eyebrow: "section 02", title: "Evidence Intake" },
+  "/explain": { eyebrow: "section 03", title: "Provenance" },
+  "/permissions": { eyebrow: "section 04", title: "Clearance Control" },
+  "/graph": { eyebrow: "section 05", title: "Knowledge Graph" },
+  "/audit": { eyebrow: "section 06", title: "Chain of Custody" },
+  "/health": { eyebrow: "section 07", title: "System Health" },
+};
+
 export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [tenant, setTenant] = useState("default");
 
-  // Get current page title for breadcrumbs
-  const getPageTitle = () => {
-    switch (pathname) {
-      case "/":
-        return "Dashboard";
-      case "/chat":
-        return "Chat / RAG Query";
-      case "/ingest":
-        return "Document Ingestion";
-      case "/explain":
-        return "Provenance Explorer";
-      case "/permissions":
-        return "Permissions Management";
-      case "/health":
-        return "System Health";
-      case "/audit":
-        return "Tamper-Evident Audit Ledger";
-      case "/graph":
-        return "Knowledge Graph Explorer";
-      default:
-        if (pathname?.startsWith("/explain/")) return "Provenance Detail";
-        return "SecurGraph RAG";
-    }
-  };
+  const meta =
+    TITLES[pathname ?? "/"] ??
+    (pathname?.startsWith("/explain")
+      ? { eyebrow: "section 03", title: "Provenance Detail" }
+      : { eyebrow: "secure", title: "SecureGraph" });
 
   useEffect(() => {
-    const savedTenant = localStorage.getItem("securgraph_tenant");
-    if (savedTenant) {
-      setTenant(savedTenant);
-    }
+    const saved = localStorage.getItem("securgraph_tenant");
+    if (saved) setTenant(saved);
   }, []);
 
   const handleTenantChange = (selected: string) => {
     setTenant(selected);
     localStorage.setItem("securgraph_tenant", selected);
-    // Reload page or trigger context update to reload data for tenant
     window.location.reload();
   };
 
@@ -69,102 +61,100 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
   };
 
   return (
-    <header className="h-16 border-b border-border/30 bg-black/40 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between px-6">
-      {/* Left side: Hamburger + Page Title */}
+    <header className="h-16 border-b border-hairline bg-vault/80 backdrop-blur-sm sticky top-0 z-20 flex items-center justify-between px-5 md:px-7">
       <div className="flex items-center gap-4">
         <Button
           variant="ghost"
           size="icon"
           onClick={setSidebarCollapsed}
-          className="md:hidden text-foreground/80 hover:bg-white/5"
+          className="md:hidden text-bone-dim"
+          aria-label="Toggle navigation"
         >
           <Menu className="h-5 w-5" />
         </Button>
-        <div className="flex flex-col">
-          <span className="text-[10px] text-foreground/45 uppercase tracking-widest font-mono">SecurGraph RAG</span>
-          <span className="text-sm font-semibold text-foreground tracking-tight">{getPageTitle()}</span>
+        <div className="flex flex-col leading-tight">
+          <span className="mono-meta">{meta.eyebrow}</span>
+          <span className="font-display text-sm font-semibold tracking-wide text-bone">
+            {meta.title}
+          </span>
         </div>
       </div>
 
-      {/* Right side: Tenant selector + User Menu */}
-      <div className="flex items-center gap-4">
-        {/* Tenant Selector */}
+      <div className="flex items-center gap-3">
+        {/* Session clearance stamp */}
+        <ClassificationStamp level="restricted" className="hidden sm:inline-flex" />
+
+        {/* Tenant selector */}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
               <Button
                 variant="outline"
                 size="sm"
-                className="bg-black/30 border-border/50 text-foreground hover:bg-white/5 gap-2 px-3 h-9 text-xs"
+                className="gap-2 h-8 font-mono text-[0.6875rem] uppercase tracking-wider"
               >
-                <Building className="h-3.5 w-3.5 text-accent-cyan" />
-                <span className="hidden sm:inline">Tenant:</span>
-                <span className="font-semibold text-accent-cyan">{tenant}</span>
+                <span className="text-bone-dim">tenant</span>
+                <span className="text-bone">{tenant}</span>
+                <ChevronDown className="h-3 w-3 text-bone-dim" />
               </Button>
             }
           />
-          <DropdownMenuContent className="w-48 bg-[#12121a] border-border/50 text-foreground">
-            <DropdownMenuLabel className="text-xs text-foreground/50">Switch Tenant</DropdownMenuLabel>
-            <DropdownMenuSeparator className="bg-border/30" />
-            <DropdownMenuItem
-              onClick={() => handleTenantChange("default")}
-              className={cn("text-xs cursor-pointer", tenant === "default" && "text-accent-cyan font-bold")}
-            >
-              default
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => handleTenantChange("mrd")}
-              className={cn("text-xs cursor-pointer", tenant === "mrd" && "text-accent-cyan font-bold")}
-            >
-              mrd
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => handleTenantChange("demo_tenant")}
-              className={cn("text-xs cursor-pointer", tenant === "demo_tenant" && "text-accent-cyan font-bold")}
-            >
-              demo_tenant
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => handleTenantChange("test_tenant_async")}
-              className={cn("text-xs cursor-pointer", tenant === "test_tenant_async" && "text-accent-cyan font-bold")}
-            >
-              test_tenant_async
-            </DropdownMenuItem>
+          <DropdownMenuContent className="w-52">
+            <DropdownMenuLabel className="mono-meta">
+              switch tenant
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {TENANTS.map((t) => (
+              <DropdownMenuItem
+                key={t}
+                onClick={() => handleTenantChange(t)}
+                className={cn(
+                  "font-mono text-xs cursor-pointer",
+                  tenant === t && "text-signal-amber"
+                )}
+              >
+                {t}
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* User Account Menu */}
+        {/* Operator menu */}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
               <Button
-                variant="ghost"
+                variant="outline"
                 size="icon"
-                className="rounded-full h-9 w-9 bg-accent-indigo/10 border border-accent-indigo/20 text-accent-indigo hover:bg-accent-indigo/25"
+                className="h-8 w-8"
+                aria-label="Operator menu"
               >
                 <User className="h-4 w-4" />
               </Button>
             }
           />
-          <DropdownMenuContent className="w-56 bg-[#12121a] border-border/50 text-foreground" align="end">
+          <DropdownMenuContent className="w-56" align="end">
             <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none text-foreground">Stefano Hernandez</p>
-                <p className="text-xs leading-none text-foreground/50">stefano@securegraph.local</p>
+              <div className="flex flex-col gap-1">
+                <p className="text-sm text-bone">Stefano Hernandez</p>
+                <p className="mono-meta">operator · clearance restricted</p>
               </div>
             </DropdownMenuLabel>
-            <DropdownMenuSeparator className="bg-border/30" />
-            <DropdownMenuItem className="text-xs cursor-pointer gap-2" onClick={() => router.push("/")}>
-              <User className="h-3.5 w-3.5 text-foreground/50" />
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-xs cursor-pointer gap-2"
+              onClick={() => router.push("/")}
+            >
+              <User className="h-3.5 w-3.5 text-bone-dim" />
               Profile
             </DropdownMenuItem>
             <DropdownMenuItem className="text-xs cursor-pointer gap-2">
-              <Settings className="h-3.5 w-3.5 text-foreground/50" />
+              <Settings className="h-3.5 w-3.5 text-bone-dim" />
               Settings
             </DropdownMenuItem>
-            <DropdownMenuSeparator className="bg-border/30" />
+            <DropdownMenuSeparator />
             <DropdownMenuItem
-              className="text-xs cursor-pointer text-accent-rose focus:text-accent-rose gap-2"
+              className="text-xs cursor-pointer text-seal-red gap-2"
               onClick={handleLogout}
             >
               <LogOut className="h-3.5 w-3.5" />

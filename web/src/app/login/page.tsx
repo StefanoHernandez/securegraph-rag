@@ -2,10 +2,9 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, Lock, User, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Panel, ClassificationStamp } from "@/components/forensic";
 import { api } from "@/lib/api";
 import { UserSession } from "@/lib/types";
 
@@ -53,94 +52,83 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex-1 flex items-center justify-center min-h-screen px-4 bg-[#0a0a0f]/40 relative z-10">
-      {/* Glow effect behind the card */}
-      <div className="absolute w-[450px] h-[450px] bg-gradient-to-r from-accent-indigo/10 via-accent-cyan/10 to-accent-emerald/10 rounded-full filter blur-[80px] pointer-events-none -z-10 animate-pulse"></div>
-
-      <Card className="w-full max-w-md glassmorphism-card border-border/50 text-foreground relative overflow-hidden">
-        {/* Subtle top light bar */}
-        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-accent-indigo via-accent-cyan to-accent-emerald opacity-75"></div>
-
-        <CardHeader className="space-y-3 pt-8 pb-6 text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-accent-indigo/20 text-accent-indigo border border-accent-indigo/30">
-            <ShieldCheck className="h-6 w-6" />
-          </div>
-          <div className="space-y-1">
-            <CardTitle className="text-2xl font-black tracking-tight gradient-text">
-              SecurGraph RAG
-            </CardTitle>
-            <CardDescription className="text-foreground/50 text-xs uppercase tracking-wider font-mono">
-              Verifiable RAG Access Control
-            </CardDescription>
-          </div>
-        </CardHeader>
+    <div className="flex-1 flex items-center justify-center min-h-screen px-4 relative z-10">
+      <Panel
+        classification="restricted"
+        label="secure access terminal"
+        headRight={<ClassificationStamp level="restricted" />}
+        className="w-full max-w-md declassify"
+      >
+        <div className="px-6 pt-8 pb-5 text-center border-b border-hairline">
+          <p className="font-display text-2xl font-bold tracking-[0.18em] text-bone select-none">
+            SECURE<span className="text-signal-amber">GRAPH</span>
+          </p>
+          <p className="mono-meta mt-2">verifiable rag · access control</p>
+        </div>
 
         <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4 pb-6">
+          <div className="px-6 py-6 space-y-4">
             {error && (
-              <div className="flex items-start gap-2.5 p-3 rounded-lg bg-accent-rose/10 border border-accent-rose/20 text-accent-rose text-xs">
-                <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                <span className="leading-relaxed">{error}</span>
+              <div
+                className="classification-gutter px-3 py-2.5 font-mono text-xs text-seal-red"
+                style={{ ["--gutter-color" as string]: "var(--seal-red)" }}
+              >
+                ⚠ {error}
               </div>
             )}
 
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-foreground/70" htmlFor="username">
-                Username
+            <div className="space-y-1.5">
+              <label className="mono-meta block" htmlFor="username">
+                operator id
               </label>
-              <div className="relative">
-                <User className="absolute left-3 top-3 h-4 w-4 text-foreground/40" />
-                <Input
-                  id="username"
-                  type="text"
-                  placeholder="admin, analyst, or viewer"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="pl-10 bg-black/40 border-border/50 text-foreground focus-visible:ring-accent-indigo/50 h-10 text-sm"
-                  autoComplete="off"
-                  disabled={loading}
-                />
-              </div>
+              <Input
+                id="username"
+                type="text"
+                placeholder="admin, analyst, or viewer"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="bg-vault-raised border-hairline text-bone text-sm focus-visible:border-signal-amber h-10"
+                autoComplete="off"
+                disabled={loading}
+              />
             </div>
 
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-foreground/70" htmlFor="password">
-                Password
+            <div className="space-y-1.5">
+              <label className="mono-meta block" htmlFor="password">
+                passphrase
               </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3 h-4 w-4 text-foreground/40" />
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10 bg-black/40 border-border/50 text-foreground focus-visible:ring-accent-indigo/50 h-10 text-sm"
-                  disabled={loading}
-                />
-              </div>
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="bg-vault-raised border-hairline text-bone text-sm focus-visible:border-signal-amber h-10"
+                disabled={loading}
+              />
             </div>
 
-            <div className="text-xs text-foreground/40 text-center mt-2 font-mono">
-              Demo logins: admin/admin123, analyst/analyst123, viewer/viewer123
-            </div>
-          </CardContent>
-
-          <CardFooter className="pt-2 pb-8 flex flex-col gap-4">
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-accent-indigo via-accent-cyan to-accent-emerald text-black font-bold hover:opacity-90 transition h-10 shadow-lg"
+              className="w-full h-10"
               disabled={loading}
             >
               {loading ? (
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-black border-t-transparent"></div>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
               ) : (
                 "Authenticate Session"
               )}
             </Button>
-          </CardFooter>
+          </div>
+
+          <div className="px-6 pb-6 pt-1 border-t border-hairline">
+            <p className="mono-meta normal-case leading-relaxed">
+              demo credentials · admin/admin123 · analyst/analyst123 ·
+              viewer/viewer123
+            </p>
+          </div>
         </form>
-      </Card>
+      </Panel>
     </div>
   );
 }

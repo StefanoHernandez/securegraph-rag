@@ -8,15 +8,13 @@ import {
   LayoutDashboard,
   MessageSquare,
   UploadCloud,
-  HelpCircle,
+  GitBranch,
   ShieldAlert,
-  HeartPulse,
-  FileCode,
+  Activity,
+  ScrollText,
   Network,
   ChevronLeft,
   ChevronRight,
-  ShieldCheck,
-  UserCheck
 } from "lucide-react";
 
 interface SidebarProps {
@@ -24,52 +22,60 @@ interface SidebarProps {
   setCollapsed: (collapsed: boolean) => void;
 }
 
+// Dossier index — order follows the evidence lifecycle, not alphabetised nav.
+const navItems = [
+  { name: "Briefing", code: "00", href: "/", icon: LayoutDashboard },
+  { name: "Query", code: "01", href: "/chat", icon: MessageSquare },
+  { name: "Intake", code: "02", href: "/ingest", icon: UploadCloud },
+  { name: "Provenance", code: "03", href: "/explain", icon: GitBranch },
+  { name: "Clearance", code: "04", href: "/permissions", icon: ShieldAlert },
+  { name: "Graph", code: "05", href: "/graph", icon: Network },
+  { name: "Custody Ledger", code: "06", href: "/audit", icon: ScrollText },
+  { name: "Health", code: "07", href: "/health", icon: Activity },
+];
+
 export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   const pathname = usePathname();
-
-  const navItems = [
-    { name: "Dashboard", href: "/", icon: LayoutDashboard },
-    { name: "Chat / Query", href: "/chat", icon: MessageSquare },
-    { name: "Ingestion", href: "/ingest", icon: UploadCloud },
-    { name: "Provenance", href: "/explain", icon: HelpCircle },
-    { name: "Permissions", href: "/permissions", icon: ShieldAlert },
-    { name: "System Health", href: "/health", icon: HeartPulse },
-    { name: "Audit Ledger", href: "/audit", icon: FileCode },
-    { name: "Graph Explorer", href: "/graph", icon: Network },
-  ];
 
   return (
     <aside
       className={cn(
-        "glassmorphism h-screen sticky top-0 flex flex-col transition-all duration-300 z-30 border-r border-border/50",
-        collapsed ? "w-16" : "w-64"
+        "h-screen sticky top-0 z-30 flex flex-col bg-sidebar border-r border-hairline transition-all duration-300",
+        collapsed ? "w-16" : "w-60"
       )}
     >
-      {/* Brand Header */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-border/30">
-        {!collapsed && (
-          <Link href="/" className="flex items-center gap-2 font-bold text-lg select-none">
-            <span className="p-1 rounded bg-accent-indigo text-black">
-              <ShieldCheck className="h-5 w-5" />
+      {/* Brand */}
+      <div className="h-16 flex items-center justify-between px-4 border-b border-hairline">
+        {!collapsed ? (
+          <Link href="/" className="flex flex-col leading-none select-none">
+            <span className="font-display text-base font-bold tracking-[0.18em] text-bone">
+              SECURE<span className="text-signal-amber">GRAPH</span>
             </span>
-            <span className="gradient-text font-black tracking-tight">SecurGraph</span>
+            <span className="mono-meta mt-1">verifiable rag · vault</span>
           </Link>
-        )}
-        {collapsed && (
-          <Link href="/" className="mx-auto flex items-center justify-center p-1 rounded bg-accent-indigo text-black">
-            <ShieldCheck className="h-5 w-5" />
+        ) : (
+          <Link
+            href="/"
+            className="mx-auto font-display text-base font-bold text-signal-amber select-none"
+          >
+            S
           </Link>
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="hidden md:flex p-1 rounded-md text-foreground/75 hover:bg-white/5 hover:text-foreground transition"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="hidden md:flex p-1 text-bone-dim hover:text-bone transition"
         >
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          {collapsed ? (
+            <ChevronRight className="h-4 w-4" />
+          ) : (
+            <ChevronLeft className="h-4 w-4" />
+          )}
         </button>
       </div>
 
-      {/* Nav Menu Items */}
-      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto custom-scrollbar">
+      {/* Nav */}
+      <nav className="flex-1 py-3 overflow-y-auto custom-scrollbar">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           return (
@@ -77,37 +83,46 @@ export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
               key={item.name}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition group",
+                "group relative flex items-center gap-3 px-4 py-2.5 text-sm transition-colors",
                 isActive
-                  ? "bg-accent-indigo/15 text-accent-indigo border-l-2 border-accent-indigo"
-                  : "text-foreground/70 hover:bg-white/5 hover:text-foreground"
+                  ? "text-bone"
+                  : "text-bone-dim hover:text-bone hover:bg-[rgba(232,230,223,0.03)]"
               )}
             >
-              <item.icon
+              {/* active marker — amber, structural not decorative */}
+              <span
                 className={cn(
-                  "h-5 w-5 flex-shrink-0 transition",
-                  isActive ? "text-accent-indigo" : "text-foreground/50 group-hover:text-foreground"
+                  "absolute left-0 top-0 bottom-0 w-[2px] transition-colors",
+                  isActive ? "bg-signal-amber" : "bg-transparent"
                 )}
               />
-              {!collapsed && <span>{item.name}</span>}
+              <item.icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
+              {!collapsed && (
+                <>
+                  <span className="flex-1">{item.name}</span>
+                  <span className="font-mono text-[0.625rem] text-bone-dim/70">
+                    {item.code}
+                  </span>
+                </>
+              )}
             </Link>
           );
         })}
       </nav>
 
-      {/* Footer Info */}
-      <div className="p-4 border-t border-border/30 bg-black/20 flex flex-col gap-2">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-full bg-accent-indigo/20 flex items-center justify-center text-accent-indigo font-bold border border-accent-indigo/30">
-            <UserCheck className="h-4 w-4" />
+      {/* Footer — session clearance */}
+      <div className="p-4 border-t border-hairline">
+        {!collapsed ? (
+          <div className="space-y-1.5">
+            <p className="mono-meta">operator</p>
+            <p className="text-sm text-bone truncate">Stefano H.</p>
+            <p className="mono-meta">tenant · default</p>
           </div>
-          {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold truncate text-foreground">Stefano H.</p>
-              <p className="text-[10px] text-foreground/50 truncate uppercase tracking-wider">Tenant: default</p>
-            </div>
-          )}
-        </div>
+        ) : (
+          <div className="mx-auto h-7 w-7 border border-hairline flex items-center justify-center font-mono text-xs text-bone">
+            SH
+          </div>
+        )}
       </div>
     </aside>
   );

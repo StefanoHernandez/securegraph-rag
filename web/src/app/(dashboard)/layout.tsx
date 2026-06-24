@@ -26,10 +26,10 @@ export default function DashboardLayout({
 
   if (!authChecked) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#0a0a0f] text-foreground">
+      <div className="flex h-screen w-screen items-center justify-center bg-vault text-foreground">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-accent-indigo border-t-transparent"></div>
-          <p className="text-xs uppercase tracking-widest font-mono text-foreground/50">Verifying session...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-signal-amber border-t-transparent"></div>
+          <p className="mono-meta">verifying clearance…</p>
         </div>
       </div>
     );

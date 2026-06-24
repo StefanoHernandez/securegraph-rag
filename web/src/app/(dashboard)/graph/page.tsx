@@ -2,30 +2,21 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { 
-  Network, 
-  Search, 
-  Settings, 
-  Filter, 
-  RefreshCw, 
-  Info, 
-  Eye, 
-  ShieldAlert, 
-  Compass,
-  Cpu,
+import {
+  Network,
+  Search,
+  RefreshCw,
   Link2,
-  Tag
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Panel, ClassificationStamp } from "@/components/forensic";
 import { adminApi } from "@/lib/api";
 
 // Dynamically import 3D Force Graph to avoid SSR issues with canvas/WebGL
 const ForceGraph3D = dynamic(
   () => import("react-force-graph-3d").then((mod) => mod.default),
-  { 
+  {
     ssr: false,
     loading: () => (
       <div className="h-full w-full flex flex-col items-center justify-center text-center gap-3">
@@ -38,8 +29,8 @@ const ForceGraph3D = dynamic(
 function LoaderComponent() {
   return (
     <>
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-accent-indigo border-t-transparent"></div>
-      <p className="text-xs font-mono text-foreground/50 tracking-wider">INITIALIZING WEBGL 3D VIEWPORT...</p>
+      <RefreshCw className="h-6 w-6 animate-spin text-signal-amber" />
+      <p className="mono-meta">initializing webgl viewport…</p>
     </>
   );
 }
@@ -66,39 +57,39 @@ interface GraphLink {
   classification: string;
 }
 
-// Premium entity type color mapping
-const ENTITY_COLORS: Record<string, string> = {
-  person: "#34d399",       // Emerald
-  organization: "#22d3ee", // Cyan
-  document: "#818cf8",     // Indigo
-  location: "#fbbf24",     // Amber
-  event: "#a78bfa",        // Violet
-  concept: "#f472b6",      // Pink
-  other: "#94a3b8"         // Slate
+// Forensic Vault node ramp — restrained bone tints by entity type, never rainbow.
+// The focused/selected node is amber; everything else is a bone tint.
+const NODE_BONE = "#B8B6AE";
+const NODE_BONE_RAMP: Record<string, string> = {
+  person: "#E8E6DF",
+  organization: "#CFCDC6",
+  document: "#B8B6AE",
+  location: "#A3A19A",
+  event: "#8E8C85",
+  concept: "#C4C2BB",
+  other: "#8A8880",
 };
-
-const CLASSIFICATION_COLORS: Record<string, string> = {
-  public: "text-accent-emerald bg-accent-emerald/10 border-accent-emerald/20",
-  internal: "text-accent-indigo bg-accent-indigo/10 border-accent-indigo/20",
-  restricted: "text-accent-rose bg-accent-rose/10 border-accent-rose/20"
-};
+const NODE_AMBER = "#E8B23A";
+const LINK_BASE = "rgba(232,230,223,0.18)";
+const LINK_DIM = "rgba(232,230,223,0.04)";
+const LINK_ACTIVE = "rgba(232,178,58,0.85)";
 
 export default function GraphPage() {
   const [tenantId, setTenantId] = useState("default");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Data State
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [links, setLinks] = useState<GraphLink[]>([]);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
-  
+
   // Filtering and Search
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [selectedClassifications, setSelectedClassifications] = useState<string[]>([]);
-  
+
   // Graph control ref
   const fgRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -138,7 +129,7 @@ export default function GraphPage() {
       const res = await adminApi.getGraphNodes(tenantId);
       setNodes(res.nodes);
       setLinks(res.links);
-      
+
       // Initialize filters with all unique types
       const types = Array.from(new Set(res.nodes.map(n => n.type.toLowerCase())));
       setSelectedTypes(types);
@@ -154,7 +145,7 @@ export default function GraphPage() {
   };
 
   const mockFallbackGraph = () => {
-    // Generate beautiful demo data if neo4j/api is unavailable
+    // Generate demo data if neo4j/api is unavailable
     const demoNodes: GraphNode[] = [
       { id: "SecurGraph RAG", type: "concept", description: "Consensus-based Hybrid RAG", classification: "public" },
       { id: "Stefano Hernandez", type: "person", description: "Lead Engineer on SecureGraph", classification: "internal" },
@@ -183,7 +174,7 @@ export default function GraphPage() {
   // Filter nodes & links based on UI state — memoized to keep stable references
   // (avoids react-force-graph restarting the simulation on every hover re-render)
   const filteredNodes = useMemo(() => nodes.filter(node => {
-    const matchesSearch = node.id.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    const matchesSearch = node.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           node.description.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = selectedTypes.includes(node.type.toLowerCase());
     const matchesClass = selectedClassifications.includes(node.classification.toLowerCase());
@@ -209,13 +200,13 @@ export default function GraphPage() {
   const uniqueClassifications = Array.from(new Set(nodes.map(n => n.classification.toLowerCase())));
 
   const toggleTypeFilter = (type: string) => {
-    setSelectedTypes(prev => 
+    setSelectedTypes(prev =>
       prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
     );
   };
 
   const toggleClassFilter = (cls: string) => {
-    setSelectedClassifications(prev => 
+    setSelectedClassifications(prev =>
       prev.includes(cls) ? prev.filter(c => c !== cls) : [...prev, cls]
     );
   };
@@ -243,25 +234,26 @@ export default function GraphPage() {
     return set;
   }, [hoveredNode, links]);
 
-  // Color and sizing calculations — Obsidian-style dimming on hover
+  // Node color — vault bone ramp by type; selected node is amber. Dim
+  // non-neighbours on hover (Obsidian-style focus).
   const getNodeColor = useCallback((node: any) => {
+    if (selectedNode && node.id === selectedNode.id) return NODE_AMBER;
     const t = (node.type || "").toLowerCase();
-    const baseColor = ENTITY_COLORS[t] || ENTITY_COLORS.other;
+    const baseColor = NODE_BONE_RAMP[t] || NODE_BONE;
     if (!hoveredNeighborIds) return baseColor; // nothing hovered → full brightness
     if (hoveredNeighborIds.has(node.id)) return baseColor; // neighbour → full brightness
-    // Dim non-neighbours by returning a translucent version
-    return `${baseColor}22`; // hex alpha ≈ 13% opacity
-  }, [hoveredNeighborIds]);
+    return `${baseColor}22`; // dim non-neighbours (~13% opacity)
+  }, [hoveredNeighborIds, selectedNode]);
 
   // Link color: highlight edges of hovered node, dim the rest
   const getLinkColor = useCallback((link: any) => {
-    if (!hoveredNeighborIds) return "rgba(255,255,255,0.12)";
+    if (!hoveredNeighborIds) return LINK_BASE;
     const srcId = typeof link.source === "object" ? link.source.id : link.source;
     const tgtId = typeof link.target === "object" ? link.target.id : link.target;
     if (hoveredNeighborIds.has(srcId) && hoveredNeighborIds.has(tgtId)) {
-      return "rgba(99,102,241,0.85)"; // accent-indigo glow for connected edges
+      return LINK_ACTIVE;
     }
-    return "rgba(255,255,255,0.03)"; // nearly invisible
+    return LINK_DIM;
   }, [hoveredNeighborIds]);
 
   // Link width: thicken edges connected to hovered node
@@ -272,8 +264,6 @@ export default function GraphPage() {
     if (hoveredNeighborIds.has(srcId) && hoveredNeighborIds.has(tgtId)) return 3;
     return 0.5;
   }, [hoveredNeighborIds]);
-
-
 
   // Hover handler
   const handleNodeHover = useCallback((node: any) => {
@@ -287,7 +277,7 @@ export default function GraphPage() {
   // Center node in viewport
   const handleFocusNode = (node: any) => {
     if (!fgRef.current || !node) return;
-    
+
     // Search the node object in force-graph model
     const graphNode = filteredNodes.find(n => n.id === node.id);
     if (!graphNode) return;
@@ -295,40 +285,39 @@ export default function GraphPage() {
     // Center camera on node coordinates
     const distance = 40;
     const distRatio = 1 + distance / Math.hypot(graphNode.x || 0, graphNode.y || 0, graphNode.z || 0);
-    
+
     fgRef.current.cameraPosition(
-      { 
-        x: (graphNode.x || 0) * distRatio, 
-        y: (graphNode.y || 0) * distRatio, 
-        z: (graphNode.z || 0) * distRatio 
-      }, 
-      graphNode, 
+      {
+        x: (graphNode.x || 0) * distRatio,
+        y: (graphNode.y || 0) * distRatio,
+        z: (graphNode.z || 0) * distRatio
+      },
+      graphNode,
       2500 // transition ms
     );
     setSelectedNode(node);
   };
 
+  // Mono toggle chip — active = amber text + amber border, inactive = bone-dim hairline
+  const chipClass = (active: boolean) =>
+    `font-mono text-[0.625rem] uppercase tracking-wider px-2 py-1 border transition-colors cursor-pointer ${
+      active
+        ? "text-signal-amber border-signal-amber"
+        : "text-bone-dim border-hairline hover:text-bone"
+    }`;
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto h-[calc(100vh-140px)] flex flex-col">
-      
-      {/* Top Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-4 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-accent-indigo/15 border border-accent-indigo/30 flex items-center justify-center text-accent-indigo">
-            <Compass className="h-4.5 w-4.5" />
-          </div>
-          <div>
-            <h1 className="text-xl md:text-2xl font-black text-foreground">
-              3D Knowledge Graph Explorer
-            </h1>
-            <p className="text-[10px] text-foreground/45 font-mono">
-              Interactive structural exploration of Neo4j entities.
-            </p>
-          </div>
+    <div className="max-w-7xl mx-auto h-[calc(100vh-140px)] flex flex-col space-y-6">
+      {/* Header */}
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-hairline flex-shrink-0">
+        <div>
+          <p className="mono-meta">section 05 · knowledge graph</p>
+          <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
+            Knowledge Graph
+          </h1>
         </div>
-        
+
         <div className="flex items-center gap-3">
-          <span className="text-xs text-foreground/50 font-mono">Scope Tenant:</span>
           <select
             value={tenantId}
             onChange={(e) => {
@@ -337,163 +326,128 @@ export default function GraphPage() {
               localStorage.setItem("securgraph_tenant", val);
               window.location.reload();
             }}
-            className="bg-black/45 border border-border/40 rounded-lg px-2.5 py-1.5 text-xs text-foreground font-mono focus:outline-none focus:border-accent-indigo"
+            className="bg-vault-raised border border-hairline px-2.5 py-1.5 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
           >
             <option value="default">default</option>
             <option value="mrd">mrd</option>
             <option value="demo_tenant">demo_tenant</option>
             <option value="test_tenant_async">test_tenant_async</option>
           </select>
-          <Button
-            size="sm"
-            onClick={fetchGraphData}
-            variant="outline"
-            className="border-border/40 hover:bg-white/5 cursor-pointer h-8 text-xs font-bold"
-            disabled={loading}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
+          <Button size="sm" onClick={fetchGraphData} variant="outline" disabled={loading} className="gap-1.5">
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Sync Neo4j
           </Button>
         </div>
-      </div>
+      </header>
 
       {error && (
-        <div className="p-3 bg-accent-rose/10 border border-accent-rose/25 text-accent-rose rounded-lg text-xs flex items-start gap-2 max-w-xl flex-shrink-0">
-          <ShieldAlert className="h-4.5 w-4.5 flex-shrink-0 mt-0.5" />
-          <div className="space-y-1 font-mono text-[10px]">
-            <span className="font-bold font-sans text-xs">Connessione Neo4j fallita</span>
-            <p>{error}</p>
-            <p className="text-foreground/50 font-sans">Caricamento del grafo dimostrativo locale.</p>
-          </div>
+        <div className="border border-seal-red/40 bg-vault-sunk px-4 py-3 max-w-xl flex-shrink-0">
+          <p className="mono-meta text-seal-red mb-1">neo4j connection failed</p>
+          <p className="font-mono text-[0.625rem] text-bone-dim">{error}</p>
+          <p className="font-mono text-[0.625rem] text-bone-dim mt-1">Loading local demo graph.</p>
         </div>
       )}
 
-      {/* Main Grid Layout */}
+      {/* Main grid */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch flex-1 min-h-0">
-        
-        {/* Left pane: Filter and Search (1 col) */}
+        {/* Left: filters + search */}
         <div className="flex flex-col gap-6 h-full overflow-y-auto custom-scrollbar flex-shrink-0">
-          
-          {/* Search Card */}
-          <Card className="glassmorphism border-border/50 text-foreground flex-shrink-0">
-            <CardHeader className="pb-3 border-b border-border/10">
-              <CardTitle className="text-sm font-bold flex items-center gap-1.5">
-                <Search className="h-4.5 w-4.5 text-accent-indigo" />
-                Find Entity
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 space-y-3">
+          {/* Search */}
+          <Panel label="find entity" className="flex-shrink-0">
+            <div className="px-4 py-4 space-y-3">
               <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-foreground/40" />
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-bone-dim" />
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Nome o descrizione..."
-                  className="pl-9 bg-black/45 border-border/40 text-xs focus-visible:ring-accent-indigo/50 h-9"
+                  placeholder="name or description…"
+                  className="pl-9 bg-vault-raised border-hairline font-mono text-xs"
                 />
               </div>
-              
-              {/* Search Suggestions */}
+
               {searchQuery && (
-                <div className="bg-black/35 border border-border/20 rounded-lg max-h-40 overflow-y-auto custom-scrollbar p-1 text-[11px] font-mono divide-y divide-border/10">
+                <div className="bg-vault-sunk border border-hairline max-h-40 overflow-y-auto custom-scrollbar divide-y divide-hairline font-mono text-[0.6875rem]">
                   {filteredNodes.slice(0, 5).map((node) => (
                     <button
                       key={node.id}
                       onClick={() => handleFocusNode(node)}
-                      className="w-full text-left p-2 hover:bg-white/5 hover:text-accent-indigo rounded transition truncate block"
+                      className="w-full text-left px-2.5 py-2 text-bone-dim hover:text-signal-amber hover:bg-[rgba(232,230,223,0.03)] transition-colors truncate block"
                     >
-                      {node.id} <span className="text-foreground/30 text-[9px]">({node.type})</span>
+                      {node.id}{" "}
+                      <span className="text-bone-dim">({node.type})</span>
                     </button>
                   ))}
                   {filteredNodes.length === 0 && (
-                    <span className="p-2 text-foreground/40 block text-center">Nessun match trovato.</span>
+                    <span className="px-2.5 py-2 mono-meta block text-center">no match</span>
                   )}
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </Panel>
 
-          {/* Filter Configuration Card */}
-          <Card className="glassmorphism border-border/50 text-foreground flex-1">
-            <CardHeader className="pb-3 border-b border-border/10">
-              <CardTitle className="text-sm font-bold flex items-center gap-1.5">
-                <Filter className="h-4.5 w-4.5 text-accent-cyan" />
-                Graph Filters
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 space-y-5 text-xs">
-              
-              {/* Entity Types */}
+          {/* Filters */}
+          <Panel label="graph filters" className="flex-1">
+            <div className="px-4 py-4 space-y-5">
+              {/* Entity types */}
               <div className="space-y-2">
-                <label className="font-mono text-[10px] text-foreground/50 uppercase tracking-wider block">
-                  Entity Types
-                </label>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                <p className="mono-meta">entity types</p>
+                <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto custom-scrollbar">
                   {uniqueTypes.map((type) => (
-                    <label key={type} className="flex items-center gap-2 cursor-pointer text-foreground/80 hover:text-foreground">
-                      <input
-                        type="checkbox"
-                        checked={selectedTypes.includes(type)}
-                        onChange={() => toggleTypeFilter(type)}
-                        className="rounded border-border/50 text-accent-cyan focus:ring-0 cursor-pointer h-3.5 w-3.5 bg-black/45"
-                      />
-                      <span className="font-mono text-[11px] capitalize flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: ENTITY_COLORS[type] || ENTITY_COLORS.other }}></span>
-                        {type}
-                      </span>
-                    </label>
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => toggleTypeFilter(type)}
+                      className={chipClass(selectedTypes.includes(type))}
+                    >
+                      {type}
+                    </button>
                   ))}
                 </div>
               </div>
 
-              {/* Classification Levels */}
+              {/* Classification levels */}
               <div className="space-y-2">
-                <label className="font-mono text-[10px] text-foreground/50 uppercase tracking-wider block">
-                  Classification
-                </label>
-                <div className="space-y-1.5">
+                <p className="mono-meta">classification</p>
+                <div className="flex flex-wrap gap-1.5">
                   {uniqueClassifications.map((cls) => (
-                    <label key={cls} className="flex items-center gap-2 cursor-pointer text-foreground/80 hover:text-foreground">
-                      <input
-                        type="checkbox"
-                        checked={selectedClassifications.includes(cls)}
-                        onChange={() => toggleClassFilter(cls)}
-                        className="rounded border-border/50 text-accent-cyan focus:ring-0 cursor-pointer h-3.5 w-3.5 bg-black/45"
-                      />
-                      <span className="font-mono text-[11px] uppercase">{cls}</span>
-                    </label>
+                    <button
+                      key={cls}
+                      type="button"
+                      onClick={() => toggleClassFilter(cls)}
+                      className={chipClass(selectedClassifications.includes(cls))}
+                    >
+                      {cls}
+                    </button>
                   ))}
                 </div>
               </div>
 
-              <div className="text-[10px] text-foreground/45 border-t border-border/10 pt-3 leading-normal space-y-1">
+              {/* Counts */}
+              <dl className="border-t border-hairline pt-3 space-y-1.5 font-mono text-xs">
                 <div className="flex justify-between">
-                  <span>Filtered Nodes:</span>
-                  <span className="font-mono text-foreground font-bold">{filteredNodes.length}</span>
+                  <dt className="mono-meta normal-case">filtered nodes</dt>
+                  <dd className="text-bone tabular-nums">{filteredNodes.length}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <span>Filtered Links:</span>
-                  <span className="font-mono text-foreground font-bold">{filteredLinks.length}</span>
+                  <dt className="mono-meta normal-case">filtered links</dt>
+                  <dd className="text-bone tabular-nums">{filteredLinks.length}</dd>
                 </div>
-              </div>
-
-            </CardContent>
-          </Card>
-
+              </dl>
+            </div>
+          </Panel>
         </div>
 
-        {/* Center pane: 3D Force Graph (2 cols) */}
-        <Card className="lg:col-span-2 glassmorphism border-border/50 text-foreground overflow-hidden relative flex flex-col min-h-[500px]">
-          <div ref={containerRef} className="flex-1 w-full h-full bg-[#0a0a14]/65 relative min-h-[500px]">
+        {/* Center: 3D force graph */}
+        <Panel label="3d structural viewport" className="lg:col-span-2 overflow-hidden relative flex flex-col min-h-[500px]">
+          <div ref={containerRef} className="flex-1 w-full h-full bg-vault-sunk relative min-h-[500px]">
             {filteredNodes.length === 0 && !loading && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[#0a0a14]/90 backdrop-blur-sm z-10 gap-4 border border-border/20 rounded-xl">
-                <div className="h-12 w-12 rounded-full bg-accent-indigo/10 flex items-center justify-center text-accent-indigo border border-accent-indigo/20">
-                  <Network className="h-6 w-6 animate-pulse" />
-                </div>
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-vault-sunk z-10 gap-4">
+                <Network className="h-8 w-8 text-bone-dim" />
                 <div className="space-y-1.5 max-w-md">
-                  <h3 className="text-sm font-bold text-foreground">Nessun dato nel grafo 3D</h3>
-                  <p className="text-xs text-foreground/50 leading-relaxed font-sans">
-                    Non ci sono entità o relazioni caricate per il tenant <span className="font-mono text-accent-cyan font-bold">{tenantId}</span>.
+                  <p className="mono-meta text-bone">no graph data</p>
+                  <p className="text-xs text-bone-dim leading-relaxed">
+                    No entities or relations loaded for tenant{" "}
+                    <span className="font-mono text-signal-amber">{tenantId}</span>.
                   </p>
                 </div>
                 <div className="flex gap-2.5 mt-2">
@@ -505,16 +459,11 @@ export default function GraphPage() {
                       localStorage.setItem("securgraph_tenant", "mrd");
                       window.location.reload();
                     }}
-                    className="text-xs font-bold border-border/40 hover:bg-white/5 cursor-pointer h-8"
                   >
-                    Passa a tenant "mrd" (Demo)
+                    Switch to "mrd" (demo)
                   </Button>
-                  <Button
-                    size="sm"
-                    onClick={mockFallbackGraph}
-                    className="text-xs font-bold bg-accent-indigo hover:bg-accent-indigo/80 text-white cursor-pointer h-8"
-                  >
-                    Carica dati di test locali
+                  <Button size="sm" onClick={mockFallbackGraph}>
+                    Load local test data
                   </Button>
                 </div>
               </div>
@@ -539,60 +488,53 @@ export default function GraphPage() {
               d3AlphaDecay={0.05}
               d3VelocityDecay={0.3}
               controlType="trackball"
-              backgroundColor="#0a0a14"
+              backgroundColor="rgba(0,0,0,0)"
             />
           </div>
-        </Card>
+        </Panel>
 
-        {/* Right pane: Node Inspector Slide-out (1 col) */}
-        <Card className="glassmorphism border-border/50 text-foreground flex flex-col justify-between">
-          <CardHeader className="pb-3 border-b border-border/10 flex-shrink-0">
-            <CardTitle className="text-sm font-bold flex items-center gap-1.5">
-              <Cpu className="h-4.5 w-4.5 text-accent-indigo" />
-              Entity Inspector
-            </CardTitle>
-            <CardDescription className="text-[10px]">
-              Detailed properties of selected Neo4j node.
-            </CardDescription>
-          </CardHeader>
-          
-          <CardContent className="flex-1 p-4 overflow-y-auto custom-scrollbar text-xs font-mono space-y-4">
+        {/* Right: entity inspector */}
+        <Panel
+          label="entity inspector"
+          classification={selectedNode ? selectedNode.classification : undefined}
+          className="flex flex-col"
+        >
+          <div className="flex-1 px-4 py-4 overflow-y-auto custom-scrollbar">
             {selectedNode ? (
-              <div className="space-y-4">
+              <div className="space-y-4 font-mono text-xs">
                 <div>
-                  <span className="text-[9px] text-foreground/40 uppercase block">Name / Entity ID</span>
-                  <p className="text-foreground/90 font-sans mt-0.5 text-xs font-bold leading-normal">{selectedNode.id}</p>
+                  <p className="mono-meta">entity id</p>
+                  <p className="text-bone mt-1 leading-normal break-words">{selectedNode.id}</p>
                 </div>
 
                 <div>
-                  <span className="text-[9px] text-foreground/40 uppercase block">Entity Type</span>
-                  <Badge className="bg-accent-indigo/15 text-accent-indigo border-accent-indigo/25 mt-1 h-5 text-[9px] font-bold capitalize">
+                  <p className="mono-meta">entity type</p>
+                  <p className="text-signal-amber mt-1 uppercase tracking-wider">
                     {selectedNode.type}
-                  </Badge>
+                  </p>
                 </div>
 
                 <div>
-                  <span className="text-[9px] text-foreground/40 uppercase block">Classification Level</span>
-                  <Badge variant="outline" className={`mt-1 font-bold uppercase ${
-                    CLASSIFICATION_COLORS[selectedNode.classification.toLowerCase()] || "text-foreground border-border/30"
-                  }`}>
-                    {selectedNode.classification}
-                  </Badge>
-                </div>
-
-                <div>
-                  <span className="text-[9px] text-foreground/40 uppercase block">Description</span>
-                  <div className="bg-black/35 rounded-lg border border-border/15 p-2.5 text-[10px] text-foreground/80 font-sans leading-relaxed mt-1">
-                    {selectedNode.description || "Nessuna descrizione presente nel database."}
+                  <p className="mono-meta">classification</p>
+                  <div className="mt-1.5">
+                    <ClassificationStamp level={selectedNode.classification} />
                   </div>
                 </div>
 
-                {/* Neighbors List */}
                 <div>
-                  <div className="flex items-center gap-1 text-[9px] text-foreground/40 uppercase border-b border-border/10 pb-1.5 mb-2">
-                    <Link2 className="h-3.5 w-3.5" /> Adjacent Edges ({getNodeNeighbors(selectedNode.id).length})
+                  <p className="mono-meta">description</p>
+                  <div className="bg-vault-sunk border border-hairline px-2.5 py-2 text-[0.625rem] text-bone-dim leading-relaxed mt-1.5">
+                    {selectedNode.description || "No description present in database."}
                   </div>
-                  <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                </div>
+
+                {/* Adjacent edges */}
+                <div>
+                  <div className="flex items-center gap-1.5 mono-meta border-b border-hairline pb-1.5 mb-2">
+                    <Link2 className="h-3 w-3" /> adjacent edges (
+                    {getNodeNeighbors(selectedNode.id).length})
+                  </div>
+                  <ul className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
                     {getNodeNeighbors(selectedNode.id).map((edge, idx) => {
                       const srcId = typeof edge.source === "object" ? edge.source.id : edge.source;
                       const tgtId = typeof edge.target === "object" ? edge.target.id : edge.target;
@@ -600,40 +542,39 @@ export default function GraphPage() {
                       const relationDirection = srcId === selectedNode.id ? "→" : "←";
                       const neighborNode = nodes.find(n => n.id === neighborId);
                       return (
-                        <div
+                        <li
                           key={idx}
                           onClick={() => neighborNode && handleFocusNode(neighborNode)}
-                          className="p-2 bg-black/20 hover:bg-white/5 border border-border/10 hover:border-accent-indigo/30 rounded-lg flex items-center justify-between cursor-pointer transition"
+                          className="px-2.5 py-2 bg-vault-sunk border border-hairline hover:border-signal-amber/40 flex items-center justify-between gap-2 cursor-pointer transition-colors"
                         >
-                          <div className="min-w-0 pr-2">
-                            <span className="text-[9px] text-foreground/35 block font-mono">
+                          <div className="min-w-0">
+                            <span className="mono-meta normal-case block">
                               {relationDirection} {edge.type}
                             </span>
-                            <span className="font-sans font-bold text-foreground/80 text-[10px] truncate block">
+                            <span className="text-bone text-[0.625rem] truncate block">
                               {neighborId}
                             </span>
                           </div>
-                          <Badge className="bg-accent-cyan/10 text-accent-cyan border-accent-cyan/20 h-4 text-[8px]">
+                          <span className="text-bone-dim text-[0.625rem] tabular-nums">
                             {edge.confidence.toFixed(2)}
-                          </Badge>
-                        </div>
+                          </span>
+                        </li>
                       );
                     })}
-                  </div>
+                  </ul>
                 </div>
-
               </div>
             ) : (
-              <div className="h-full flex flex-col items-center justify-center text-center text-foreground/40 gap-2 py-10">
-                <Network className="h-6 w-6 text-foreground/20 animate-pulse" />
-                <span className="text-[10px] font-sans">Clicca su una entità del grafo 3D per ispezionarne le relazioni e i metadati.</span>
+              <div className="h-full flex flex-col items-center justify-center text-center gap-2 py-10">
+                <Network className="h-6 w-6 text-bone-dim" />
+                <span className="mono-meta normal-case">
+                  select a node to inspect its relations and metadata
+                </span>
               </div>
             )}
-          </CardContent>
-        </Card>
-
+          </div>
+        </Panel>
       </div>
-
     </div>
   );
 }

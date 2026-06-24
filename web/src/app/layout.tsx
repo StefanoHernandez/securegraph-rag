@@ -1,21 +1,30 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Space_Grotesk, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
-import ThreeBackground from "@/components/layout/ThreeBackground";
+import VaultBackground from "@/components/layout/VaultBackground";
 
-const inter = Inter({
-  variable: "--font-sans",
+const display = Space_Grotesk({
+  variable: "--font-display",
   subsets: ["latin"],
+  weight: ["500", "600", "700"],
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const sans = IBM_Plex_Sans({
+  variable: "--font-sans",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+});
+
+const mono = IBM_Plex_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
-  title: "SecurGraph RAG — Trustworthy Hybrid RAG",
-  description: "Enterprise Graph-RAG framework with verifiable ReBAC policy enforcement and cross-retriever consensus.",
+  title: "SecureGraph — Verifiable Hybrid RAG",
+  description:
+    "Graph-RAG with verifiable ReBAC access control, tamper-evident audit, and cross-retriever consensus.",
 };
 
 export default function RootLayout({
@@ -26,10 +35,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable} dark h-full antialiased`}
+      className={`${display.variable} ${sans.variable} ${mono.variable} dark h-full antialiased`}
     >
       <body className="min-h-full flex flex-col relative overflow-x-hidden">
-        <ThreeBackground opacity={0.4} />
+        <VaultBackground />
         {children}
       </body>
     </html>

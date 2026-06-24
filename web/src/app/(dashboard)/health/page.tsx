@@ -2,11 +2,10 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { healthApi } from "@/lib/api";
-import { HealthResponse, ServiceStatus } from "@/lib/types";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { HealthResponse } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, CheckCircle, AlertTriangle, XCircle, Info, Activity, Clock } from "lucide-react";
+import { Panel } from "@/components/forensic";
+import { RefreshCw, Activity } from "lucide-react";
 
 export default function HealthPage() {
   const [data, setData] = useState<HealthResponse | null>(null);
@@ -42,205 +41,162 @@ export default function HealthPage() {
     return () => clearInterval(interval);
   }, [autoRefresh, fetchHealth]);
 
-  const getOverallStatusIcon = (status: string) => {
-    switch (status) {
-      case "ok":
-        return <CheckCircle className="h-10 w-10 text-accent-emerald animate-pulse" />;
-      case "degraded":
-        return <AlertTriangle className="h-10 w-10 text-accent-amber" />;
-      default:
-        return <XCircle className="h-10 w-10 text-accent-rose" />;
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "ok":
-        return <Badge className="bg-accent-emerald/10 text-accent-emerald border-accent-emerald/20 hover:bg-accent-emerald/20 text-xs">Healthy</Badge>;
-      case "degraded":
-        return <Badge className="bg-accent-amber/10 text-accent-amber border-accent-amber/20 hover:bg-accent-amber/20 text-xs">Degraded</Badge>;
-      case "unavailable":
-        return <Badge className="bg-accent-rose/10 text-accent-rose border-accent-rose/20 hover:bg-accent-rose/20 text-xs">Unavailable</Badge>;
-      default:
-        return <Badge variant="outline" className="text-foreground/50 border-foreground/10 text-xs">Not Configured</Badge>;
-    }
-  };
-
   const getServiceLabel = (key: string) => {
     switch (key) {
       case "postgres":
-        return "PostgreSQL (Metadata Store)";
+        return "PostgreSQL · metadata store";
       case "qdrant":
-        return "Qdrant (Vector Database)";
+        return "Qdrant · vector database";
       case "neo4j":
-        return "Neo4j (Knowledge Graph)";
+        return "Neo4j · knowledge graph";
       case "openfga":
-        return "OpenFGA (Access Control Model)";
+        return "OpenFGA · access control model";
       case "ollama":
-        return "Ollama (In-Host LLM Engine)";
+        return "Ollama · in-host llm engine";
       case "redis":
-        return "Redis (Asynchronous Tasks Queue)";
+        return "Redis · async task queue";
       default:
         return key.toUpperCase();
     }
   };
 
-  const getServiceIcon = (key: string) => {
-    // Return standard representation or colors
-    switch (key) {
-      case "postgres":
-        return "🐘";
-      case "qdrant":
-        return "🎯";
-      case "neo4j":
-        return "🕸️";
-      case "openfga":
-        return "🔑";
-      case "ollama":
-        return "🦙";
-      case "redis":
-        return "📦";
+  // Status stamp — amber = ok, seal-red = down, bone-dim = degraded/other
+  const statusStamp = (status: string) => {
+    switch (status) {
+      case "ok":
+        return <span className="stamp text-signal-amber">✓ OK</span>;
+      case "degraded":
+        return <span className="stamp text-bone-dim">DEGRADED</span>;
+      case "unavailable":
+        return <span className="stamp text-seal-red">DOWN</span>;
       default:
-        return "⚙️";
+        return <span className="stamp text-bone-dim">N/A</span>;
     }
   };
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
-      {/* Top Banner Control */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="max-w-6xl mx-auto space-y-6 pb-10">
+      {/* Header */}
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-hairline">
         <div>
-          <h2 className="text-xl font-bold tracking-tight text-foreground">Infrastructure Monitoring</h2>
-          <p className="text-xs text-foreground/55 font-mono">Real-time status of all active Graph-RAG services.</p>
+          <p className="mono-meta">section 07 · system health</p>
+          <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
+            Status Board
+          </h1>
         </div>
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
             size="sm"
             onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`border-border/50 text-xs h-9 bg-black/20 ${autoRefresh ? "text-accent-cyan border-accent-cyan/30" : "text-foreground/50"}`}
+            className={`gap-1.5 ${autoRefresh ? "text-signal-amber border-signal-amber" : ""}`}
           >
-            <Activity className="h-3.5 w-3.5 mr-1.5" />
-            {autoRefresh ? "Auto-Refresh On" : "Auto-Refresh Off"}
+            <Activity className="h-3.5 w-3.5" />
+            {autoRefresh ? "auto-refresh on" : "auto-refresh off"}
           </Button>
-          <Button
-            size="sm"
-            onClick={fetchHealth}
-            disabled={loading}
-            className="bg-accent-indigo text-black font-semibold hover:opacity-90 transition h-9 text-xs"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
-            Force Refresh
+          <Button size="sm" onClick={fetchHealth} disabled={loading} className="gap-1.5">
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         </div>
-      </div>
+      </header>
 
       {/* Error display */}
       {error && (
-        <div className="p-4 rounded-xl bg-accent-rose/10 border border-accent-rose/20 text-accent-rose text-sm flex items-start gap-3">
-          <XCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="font-semibold">Failed to refresh health statuses</p>
-            <p className="text-xs text-accent-rose/80 mt-1">{error}</p>
-          </div>
-        </div>
+        <Panel classification="restricted" label="health probe failed">
+          <p className="px-5 py-4 font-mono text-xs text-seal-red">⚠ {error}</p>
+        </Panel>
       )}
 
-      {/* System Status Summary */}
+      {/* Overall status banner */}
       {data && (
-        <Card className="glassmorphism border-border/50 overflow-hidden relative">
-          <CardContent className="p-6 md:p-8 flex flex-col md:flex-row items-center md:justify-between gap-6">
-            <div className="flex items-center gap-5 text-center md:text-left flex-col md:flex-row">
-              <div className="p-3 bg-white/5 rounded-2xl border border-white/10">
-                {getOverallStatusIcon(data.status)}
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2.5 justify-center md:justify-start">
-                  <h3 className="text-2xl font-black tracking-tight text-foreground uppercase">
-                    System {data.status}
-                  </h3>
-                </div>
-                <p className="text-sm text-foreground/60 leading-relaxed max-w-lg">
-                  {data.status === "ok"
-                    ? "All backend systems are responding normally. Verifiable access controls and consensus verification are fully operational."
-                    : data.status === "degraded"
-                    ? "One or more background services are degraded or slow. Queries may have increased latency or limited context channels."
-                    : "Major infrastructure disruption. Core databases or security controllers are offline. Services are locked down."}
-                </p>
-              </div>
+        <Panel
+          classification={data.status === "ok" ? "internal" : "restricted"}
+          label="overall system status"
+          headRight={statusStamp(data.status)}
+        >
+          <div className="px-5 py-6 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+            <div className="space-y-2 max-w-lg">
+              <h3 className="font-display text-xl font-bold tracking-tight text-bone uppercase">
+                System{" "}
+                <span
+                  className={
+                    data.status === "ok" ? "text-signal-amber" : "text-seal-red"
+                  }
+                >
+                  {data.status}
+                </span>
+              </h3>
+              <p className="text-sm text-bone-dim leading-relaxed">
+                {data.status === "ok"
+                  ? "All backend systems are responding normally. Verifiable access controls and consensus verification are fully operational."
+                  : data.status === "degraded"
+                  ? "One or more background services are degraded or slow. Queries may have increased latency or limited context channels."
+                  : "Major infrastructure disruption. Core databases or security controllers are offline. Services are locked down."}
+              </p>
             </div>
-            
-            <div className="flex md:flex-col items-center md:items-end gap-2 text-xs font-mono text-foreground/45 border-t md:border-t-0 md:border-l border-border/30 pt-4 md:pt-0 md:pl-6 w-full md:w-auto justify-between">
-              <div className="flex items-center gap-1.5">
-                <Info className="h-3.5 w-3.5 text-accent-cyan" />
-                <span>Env: <b className="text-foreground">{data.env}</b></span>
+
+            <dl className="grid grid-cols-1 gap-2 font-mono text-xs border-t md:border-t-0 md:border-l border-hairline pt-4 md:pt-0 md:pl-6">
+              <div className="flex items-center justify-between gap-6">
+                <dt className="mono-meta normal-case">env</dt>
+                <dd className="text-bone">{data.env}</dd>
               </div>
-              <div className="flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5" />
-                <span>Last check: <b className="text-foreground">{lastUpdated?.toLocaleTimeString()}</b></span>
+              <div className="flex items-center justify-between gap-6">
+                <dt className="mono-meta normal-case">last check</dt>
+                <dd className="text-bone">{lastUpdated?.toLocaleTimeString()}</dd>
               </div>
-              <div className="text-[10px]">
-                SecurGraph version: {data.version}
+              <div className="flex items-center justify-between gap-6">
+                <dt className="mono-meta normal-case">version</dt>
+                <dd className="text-bone">{data.version}</dd>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </dl>
+          </div>
+        </Panel>
       )}
 
-      {/* Grid of Components */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Grid of service components */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-hairline border border-hairline">
         {data &&
           Object.entries(data.components).map(([key, service]) => (
-            <Card
+            <div
               key={key}
-              className="glassmorphism border-border/40 hover:border-accent-indigo/20 transition-all duration-300 relative overflow-hidden"
-            >
-              {/* Status accent side bar */}
-              <div
-                className={`absolute left-0 top-0 bottom-0 w-[4px] ${
+              className="bg-vault-raised classification-gutter px-5 py-4 space-y-3"
+              style={{
+                ["--gutter-color" as string]:
                   service.status === "ok"
-                    ? "bg-accent-emerald"
+                    ? "var(--signal-amber)"
                     : service.status === "degraded"
-                    ? "bg-accent-amber"
-                    : "bg-accent-rose"
-                }`}
-              />
-
-              <CardHeader className="pb-3 pl-6">
-                <div className="flex items-center justify-between">
-                  <span className="text-2xl select-none">{getServiceIcon(key)}</span>
-                  {getStatusBadge(service.status)}
+                    ? "var(--bone-dim)"
+                    : "var(--seal-red)",
+              }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-display text-sm font-bold text-bone">
+                    {getServiceLabel(key)}
+                  </p>
+                  <p className="mono-meta mt-1 normal-case">service_key: {key}</p>
                 </div>
-                <CardTitle className="text-sm font-bold text-foreground pt-2">
-                  {getServiceLabel(key)}
-                </CardTitle>
-                <CardDescription className="text-[10px] uppercase font-mono tracking-wider text-foreground/40">
-                  service_key: {key}
-                </CardDescription>
-              </CardHeader>
+                {statusStamp(service.status)}
+              </div>
 
-              <CardContent className="pl-6 pb-6 space-y-4">
-                {/* Latency display */}
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="text-foreground/50">Ping Latency</span>
-                  {service.latency_ms !== null ? (
-                    <span className="text-foreground font-semibold flex items-center gap-1.5">
-                      {service.latency_ms.toFixed(1)} ms
-                      <span className="h-1.5 w-1.5 rounded-full bg-accent-cyan animate-ping" />
-                    </span>
-                  ) : (
-                    <span className="text-foreground/30">—</span>
-                  )}
-                </div>
-
-                {/* Status description */}
-                {service.detail && (
-                  <div className="p-2.5 rounded bg-black/40 border border-border/50 text-[11px] font-mono text-accent-rose/90 overflow-x-auto max-h-24 custom-scrollbar">
-                    {service.detail}
-                  </div>
+              <div className="flex items-center justify-between border-t border-hairline pt-3 font-mono text-xs">
+                <span className="mono-meta normal-case">ping latency</span>
+                {service.latency_ms !== null ? (
+                  <span className="text-bone tabular-nums">
+                    {service.latency_ms.toFixed(1)} ms
+                  </span>
+                ) : (
+                  <span className="text-bone-dim">—</span>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+
+              {service.detail && (
+                <div className="bg-vault-sunk border border-hairline px-2.5 py-2 font-mono text-[0.625rem] text-seal-red overflow-x-auto max-h-24 custom-scrollbar">
+                  {service.detail}
+                </div>
+              )}
+            </div>
           ))}
       </div>
     </div>

@@ -1,27 +1,20 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { 
-  UploadCloud, 
-  FileText, 
-  X, 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
-  HelpCircle,
+import {
+  UploadCloud,
+  FileText,
+  X,
+  Clock,
   Database,
   Tag,
-  Shield,
   User,
-  ExternalLink,
   Trash2,
   RefreshCw,
-  FolderOpen
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Panel, ClassificationStamp } from "@/components/forensic";
 import { ingestApi } from "@/lib/api";
 
 interface IngestionTrackerJob {
@@ -46,12 +39,6 @@ const DOCUMENT_TYPES = [
   { value: "specification", label: "Technical Specification" },
   { value: "note", label: "Internal Note" },
   { value: "other", label: "Other Document" }
-];
-
-const CLASSIFICATION_LEVELS = [
-  { value: "public", label: "Public", color: "text-accent-emerald bg-accent-emerald/10 border-accent-emerald/20" },
-  { value: "internal", label: "Internal", color: "text-accent-indigo bg-accent-indigo/10 border-accent-indigo/20" },
-  { value: "restricted", label: "Restricted", color: "text-accent-rose bg-accent-rose/10 border-accent-rose/20" }
 ];
 
 export default function IngestPage() {
@@ -226,7 +213,7 @@ export default function IngestPage() {
 
     try {
       const result = await ingestApi.uploadFile(formData);
-      
+
       const newJob: IngestionTrackerJob = {
         job_id: result.job_id,
         document_id: result.document_id,
@@ -257,67 +244,50 @@ export default function IngestPage() {
     saveJobsToStorage([]);
   };
 
-  const getStatusBadge = (status: string) => {
+  // Ledger status stamp — queued/running = bone-dim, completed = amber, failed = seal-red
+  const statusStamp = (status: string) => {
     switch (status) {
       case "completed":
-        return (
-          <Badge className="bg-accent-emerald/10 text-accent-emerald border-accent-emerald/20 hover:bg-accent-emerald/20 flex items-center gap-1 text-[10px] w-fit">
-            <CheckCircle2 className="h-3 w-3" /> Completed
-          </Badge>
-        );
+        return <span className="stamp text-signal-amber">✓ COMPLETED</span>;
       case "failed":
-        return (
-          <Badge className="bg-accent-rose/10 text-accent-rose border-accent-rose/20 hover:bg-accent-rose/20 flex items-center gap-1 text-[10px] w-fit">
-            <XCircle className="h-3 w-3" /> Failed
-          </Badge>
-        );
+        return <span className="stamp text-seal-red">FAILED</span>;
       case "running":
         return (
-          <Badge className="bg-accent-cyan/10 text-accent-cyan border-accent-cyan/20 hover:bg-accent-cyan/20 flex items-center gap-1 text-[10px] w-fit animate-pulse">
-            <RefreshCw className="h-3 w-3 animate-spin" /> Processing
-          </Badge>
+          <span className="stamp text-bone-dim">
+            <RefreshCw className="h-3 w-3 animate-spin" /> RUNNING
+          </span>
         );
       default:
-        return (
-          <Badge className="bg-accent-amber/10 text-accent-amber border-accent-amber/20 hover:bg-accent-amber/20 flex items-center gap-1 text-[10px] w-fit">
-            <Clock className="h-3 w-3" /> Queued
-          </Badge>
-        );
+        return <span className="stamp text-bone-dim">QUEUED</span>;
     }
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 max-w-7xl mx-auto items-start">
-      
-      {/* Left: Upload and Form Controls (3 columns) */}
-      <div className="lg:col-span-3 space-y-6">
-        <Card className="glassmorphism border-border/50 text-foreground">
-          <CardHeader>
-            <CardTitle className="text-lg font-black flex items-center gap-2">
-              <UploadCloud className="h-5 w-5 text-accent-indigo" />
-              Document Ingestion Portal
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Upload files to index them into the SecurGraph Vector store & Neo4j. ReBAC policies will be generated automatically.
-            </CardDescription>
-          </CardHeader>
-          
-          <CardContent>
-            <form onSubmit={handleIngest} className="space-y-6">
-              
-              {/* Drag and Drop Zone */}
+    <div className="max-w-7xl mx-auto space-y-6 pb-10">
+      {/* Header */}
+      <header className="pb-4 border-b border-hairline">
+        <p className="mono-meta">section 02 · evidence intake</p>
+        <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
+          Evidence Intake
+        </h1>
+      </header>
+
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+        {/* Left: Upload + metadata form (3 columns) */}
+        <div className="lg:col-span-3">
+          <Panel label="document intake · vector store + neo4j">
+            <form onSubmit={handleIngest} className="px-5 py-5 space-y-6">
+              {/* Intake dropzone */}
               <div
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
                 onClick={triggerFileSelect}
-                className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition flex flex-col items-center justify-center min-h-48 ${
+                className={`border border-dashed p-8 text-center cursor-pointer transition-colors flex flex-col items-center justify-center min-h-48 ${
                   isDragActive
-                    ? "border-accent-indigo bg-accent-indigo/5"
-                    : file
-                      ? "border-accent-emerald/40 bg-accent-emerald/5"
-                      : "border-border/40 bg-black/20 hover:bg-white/5 hover:border-border/70"
+                    ? "border-signal-amber bg-[rgba(232,178,58,0.06)]"
+                    : "border-hairline bg-vault-raised hover:bg-[rgba(232,230,223,0.03)]"
                 }`}
               >
                 <input
@@ -329,37 +299,37 @@ export default function IngestPage() {
                 />
 
                 {file ? (
-                  <div className="space-y-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-between p-3.5 bg-black/40 border border-border/50 rounded-xl">
+                  <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-between px-3.5 py-3 bg-vault-sunk border border-hairline">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="p-2 bg-accent-emerald/10 text-accent-emerald rounded-lg flex-shrink-0">
-                          <FileText className="h-6 w-6" />
-                        </div>
+                        <FileText className="h-5 w-5 flex-shrink-0 text-signal-amber" />
                         <div className="text-left min-w-0">
-                          <p className="text-xs font-bold truncate text-foreground">{file.name}</p>
-                          <p className="text-[10px] text-foreground/45 font-mono">{formatBytes(file.size)}</p>
+                          <p className="text-xs text-bone truncate">{file.name}</p>
+                          <p className="mono-meta normal-case mt-0.5">{formatBytes(file.size)}</p>
                         </div>
                       </div>
                       <button
                         type="button"
                         onClick={removeFile}
-                        className="p-1 rounded-lg hover:bg-white/5 text-foreground/40 hover:text-accent-rose transition"
+                        className="p-1 text-bone-dim hover:text-seal-red transition-colors"
                       >
-                        <X className="h-4.5 w-4.5" />
+                        <X className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-2 pointer-events-none">
-                    <div className="mx-auto h-11 w-11 rounded-full bg-accent-indigo/10 border border-accent-indigo/25 flex items-center justify-center text-accent-indigo">
-                      <UploadCloud className="h-5 w-5" />
-                    </div>
+                  <div className="space-y-3 pointer-events-none">
+                    <UploadCloud
+                      className={`mx-auto h-8 w-8 ${
+                        isDragActive ? "text-signal-amber" : "text-bone-dim"
+                      }`}
+                    />
                     <div className="space-y-1">
-                      <p className="text-xs font-bold text-foreground">
-                        Sfoglia i file o trascinali qui
+                      <p className="mono-meta normal-case text-bone">
+                        drop evidence here · or click to browse
                       </p>
-                      <p className="text-[10px] text-foreground/45">
-                        PDF, TXT, MD, CSV, JSON fino a 50MB
+                      <p className="mono-meta normal-case">
+                        pdf · txt · md · csv · json — max 50mb
                       </p>
                     </div>
                   </div>
@@ -368,30 +338,25 @@ export default function IngestPage() {
 
               {/* Feedback messages */}
               {errorMessage && (
-                <div className="p-3 bg-accent-rose/10 border border-accent-rose/25 text-accent-rose rounded-lg text-xs flex items-start gap-2">
-                  <XCircle className="h-4.5 w-4.5 flex-shrink-0 mt-0.5" />
-                  <span>{errorMessage}</span>
+                <div className="border border-seal-red/40 bg-vault-sunk px-3 py-2.5">
+                  <p className="font-mono text-xs text-seal-red">⚠ {errorMessage}</p>
                 </div>
               )}
               {successMessage && (
-                <div className="p-3 bg-accent-emerald/10 border border-accent-emerald/25 text-accent-emerald rounded-lg text-xs flex items-start gap-2">
-                  <CheckCircle2 className="h-4.5 w-4.5 flex-shrink-0 mt-0.5" />
-                  <span>{successMessage}</span>
+                <div className="border border-signal-amber/40 bg-vault-sunk px-3 py-2.5">
+                  <p className="font-mono text-xs text-signal-amber">✓ {successMessage}</p>
                 </div>
               )}
 
-              {/* Metadata Form Fields */}
+              {/* Metadata form fields */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                
                 {/* Document Type */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-mono text-foreground/50 uppercase tracking-wider block">
-                    Document Type
-                  </label>
+                  <label className="mono-meta block">document type</label>
                   <select
                     value={documentType}
                     onChange={(e) => setDocumentType(e.target.value)}
-                    className="w-full bg-black/45 border border-border/40 rounded-lg p-2.5 text-xs text-foreground font-sans focus:outline-none focus:border-accent-indigo"
+                    className="w-full bg-vault-raised border border-hairline px-2.5 py-2 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
                   >
                     {DOCUMENT_TYPES.map(opt => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -401,13 +366,14 @@ export default function IngestPage() {
 
                 {/* Classification Level */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-mono text-foreground/50 uppercase tracking-wider block">
-                    Classification Level
-                  </label>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="mono-meta block">classification</label>
+                    <ClassificationStamp level={classification} />
+                  </div>
                   <select
                     value={classification}
                     onChange={(e) => setClassification(e.target.value)}
-                    className="w-full bg-black/45 border border-border/40 rounded-lg p-2.5 text-xs text-foreground font-sans focus:outline-none focus:border-accent-indigo"
+                    className="w-full bg-vault-raised border border-hairline px-2.5 py-2 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
                   >
                     <option value="public">Public (Unrestricted)</option>
                     <option value="internal">Internal (Default)</option>
@@ -417,170 +383,149 @@ export default function IngestPage() {
 
                 {/* Owner ID */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center gap-1 text-[10px] font-mono text-foreground/50 uppercase tracking-wider">
-                    <User className="h-3.5 w-3.5" /> Owner ID (FGA)
-                  </div>
+                  <label className="mono-meta flex items-center gap-1">
+                    <User className="h-3 w-3" /> owner id (fga)
+                  </label>
                   <Input
                     value={ownerId}
                     onChange={(e) => setOwnerId(e.target.value)}
                     placeholder="e.g. user:admin"
-                    className="bg-black/45 border-border/40 text-xs focus-visible:ring-accent-indigo/50 h-9"
+                    className="bg-vault-raised border-hairline font-mono text-xs"
                     required
                   />
                 </div>
 
                 {/* Tenant ID */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center gap-1 text-[10px] font-mono text-foreground/50 uppercase tracking-wider">
-                    <Database className="h-3.5 w-3.5" /> Tenant ID
-                  </div>
+                  <label className="mono-meta flex items-center gap-1">
+                    <Database className="h-3 w-3" /> tenant id
+                  </label>
                   <Input
                     value={tenantId}
                     onChange={(e) => setTenantId(e.target.value)}
                     placeholder="e.g. tenant_a"
-                    className="bg-black/45 border-border/40 text-xs focus-visible:ring-accent-indigo/50 h-9"
+                    className="bg-vault-raised border-hairline font-mono text-xs"
                     required
                   />
                 </div>
 
                 {/* Title Override (Optional) */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-mono text-foreground/50 uppercase tracking-wider block">
-                    Title Override (Optional)
-                  </label>
+                  <label className="mono-meta block">title override (optional)</label>
                   <Input
                     value={titleOverride}
                     onChange={(e) => setTitleOverride(e.target.value)}
                     placeholder="Defaults to filename"
-                    className="bg-black/45 border-border/40 text-xs focus-visible:ring-accent-indigo/50 h-9"
+                    className="bg-vault-raised border-hairline font-mono text-xs"
                   />
                 </div>
 
                 {/* Policy Tags */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center gap-1 text-[10px] font-mono text-foreground/50 uppercase tracking-wider">
-                    <Tag className="h-3.5 w-3.5" /> Policy Tags (ReBAC)
-                  </div>
+                  <label className="mono-meta flex items-center gap-1">
+                    <Tag className="h-3 w-3" /> policy tags (rebac)
+                  </label>
                   <Input
                     value={policyTags}
                     onChange={(e) => setPolicyTags(e.target.value)}
                     placeholder="e.g. finance, hr (comma separated)"
-                    className="bg-black/45 border-border/40 text-xs focus-visible:ring-accent-indigo/50 h-9"
+                    className="bg-vault-raised border-hairline font-mono text-xs"
                   />
                 </div>
-
               </div>
 
-              {/* Submit Button */}
-              <Button
-                type="submit"
-                disabled={loading || !file}
-                className="w-full bg-gradient-to-r from-accent-indigo via-accent-cyan to-accent-emerald text-black font-bold hover:opacity-90 transition h-10 shadow-lg cursor-pointer"
-              >
+              {/* Submit */}
+              <Button type="submit" disabled={loading || !file} className="w-full gap-2">
                 {loading ? (
-                  <div className="flex items-center gap-2">
-                    <RefreshCw className="h-4.5 w-4.5 animate-spin" />
-                    <span>Inizializzazione Ingest Pipeline...</span>
-                  </div>
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span>Initializing ingest pipeline…</span>
+                  </>
                 ) : (
-                  <span>Carica ed Indicizza File</span>
+                  <span>Submit to intake</span>
                 )}
               </Button>
-
             </form>
-          </CardContent>
-        </Card>
-      </div>
+          </Panel>
+        </div>
 
-      {/* Right: Ingestion Job History & Polling Status (2 columns) */}
-      <div className="lg:col-span-2 space-y-6">
-        <Card className="glassmorphism border-border/50 text-foreground">
-          <CardHeader className="pb-3 border-b border-border/10 flex flex-row items-center justify-between space-y-0">
-            <div>
-              <CardTitle className="text-sm font-bold flex items-center gap-1.5">
-                <FolderOpen className="h-4.5 w-4.5 text-accent-cyan" />
-                Ingestion Monitor
-              </CardTitle>
-              <CardDescription className="text-[10px]">
-                Real-time ingestion task logs.
-              </CardDescription>
-            </div>
-            {jobs.length > 0 && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={clearJobsList}
-                className="h-8 w-8 text-foreground/50 hover:text-accent-rose hover:bg-accent-rose/10 rounded-lg transition"
-                title="Clear job logs history"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            )}
-          </CardHeader>
-          
-          <CardContent className="p-0">
+        {/* Right: Job monitor ledger (2 columns) */}
+        <div className="lg:col-span-2">
+          <Panel
+            label="intake ledger · job monitor"
+            headRight={
+              jobs.length > 0 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearJobsList}
+                  className="gap-1.5 text-bone-dim hover:text-seal-red"
+                  title="Clear job logs history"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  clear
+                </Button>
+              ) : undefined
+            }
+          >
             {jobs.length === 0 ? (
-              <div className="p-8 text-center text-xs text-foreground/45 flex flex-col items-center justify-center gap-3">
-                <Clock className="h-8 w-8 text-foreground/20 animate-pulse" />
-                <span>Nessun caricamento recente.</span>
+              <div className="px-5 py-12 text-center flex flex-col items-center gap-3">
+                <Clock className="h-6 w-6 text-bone-dim" />
+                <span className="mono-meta">no intake jobs on record</span>
               </div>
             ) : (
-              <div className="divide-y divide-border/10 max-h-[580px] overflow-y-auto custom-scrollbar">
-                {jobs.map((job) => {
-                  const classLevelObj = CLASSIFICATION_LEVELS.find(l => l.value === job.classification);
-                  return (
-                    <div key={job.job_id} className="p-4 space-y-3.5 text-xs">
-                      {/* Top row: Filename + Status */}
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="min-w-0">
-                          <p className="font-bold text-foreground truncate" title={job.filename}>
-                            {job.filename}
-                          </p>
-                          <p className="text-[9px] text-foreground/40 font-mono">
-                            Size: {job.fileSize} • {job.created_at}
-                          </p>
-                        </div>
-                        {getStatusBadge(job.status)}
+              <ul className="divide-y divide-hairline max-h-[580px] overflow-y-auto custom-scrollbar">
+                {jobs.map((job) => (
+                  <li key={job.job_id} className="px-5 py-4 space-y-3">
+                    {/* Filename + status */}
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="min-w-0">
+                        <p className="text-sm text-bone truncate" title={job.filename}>
+                          {job.filename}
+                        </p>
+                        <p className="mono-meta mt-1 normal-case">
+                          {job.fileSize} · {job.created_at}
+                        </p>
                       </div>
-
-                      {/* Middle row: Metadata tags */}
-                      <div className="flex flex-wrap gap-2 text-[9px] font-mono">
-                        <Badge variant="outline" className="border-border/30 text-foreground/60 h-5">
-                          {job.document_type}
-                        </Badge>
-                        <Badge variant="outline" className={`${classLevelObj?.color || "text-foreground border-border/30"} h-5 font-bold uppercase tracking-wider`}>
-                          {job.classification}
-                        </Badge>
-                        <Badge variant="outline" className="border-border/30 text-accent-cyan/85 bg-accent-cyan/5 h-5">
-                          {job.tenant_id}
-                        </Badge>
-                      </div>
-
-                      {/* Bottom details / link */}
-                      <div className="bg-black/20 rounded-lg p-2.5 space-y-1 font-mono text-[9px] text-foreground/50 border border-border/10">
-                        <div className="flex justify-between">
-                          <span>Job ID:</span>
-                          <span className="text-foreground/80 truncate max-w-40">{job.job_id}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Doc ID:</span>
-                          <span className="text-foreground/80 truncate max-w-40" title={job.document_id}>{job.document_id}</span>
-                        </div>
-                        {job.error && (
-                          <div className="pt-1.5 text-accent-rose text-left leading-normal border-t border-border/10 mt-1">
-                            <b>Error:</b> {job.error}
-                          </div>
-                        )}
-                      </div>
+                      {statusStamp(job.status)}
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
 
+                    {/* Metadata row */}
+                    <div className="flex flex-wrap items-center gap-3 font-mono text-[0.625rem]">
+                      <span className="text-bone-dim uppercase tracking-wider">
+                        {job.document_type}
+                      </span>
+                      <ClassificationStamp level={job.classification} />
+                      <span className="text-bone-dim uppercase tracking-wider">
+                        {job.tenant_id}
+                      </span>
+                    </div>
+
+                    {/* Detail block */}
+                    <div className="bg-vault-sunk border border-hairline px-2.5 py-2 space-y-1 font-mono text-[0.625rem] text-bone-dim">
+                      <div className="flex justify-between gap-3">
+                        <span>job id</span>
+                        <span className="text-bone truncate max-w-40">{job.job_id}</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span>doc id</span>
+                        <span className="text-bone truncate max-w-40" title={job.document_id}>
+                          {job.document_id}
+                        </span>
+                      </div>
+                      {job.error && (
+                        <div className="pt-1.5 border-t border-hairline mt-1 leading-normal text-seal-red">
+                          error: {job.error}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </div>
+      </div>
     </div>
   );
 }

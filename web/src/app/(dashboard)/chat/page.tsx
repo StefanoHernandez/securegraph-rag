@@ -1,26 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { 
-  Send, 
-  Settings2, 
-  Sparkles, 
-  Trash2, 
-  HelpCircle,
-  Database,
-  Hash,
-  GitMerge,
-  Globe,
-  Sliders,
-  ChevronDown,
-  ChevronUp,
-  Shield,
-  Loader2
-} from "lucide-react";
+import { Send, Trash2, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Panel } from "@/components/forensic";
 import { queryApi } from "@/lib/api";
 import { QueryRequest, QueryResponse, RetrievalMode, QueryType } from "@/lib/types";
 import AnswerCard from "@/components/chat/AnswerCard";
@@ -49,6 +33,25 @@ const CLASSIFICATION_LEVELS = [
   { value: "top_secret", label: "Top Secret" }
 ];
 
+const PIPELINE_STEPS = [
+  {
+    label: "Query Classification & Scope Routing",
+    detail: "Intent parsing (granite4.1)…",
+  },
+  {
+    label: "Dual-Lane Retrieval & FGA Pruning",
+    detail: "vector · lexical · neo4j graph",
+  },
+  {
+    label: "Cross-Lane Consensus Audit (NLI Judge)",
+    detail: "Consensus checking (qwen3.5:2b)…",
+  },
+  {
+    label: "Secure Synthesis & Lineage Anchoring",
+    detail: "Hashing and persisting trace…",
+  },
+];
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -57,14 +60,14 @@ export default function ChatPage() {
   const [user, setUser] = useState<any>(null);
   const [tenantId, setTenantId] = useState("default");
   const [userId, setUserId] = useState("admin");
-  
+
   // Query Engine Options
   const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("auto");
   const [queryType, setQueryType] = useState<QueryType>("standard");
   const [maxGraphDepth, setMaxGraphDepth] = useState(2);
   const [topK, setTopK] = useState(10);
   const [consensusThreshold, setConsensusThreshold] = useState(0.7);
-  
+
   // Scope settings
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [scopeMaxClassification, setScopeMaxClassification] = useState<string>("");
@@ -158,7 +161,7 @@ export default function ChatPage() {
 
     try {
       const apiResponse = await queryApi.submitQuery(queryRequest);
-      
+
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -185,407 +188,349 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 max-w-7xl mx-auto h-[calc(100vh-140px)]">
-      
-      {/* Left Area: Chat messages and Input (3 cols) */}
-      <div className="lg:col-span-3 flex flex-col h-full bg-[#12121a]/30 border border-border/40 rounded-2xl overflow-hidden glassmorphism relative">
-        
-        {/* Chat Header */}
-        <div className="p-4 border-b border-border/10 flex items-center justify-between bg-black/20">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-accent-indigo/15 border border-accent-indigo/30 flex items-center justify-center text-accent-indigo">
-              <Sparkles className="h-4.5 w-4.5" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-foreground">SecureGraph Query Engine</h2>
-              <p className="text-[10px] text-foreground/40 font-mono">
-                Tenant: <span className="text-accent-cyan font-bold">{tenantId}</span> • SecurSubject: <span className="text-accent-emerald font-bold">{userId}</span>
-              </p>
-            </div>
-          </div>
-          {messages.length > 0 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={clearChat}
-              className="h-8 w-8 text-foreground/50 hover:text-accent-rose hover:bg-accent-rose/10 rounded-lg transition"
-              title="Clear conversation"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-hairline">
+        <div>
+          <p className="mono-meta">section 01 · query console</p>
+          <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
+            Query Console
+          </h1>
         </div>
+        <p className="mono-meta normal-case">
+          tenant <span className="text-signal-amber">{tenantId}</span> · operator{" "}
+          <span className="text-signal-amber">{userId}</span>
+        </p>
+      </header>
 
-        {/* Message List */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
-          {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center max-w-lg mx-auto text-center space-y-6 py-8">
-              <div className="p-4 bg-accent-indigo/10 border border-accent-indigo/20 rounded-2xl text-accent-indigo animate-pulse">
-                <Sparkles className="h-10 w-10" />
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-220px)]">
+
+        {/* Left Area: Chat messages and Input (3 cols) */}
+        <div className="lg:col-span-3 flex flex-col h-full panel overflow-hidden">
+
+          {/* Console header */}
+          <div className="px-4 py-2.5 border-b border-hairline flex items-center justify-between">
+            <span className="mono-meta">query engine · live session</span>
+            {messages.length > 0 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={clearChat}
+                className="h-8 w-8 text-bone-dim hover:text-seal-red"
+                title="Clear conversation"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+
+          {/* Message List */}
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
+            {messages.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center max-w-lg mx-auto text-center space-y-6 py-8">
+                <div className="space-y-2">
+                  <p className="mono-meta">no findings on record</p>
+                  <h3 className="font-display text-lg font-bold text-bone">
+                    Open a protected query session
+                  </h3>
+                  <p className="text-xs text-bone-dim leading-relaxed">
+                    Interrogate the hybrid Knowledge Graph with security built in.
+                    Every query is pruned by the OpenFGA ReBAC engine and validated
+                    through an NLI consensus pipeline before a finding is
+                    declassified.
+                  </p>
+                </div>
+                <div className="w-full grid grid-cols-1 gap-2 pt-4">
+                  {SUGGESTED_PROMPTS.map((prompt, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleSend(prompt)}
+                      className="text-left font-mono text-xs px-3.5 py-3 bg-vault-raised border border-hairline text-bone-dim hover:text-bone hover:border-signal-amber transition-colors"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="space-y-2">
-                <h3 className="text-lg font-black text-foreground">Inizia una sessione di Query Protetta</h3>
-                <p className="text-xs text-foreground/50 leading-relaxed">
-                  Interroga il Knowledge Graph ibrido con sicurezza integrata. Tutte le query vengono analizzate dall'engine ReBAC di OpenFGA per potare i dati non autorizzati, e validate attraverso una NLI consensus pipeline per ridurre le allucinazioni.
-                </p>
-              </div>
-              <div className="w-full grid grid-cols-1 gap-2 pt-4">
-                {SUGGESTED_PROMPTS.map((prompt, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleSend(prompt)}
-                    className="text-left text-xs p-3.5 bg-black/40 border border-border/30 hover:border-accent-indigo/40 hover:bg-accent-indigo/5 text-foreground/80 hover:text-foreground rounded-xl transition duration-200"
+            ) : (
+              <div className="space-y-6">
+                {messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
                   >
-                    {prompt}
-                  </button>
+                    <div className="mono-meta normal-case mb-1.5">
+                      {msg.role === "user" ? "operator" : "engine"} ·{" "}
+                      {msg.timestamp.toLocaleTimeString()}
+                    </div>
+                    {msg.role === "user" ? (
+                      <div className="max-w-[85%] px-4 py-3 bg-vault-raised border border-hairline text-bone text-sm">
+                        {msg.content}
+                      </div>
+                    ) : (
+                      <div className="w-full max-w-[95%]">
+                        {msg.response ? (
+                          <AnswerCard response={msg.response} />
+                        ) : (
+                          // Markdown-only response for errors/simple texts
+                          <div
+                            className="classification-gutter panel px-4 py-3 prose prose-invert prose-sm max-w-none text-bone/90 leading-relaxed font-sans"
+                            style={{ ["--gutter-color" as string]: "var(--seal-red)" }}
+                          >
+                            {msg.content}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
-                >
-                  <div className={`text-[10px] font-mono text-foreground/35 mb-1`}>
-                    {msg.role === "user" ? "You" : "SecurGraph Engine"} • {msg.timestamp.toLocaleTimeString()}
-                  </div>
-                  {msg.role === "user" ? (
-                    <div className="max-w-[85%] px-4 py-3 bg-gradient-to-r from-accent-indigo/25 to-accent-indigo/15 border border-accent-indigo/35 text-foreground text-sm rounded-2xl rounded-tr-none shadow-md">
-                      {msg.content}
-                    </div>
-                  ) : (
-                    <div className="w-full max-w-[95%] p-5 bg-black/30 border border-border/50 rounded-2xl rounded-tl-none shadow-lg glassmorphism-card">
-                      {msg.response ? (
-                        <AnswerCard response={msg.response} />
-                      ) : (
-                        // Markdown-only response for errors/simple texts
-                        <div className="prose prose-invert prose-sm max-w-none text-foreground/90 leading-relaxed font-sans">
-                          {msg.content}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+            )}
 
-          {/* Premium step-by-step loading state */}
-          {loading && (
-            <div className="flex flex-col items-start space-y-2">
-              <span className="text-[10px] font-mono text-foreground/35">SecurGraph Engine • Elaborazione in corso...</span>
-              <div className="w-full max-w-md p-5 bg-black/40 border border-accent-indigo/20 rounded-2xl rounded-tl-none shadow-lg glassmorphism">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 text-accent-indigo animate-spin" />
-                    <span className="text-xs font-mono font-bold text-foreground">LangGraph Workflow Running...</span>
+            {/* Forensic processing sequence */}
+            {loading && (
+              <div className="flex flex-col items-start space-y-2">
+                <span className="mono-meta normal-case">engine · processing</span>
+                <div className="w-full max-w-md panel px-5 py-4">
+                  <div className="flex items-center gap-2 pb-3 border-b border-hairline">
+                    <Loader2 className="h-3.5 w-3.5 text-signal-amber animate-spin" />
+                    <span className="mono-meta">langgraph workflow running</span>
                   </div>
 
-                  {/* Flow pipeline visualizer */}
-                  <div className="space-y-3 pt-2">
-                    {/* Step 1: Routing */}
-                    <div className="flex items-center gap-3">
-                      <div className={`h-4.5 w-4.5 rounded-full flex items-center justify-center text-[10px] font-bold font-mono transition-colors duration-300 ${
-                        loadingStep === 0 
-                          ? "bg-accent-indigo text-black border border-accent-indigo animate-pulse" 
-                          : loadingStep > 0 
-                            ? "bg-accent-emerald/20 text-accent-emerald border border-accent-emerald/30" 
-                            : "bg-white/5 text-foreground/30 border border-white/10"
-                      }`}>
-                        {loadingStep > 0 ? "✓" : "1"}
-                      </div>
-                      <div className="flex-1">
-                        <p className={`text-xs font-semibold ${loadingStep >= 0 ? "text-foreground" : "text-foreground/30"}`}>
-                          Query Classification & Scope Routing
-                        </p>
-                        {loadingStep === 0 && (
-                          <p className="text-[10px] text-foreground/45 animate-pulse font-mono">Intent parsing (granite4.1)...</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Step 2: Retrieval */}
-                    <div className="flex items-center gap-3">
-                      <div className={`h-4.5 w-4.5 rounded-full flex items-center justify-center text-[10px] font-bold font-mono transition-colors duration-300 ${
-                        loadingStep === 1 
-                          ? "bg-accent-indigo text-black border border-accent-indigo animate-pulse" 
-                          : loadingStep > 1 
-                            ? "bg-accent-emerald/20 text-accent-emerald border border-accent-emerald/30" 
-                            : "bg-white/5 text-foreground/30 border border-white/10"
-                      }`}>
-                        {loadingStep > 1 ? "✓" : "2"}
-                      </div>
-                      <div className="flex-1">
-                        <p className={`text-xs font-semibold ${loadingStep >= 1 ? "text-foreground" : "text-foreground/30"}`}>
-                          Dual-Lane Retrieval & FGA Pruning
-                        </p>
-                        {loadingStep === 1 && (
-                          <p className="text-[10px] text-foreground/45 animate-pulse font-mono flex items-center gap-2">
-                            <span className="flex items-center gap-0.5 text-accent-indigo"><Database className="h-3 w-3" /> Vector</span>
-                            <span className="text-foreground/30">•</span>
-                            <span className="flex items-center gap-0.5 text-accent-cyan"><GitMerge className="h-3 w-3" /> Neo4j Graph</span>
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Step 3: Consensus */}
-                    <div className="flex items-center gap-3">
-                      <div className={`h-4.5 w-4.5 rounded-full flex items-center justify-center text-[10px] font-bold font-mono transition-colors duration-300 ${
-                        loadingStep === 2 
-                          ? "bg-accent-indigo text-black border border-accent-indigo animate-pulse" 
-                          : loadingStep > 2 
-                            ? "bg-accent-emerald/20 text-accent-emerald border border-accent-emerald/30" 
-                            : "bg-white/5 text-foreground/30 border border-white/10"
-                      }`}>
-                        {loadingStep > 2 ? "✓" : "3"}
-                      </div>
-                      <div className="flex-1">
-                        <p className={`text-xs font-semibold ${loadingStep >= 2 ? "text-foreground" : "text-foreground/30"}`}>
-                          Cross-Lane Consensus Audit (NLI Judge)
-                        </p>
-                        {loadingStep === 2 && (
-                          <p className="text-[10px] text-foreground/45 animate-pulse font-mono">Consensus checking (qwen3.5:2b)...</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Step 4: Synthesis */}
-                    <div className="flex items-center gap-3">
-                      <div className={`h-4.5 w-4.5 rounded-full flex items-center justify-center text-[10px] font-bold font-mono transition-colors duration-300 ${
-                        loadingStep === 3 
-                          ? "bg-accent-indigo text-black border border-accent-indigo animate-pulse" 
-                          : "bg-white/5 text-foreground/30 border border-white/10"
-                      }`}>
-                        {loadingStep === 3 ? "⌛" : "4"}
-                      </div>
-                      <div className="flex-1">
-                        <p className={`text-xs font-semibold ${loadingStep >= 3 ? "text-foreground" : "text-foreground/30"}`}>
-                          Secure Synthesis & Lineage Anchoring
-                        </p>
-                        {loadingStep === 3 && (
-                          <p className="text-[10px] text-foreground/45 animate-pulse font-mono">Hashing and persisting trace...</p>
-                        )}
-                      </div>
-                    </div>
-
-                  </div>
+                  {/* Pipeline visualizer */}
+                  <ol className="pt-4 space-y-0">
+                    {PIPELINE_STEPS.map((step, idx) => {
+                      const isActive = loadingStep === idx;
+                      const isDone = loadingStep > idx;
+                      const isLast = idx === PIPELINE_STEPS.length - 1;
+                      const marker = isDone
+                        ? "✓"
+                        : isActive
+                        ? isLast
+                          ? "⌛"
+                          : "▸"
+                        : String(idx + 1);
+                      const markerColor = isActive
+                        ? "text-signal-amber border-signal-amber"
+                        : isDone
+                        ? "text-bone border-hairline"
+                        : "text-bone-dim border-hairline";
+                      const labelColor = isActive
+                        ? "text-signal-amber"
+                        : isDone
+                        ? "text-bone"
+                        : "text-bone-dim";
+                      return (
+                        <li key={idx} className="relative flex gap-3 pb-4 last:pb-0">
+                          {/* connector rule */}
+                          {!isLast && (
+                            <span className="absolute left-[0.5625rem] top-5 bottom-0 w-px bg-hairline" />
+                          )}
+                          <span
+                            className={`relative z-10 flex-shrink-0 h-[1.125rem] w-[1.125rem] flex items-center justify-center bg-vault-raised border font-mono text-[0.625rem] ${markerColor}`}
+                          >
+                            {marker}
+                          </span>
+                          <div className="flex-1 -mt-0.5">
+                            <p className={`mono-meta normal-case ${labelColor}`}>
+                              {step.label}
+                            </p>
+                            {isActive && (
+                              <p className="mt-1 font-mono text-[0.625rem] text-bone-dim animate-pulse">
+                                {step.detail}
+                              </p>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input Form */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend(input);
+            }}
+            className="p-4 border-t border-hairline bg-vault-raised flex items-center gap-3"
+          >
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Interrogate the framework (e.g. security access policies…)"
+              className="flex-1 bg-vault-sunk border-hairline text-bone text-sm focus-visible:border-signal-amber h-11"
+              disabled={loading}
+              autoComplete="off"
+            />
+            <Button
+              type="submit"
+              disabled={loading || !input.trim()}
+              className="px-5 h-11"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </form>
         </div>
 
-        {/* Input Form */}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend(input);
-          }}
-          className="p-4 border-t border-border/10 bg-black/35 flex items-center gap-3"
-        >
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Chiedi al framework (es. Quali sono le policy di sicurezza...)"
-            className="flex-1 bg-black/40 border-border/40 text-foreground text-sm focus-visible:ring-accent-indigo/50 h-11"
-            disabled={loading}
-            autoComplete="off"
-          />
-          <Button
-            type="submit"
-            disabled={loading || !input.trim()}
-            className="bg-accent-indigo text-black font-bold hover:opacity-90 transition px-5 h-11 shadow-md cursor-pointer"
-          >
-            <Send className="h-4.5 w-4.5" />
-          </Button>
-        </form>
-      </div>
+        {/* Right Area: Query Engine Settings Sidebar (1 col) */}
+        <div className="flex flex-col gap-6 h-full overflow-y-auto custom-scrollbar">
 
-      {/* Right Area: Query Engine Settings Sidebar (1 col) */}
-      <div className="flex flex-col gap-6 h-full overflow-y-auto custom-scrollbar">
-        
-        {/* Configuration Card */}
-        <Card className="glassmorphism border-border/50 text-foreground flex-shrink-0">
-          <CardHeader className="pb-3 border-b border-border/10">
-            <CardTitle className="text-sm font-bold flex items-center gap-2">
-              <Settings2 className="h-4 w-4 text-accent-indigo" />
-              Engine Config
-            </CardTitle>
-            <CardDescription className="text-[10px]">
-              Tweak SecurGraph hybrid pipeline behaviors.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-4 space-y-4 text-xs">
-            
-            {/* Retrieval Mode */}
-            <div className="space-y-1.5">
-              <label className="font-mono text-[10px] text-foreground/50 uppercase tracking-wider block">
-                Retrieval Lane Mode
-              </label>
-              <select
-                value={retrievalMode}
-                onChange={(e) => setRetrievalMode(e.target.value as RetrievalMode)}
-                className="w-full bg-black/45 border border-border/40 rounded-lg p-2 text-foreground font-sans focus:outline-none focus:border-accent-indigo"
-              >
-                <option value="auto">Auto Router (Intent-based)</option>
-                <option value="vector">Vector Only (Semantic)</option>
-                <option value="lexical">Lexical Only (Keywords)</option>
-                <option value="graph">Graph Only (Relational)</option>
-                <option value="hybrid">Hybrid Lane Fusion</option>
-              </select>
-            </div>
+          {/* Configuration Panel */}
+          <Panel label="engine config" className="flex-shrink-0">
+            <div className="px-4 py-4 space-y-4 text-xs">
 
-            {/* Query Type */}
-            <div className="space-y-1.5">
-              <label className="font-mono text-[10px] text-foreground/50 uppercase tracking-wider block">
-                Query Strategy
-              </label>
-              <select
-                value={queryType}
-                onChange={(e) => setQueryType(e.target.value as QueryType)}
-                className="w-full bg-black/45 border border-border/40 rounded-lg p-2 text-foreground font-sans focus:outline-none focus:border-accent-indigo"
-              >
-                <option value="standard">Standard RAG (Entity focused)</option>
-                <option value="global">Global Graph Summary</option>
-              </select>
-            </div>
-
-            {/* Max Graph Depth */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <label className="font-mono text-[10px] text-foreground/50 uppercase tracking-wider block">
-                  Max Graph Depth
-                </label>
-                <span className="font-mono text-accent-cyan font-bold">{maxGraphDepth} hops</span>
-              </div>
-              <input
-                type="range"
-                min="1"
-                max="4"
-                step="1"
-                value={maxGraphDepth}
-                onChange={(e) => setMaxGraphDepth(Number(e.target.value))}
-                className="w-full h-1.5 bg-black/45 rounded-lg appearance-none cursor-pointer accent-accent-cyan"
-              />
-            </div>
-
-            {/* Consensus Threshold */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <label className="font-mono text-[10px] text-foreground/50 uppercase tracking-wider block">
-                  Consensus Threshold
-                </label>
-                <span className="font-mono text-accent-emerald font-bold">{(consensusThreshold * 100).toFixed(0)}%</span>
-              </div>
-              <input
-                type="range"
-                min="0.0"
-                max="1.0"
-                step="0.05"
-                value={consensusThreshold}
-                onChange={(e) => setConsensusThreshold(Number(e.target.value))}
-                className="w-full h-1.5 bg-black/45 rounded-lg appearance-none cursor-pointer accent-accent-emerald"
-              />
-              <p className="text-[9px] text-foreground/40 leading-tight">
-                Agreement score limit required to trigger the "High Trust" UX badge.
-              </p>
-            </div>
-
-            {/* Top K */}
-            <div className="space-y-1.5">
-              <label className="font-mono text-[10px] text-foreground/50 uppercase tracking-wider block">
-                Top K Context Chunks
-              </label>
-              <Input
-                type="number"
-                min={1}
-                max={100}
-                value={topK}
-                onChange={(e) => setTopK(Math.max(1, Math.min(100, Number(e.target.value) || 10)))}
-                className="bg-black/45 border-border/40 text-foreground text-xs focus-visible:ring-accent-indigo/50 h-8"
-              />
-            </div>
-
-          </CardContent>
-        </Card>
-
-        {/* Security Scope Boundaries */}
-        <Card className="glassmorphism border-border/50 text-foreground">
-          <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="w-full p-4 flex items-center justify-between font-bold text-sm hover:bg-white/5 transition"
-          >
-            <span className="flex items-center gap-2">
-              <Shield className="h-4 w-4 text-accent-cyan" />
-              Advanced Scopes
-            </span>
-            {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </button>
-
-          {showAdvanced && (
-            <CardContent className="p-4 pt-0 space-y-4 text-xs border-t border-border/10">
-              
-              {/* Max Classification Level */}
-              <div className="space-y-1.5 pt-4">
-                <label className="font-mono text-[10px] text-foreground/50 uppercase tracking-wider block">
-                  Max Classification
-                </label>
+              {/* Retrieval Mode */}
+              <div className="space-y-1.5">
+                <label className="mono-meta block">retrieval lane mode</label>
                 <select
-                  value={scopeMaxClassification}
-                  onChange={(e) => setScopeMaxClassification(e.target.value)}
-                  className="w-full bg-black/45 border border-border/40 rounded-lg p-2 text-foreground font-sans focus:outline-none focus:border-accent-cyan"
+                  value={retrievalMode}
+                  onChange={(e) => setRetrievalMode(e.target.value as RetrievalMode)}
+                  className="w-full bg-vault-raised border border-hairline px-2.5 py-1.5 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
                 >
-                  {CLASSIFICATION_LEVELS.map((level) => (
-                    <option key={level.value} value={level.value}>
-                      {level.label}
-                    </option>
-                  ))}
+                  <option value="auto">Auto Router (Intent-based)</option>
+                  <option value="vector">Vector Only (Semantic)</option>
+                  <option value="lexical">Lexical Only (Keywords)</option>
+                  <option value="graph">Graph Only (Relational)</option>
+                  <option value="hybrid">Hybrid Lane Fusion</option>
                 </select>
               </div>
 
-              {/* Scope Collections */}
+              {/* Query Type */}
               <div className="space-y-1.5">
-                <label className="font-mono text-[10px] text-foreground/50 uppercase tracking-wider block">
-                  Limit to Collections
-                </label>
-                <Input
-                  value={scopeCollections}
-                  onChange={(e) => setScopeCollections(e.target.value)}
-                  placeholder="e.g. policy, finance"
-                  className="bg-black/45 border-border/40 text-foreground text-xs focus-visible:ring-accent-cyan/50 h-8"
+                <label className="mono-meta block">query strategy</label>
+                <select
+                  value={queryType}
+                  onChange={(e) => setQueryType(e.target.value as QueryType)}
+                  className="w-full bg-vault-raised border border-hairline px-2.5 py-1.5 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
+                >
+                  <option value="standard">Standard RAG (Entity focused)</option>
+                  <option value="global">Global Graph Summary</option>
+                </select>
+              </div>
+
+              {/* Max Graph Depth */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="mono-meta block">max graph depth</label>
+                  <span className="font-mono text-signal-amber">{maxGraphDepth} hops</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="4"
+                  step="1"
+                  value={maxGraphDepth}
+                  onChange={(e) => setMaxGraphDepth(Number(e.target.value))}
+                  className="w-full h-1.5 bg-vault-sunk appearance-none cursor-pointer accent-signal-amber"
                 />
-                <p className="text-[9px] text-foreground/40 font-mono">
-                  Comma-separated list of collection names.
+              </div>
+
+              {/* Consensus Threshold */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="mono-meta block">consensus threshold</label>
+                  <span className="font-mono text-signal-amber">{(consensusThreshold * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.0"
+                  max="1.0"
+                  step="0.05"
+                  value={consensusThreshold}
+                  onChange={(e) => setConsensusThreshold(Number(e.target.value))}
+                  className="w-full h-1.5 bg-vault-sunk appearance-none cursor-pointer accent-signal-amber"
+                />
+                <p className="text-[0.625rem] text-bone-dim leading-tight">
+                  Agreement score limit required to trigger the "High Trust" verdict.
                 </p>
               </div>
 
-              {/* Scope Document IDs */}
+              {/* Top K */}
               <div className="space-y-1.5">
-                <label className="font-mono text-[10px] text-foreground/50 uppercase tracking-wider block">
-                  Limit to Document IDs
-                </label>
+                <label className="mono-meta block">top k context chunks</label>
                 <Input
-                  value={scopeDocumentIds}
-                  onChange={(e) => setScopeDocumentIds(e.target.value)}
-                  placeholder="e.g. doc_123, doc_456"
-                  className="bg-black/45 border-border/40 text-foreground text-xs focus-visible:ring-accent-cyan/50 h-8"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={topK}
+                  onChange={(e) => setTopK(Math.max(1, Math.min(100, Number(e.target.value) || 10)))}
+                  className="bg-vault-raised border-hairline text-bone text-xs focus-visible:border-signal-amber h-8"
                 />
-                <p className="text-[9px] text-foreground/40 font-mono">
-                  Comma-separated list of unique doc IDs.
-                </p>
               </div>
 
-            </CardContent>
-          )}
-        </Card>
+            </div>
+          </Panel>
+
+          {/* Security Scope Boundaries */}
+          <Panel>
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="w-full px-4 py-3 flex items-center justify-between mono-meta hover:text-bone transition-colors"
+            >
+              <span>advanced scopes</span>
+              {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+
+            {showAdvanced && (
+              <div className="px-4 pb-4 space-y-4 text-xs border-t border-hairline">
+
+                {/* Max Classification Level */}
+                <div className="space-y-1.5 pt-4">
+                  <label className="mono-meta block">max classification</label>
+                  <select
+                    value={scopeMaxClassification}
+                    onChange={(e) => setScopeMaxClassification(e.target.value)}
+                    className="w-full bg-vault-raised border border-hairline px-2.5 py-1.5 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
+                  >
+                    {CLASSIFICATION_LEVELS.map((level) => (
+                      <option key={level.value} value={level.value}>
+                        {level.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Scope Collections */}
+                <div className="space-y-1.5">
+                  <label className="mono-meta block">limit to collections</label>
+                  <Input
+                    value={scopeCollections}
+                    onChange={(e) => setScopeCollections(e.target.value)}
+                    placeholder="e.g. policy, finance"
+                    className="bg-vault-raised border-hairline text-bone text-xs focus-visible:border-signal-amber h-8"
+                  />
+                  <p className="mono-meta normal-case">
+                    Comma-separated list of collection names.
+                  </p>
+                </div>
+
+                {/* Scope Document IDs */}
+                <div className="space-y-1.5">
+                  <label className="mono-meta block">limit to document ids</label>
+                  <Input
+                    value={scopeDocumentIds}
+                    onChange={(e) => setScopeDocumentIds(e.target.value)}
+                    placeholder="e.g. doc_123, doc_456"
+                    className="bg-vault-raised border-hairline text-bone text-xs focus-visible:border-signal-amber h-8"
+                  />
+                  <p className="mono-meta normal-case">
+                    Comma-separated list of unique doc IDs.
+                  </p>
+                </div>
+
+              </div>
+            )}
+          </Panel>
+
+        </div>
 
       </div>
-
     </div>
   );
 }
