@@ -70,6 +70,7 @@ async def _backfill_query_traces(session: AsyncSession, force: bool) -> tuple[in
                     update(QueryTraceRow)
                     .where(QueryTraceRow.trace_id == row.trace_id)
                     .values(tamper_hash=calculated)
+                    .execution_options(synchronize_session=False)
                 )
                 total_written += 1
             prev_hash = calculated
@@ -109,6 +110,7 @@ async def _backfill_retrieval_evidence(session: AsyncSession, force: bool) -> tu
                     update(RetrievalEvidenceRow)
                     .where(RetrievalEvidenceRow.evidence_id == row.evidence_id)
                     .values(tamper_hash=calculated)
+                    .execution_options(synchronize_session=False)
                 )
                 total_written += 1
             prev_hash = calculated
@@ -154,6 +156,7 @@ async def _backfill_policy_decisions(session: AsyncSession, force: bool) -> tupl
                     update(PolicyDecisionRow)
                     .where(PolicyDecisionRow.decision_id == row.decision_id)
                     .values(tamper_hash=calculated)
+                    .execution_options(synchronize_session=False)
                 )
                 total_written += 1
             prev_hash = calculated
@@ -162,6 +165,13 @@ async def _backfill_policy_decisions(session: AsyncSession, force: bool) -> tupl
 
 async def main(force: bool) -> int:
     async with AsyncSessionLocal() as session:
+        # We load all rows as ORM entities, so each per-row UPDATE would otherwise
+        # run ORM session-synchronization (synchronize_session) and scan the full
+        # identity map (28k+ objects) after every statement -> O(n^2), turning a
+        # seconds-long backfill into many minutes. The per-statement
+        # execution_options(synchronize_session=False) below kills that scan;
+        # disabling autoflush trims the rest. We commit once at the end.
+        session.autoflush = False
         traces_seen, traces_written = await _backfill_query_traces(session, force)
         ev_seen, ev_written = await _backfill_retrieval_evidence(session, force)
         dec_seen, dec_written = await _backfill_policy_decisions(session, force)
