@@ -22,6 +22,34 @@ from securgraph.observability import get_tracer
 _LOG = get_logger(__name__)
 
 
+def _bounded_context(items: list[Any], token_budget: int) -> str:
+    """Join evidence/path strings for a draft prompt, bounded by a token budget.
+
+    A broad graph query can return many paths whose reconstructed text overlaps,
+    so an unbounded ``"\\n".join(str(ev) ...)`` can blow past the model's context
+    window (observed: ~1M tokens). Deduplicate identical fragments and stop once
+    the budget is reached (~4 chars/token heuristic).
+    """
+    char_budget = max(1, token_budget) * 4
+    seen: set[str] = set()
+    parts: list[str] = []
+    used = 0
+    dropped = 0
+    for ev in items:
+        text = str(ev).strip()
+        if not text or text in seen:
+            continue
+        if used + len(text) > char_budget:
+            dropped += 1
+            continue
+        seen.add(text)
+        parts.append(text)
+        used += len(text) + 1
+    if dropped:
+        _LOG.info("draft_context_truncated", dropped=dropped, token_budget=token_budget)
+    return "\n".join(parts)
+
+
 def _heuristic_seeds(query: str) -> list[str]:
     """Fallback seed extraction: capitalized words stripped of trailing punctuation."""
     return [word.strip(",.?!") for word in query.split() if word and word[0].isupper()]
@@ -213,7 +241,9 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
         with tracer.start_as_current_span("vector_draft"):
             adapter = get_llm_adapter()
             settings = get_settings()
-            context_text = "\n".join([str(ev) for ev in state["vector_context"]])
+            context_text = _bounded_context(
+                list(state["vector_context"]), settings.query_token_budget
+            )
             prompt = f"Answer using vector sources only:\nContext: {context_text}\nQuery: {state['query']}"
 
             content = await adapter.chat(
@@ -233,7 +263,9 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
         with tracer.start_as_current_span("graph_draft"):
             adapter = get_llm_adapter()
             settings = get_settings()
-            context_text = "\n".join([str(ev) for ev in state["graph_context"]])
+            context_text = _bounded_context(
+                list(state["graph_context"]), settings.query_token_budget
+            )
             prompt = f"Answer using graph sources only:\nContext: {context_text}\nQuery: {state['query']}"
 
             content = await adapter.chat(
