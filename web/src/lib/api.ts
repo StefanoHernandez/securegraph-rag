@@ -1,15 +1,24 @@
 import { QueryRequest, QueryResponse, ExplainReport, HealthResponse } from "./types";
 
 // Base API URL configuration.
-// By default, we proxy via next.config.ts rewrites under '/api'
+// By default, we proxy via next.config.ts rewrites under '/api'.
 const BASE_URL = typeof window !== "undefined" ? "" : "http://127.0.0.1:8000";
+
+// Direct backend origin used to BYPASS the Next dev rewrite for multipart
+// uploads: Next's rewrite proxy mishandles streamed multipart/form-data bodies
+// and resets the upstream connection ("socket hang up"). CORS is open in dev
+// (allow_origins=*), so the browser can hit the backend directly. Override via
+// NEXT_PUBLIC_API_DIRECT in other environments.
+const DIRECT_BACKEND =
+  process.env.NEXT_PUBLIC_API_DIRECT || "http://127.0.0.1:8000";
 
 async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  direct = false
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  
+
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("securgraph_token");
     if (token) {
@@ -17,7 +26,14 @@ async function request<T>(
     }
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, {
+  // When `direct`, target the backend origin and drop the "/api" proxy prefix
+  // (backend routes are mounted without it).
+  const url =
+    direct && typeof window !== "undefined"
+      ? `${DIRECT_BACKEND}${path.replace(/^\/api/, "")}`
+      : `${BASE_URL}${path}`;
+
+  const response = await fetch(url, {
     ...options,
     headers,
   });
@@ -57,12 +73,17 @@ export const api = {
     }),
 
   postMultipart: <T>(path: string, formData: FormData, options?: RequestInit) =>
-    request<T>(path, {
-      ...options,
-      method: "POST",
-      body: formData,
-      // Note: Let fetch set the correct multipart/form-data content type + boundary
-    }),
+    request<T>(
+      path,
+      {
+        ...options,
+        method: "POST",
+        body: formData,
+        // Let fetch set the multipart/form-data content type + boundary.
+      },
+      // Bypass the Next rewrite proxy — it resets multipart POST bodies.
+      true
+    ),
 };
 
 // API Endpoints mappings:
