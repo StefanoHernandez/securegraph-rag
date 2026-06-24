@@ -138,37 +138,13 @@ export default function GraphPage() {
     } catch (err: any) {
       console.error(err);
       setError(err?.message || "Failed to load graph nodes from Neo4j.");
-      mockFallbackGraph();
+      // No fake fallback: on error leave the graph empty so the empty-state
+      // panel is shown instead of presenting fabricated nodes as real data.
+      setNodes([]);
+      setLinks([]);
     } finally {
       setLoading(false);
     }
-  };
-
-  const mockFallbackGraph = () => {
-    // Generate demo data if neo4j/api is unavailable
-    const demoNodes: GraphNode[] = [
-      { id: "SecurGraph RAG", type: "concept", description: "Consensus-based Hybrid RAG", classification: "public" },
-      { id: "Stefano Hernandez", type: "person", description: "Lead Engineer on SecureGraph", classification: "internal" },
-      { id: "Google DeepMind", type: "organization", description: "AI Research Laboratory", classification: "public" },
-      { id: "OpenFGA Server", type: "document", description: "Fine-grained access control database", classification: "restricted" },
-      { id: "Neo4j Database", type: "document", description: "Property Graph Database for structure", classification: "internal" },
-      { id: "Qdrant Vector DB", type: "document", description: "Dense semantic matching retriever", classification: "internal" },
-      { id: "mistral-small-latest", type: "concept", description: "Synthesis Model", classification: "public" }
-    ];
-
-    const demoLinks: GraphLink[] = [
-      { source: "Stefano Hernandez", target: "SecurGraph RAG", type: "CREATED", description: "Stefano engineered the SecurGraph framework", confidence: 1.0, classification: "internal" },
-      { source: "Google DeepMind", target: "Stefano Hernandez", type: "EMPLOYED", description: "Stefano works at DeepMind", confidence: 0.95, classification: "public" },
-      { source: "SecurGraph RAG", target: "OpenFGA Server", type: "USES", description: "Uses OpenFGA for ReBAC verification", confidence: 1.0, classification: "public" },
-      { source: "SecurGraph RAG", target: "Neo4j Database", type: "USES", description: "Graph retrieval lane", confidence: 1.0, classification: "public" },
-      { source: "SecurGraph RAG", target: "Qdrant Vector DB", type: "USES", description: "Vector retrieval lane", confidence: 1.0, classification: "public" },
-      { source: "SecurGraph RAG", target: "mistral-small-latest", type: "RUNS_ON", description: "Uses Mistral for synthesis", confidence: 0.85, classification: "public" }
-    ];
-
-    setNodes(demoNodes);
-    setLinks(demoLinks);
-    setSelectedTypes(["concept", "person", "organization", "document"]);
-    setSelectedClassifications(["public", "internal", "restricted"]);
   };
 
   // Filter nodes & links based on UI state — memoized to keep stable references
@@ -448,23 +424,8 @@ export default function GraphPage() {
                   <p className="text-xs text-bone-dim leading-relaxed">
                     No entities or relations loaded for tenant{" "}
                     <span className="font-mono text-signal-amber">{tenantId}</span>.
+                    Ingest documents for this tenant to populate the graph.
                   </p>
-                </div>
-                <div className="flex gap-2.5 mt-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setTenantId("mrd");
-                      localStorage.setItem("securgraph_tenant", "mrd");
-                      window.location.reload();
-                    }}
-                  >
-                    Switch to "mrd" (demo)
-                  </Button>
-                  <Button size="sm" onClick={mockFallbackGraph}>
-                    Load local test data
-                  </Button>
                 </div>
               </div>
             )}

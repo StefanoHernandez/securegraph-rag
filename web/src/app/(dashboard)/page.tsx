@@ -19,13 +19,13 @@ interface TraceRow {
 export default function DashboardPage() {
   const [tenantId, setTenantId] = useState("default");
   const [stats, setStats] = useState({
-    totalDocuments: 5,
+    totalDocuments: 0,
     totalQueries: 0,
     healthStatus: "…",
   });
   const [chain, setChain] = useState<{ status: ChainStatus; count: number }>({
     status: "unverified",
-    count: 6,
+    count: 0,
   });
   const [recentQueries, setRecentQueries] = useState<TraceRow[]>([]);
   const [config, setConfig] = useState<ActiveConfig | null>(null);
@@ -87,10 +87,6 @@ export default function DashboardPage() {
           highTrust,
         };
       });
-      setChain({
-        status: totalTracesCount > 0 ? "intact" : "unverified",
-        count: Math.max(totalTracesCount, 1),
-      });
     } catch {
       /* offline */
     }
@@ -108,8 +104,21 @@ export default function DashboardPage() {
       /* offline */
     }
 
+    // Real tamper-chain status: actually run verify-chain rather than inferring
+    // "intact" from the mere existence of traces. Non-admin tokens get 403 here,
+    // so the verdict stays "unverified" until an admin verifies it.
+    try {
+      const verify = await adminApi.verifyAuditChain(tenant);
+      setChain({
+        status: verify.is_intact ? "intact" : "tampered",
+        count: totalTracesCount,
+      });
+    } catch {
+      setChain({ status: "unverified", count: totalTracesCount });
+    }
+
     setStats({
-      totalDocuments: docCount || 5,
+      totalDocuments: docCount,
       totalQueries: totalTracesCount,
       healthStatus: healthStr,
     });

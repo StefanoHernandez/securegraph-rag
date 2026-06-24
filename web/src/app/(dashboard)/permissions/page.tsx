@@ -38,7 +38,7 @@ export default function PermissionsPage() {
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
   // Matrix State
-  const [matrixUsers, setMatrixUsers] = useState<string[]>(DEMO_USERS);
+  const [matrixUsers, setMatrixUsers] = useState<string[]>([]);
   const [matrixDocs, setMatrixDocs] = useState<string[]>([]);
 
   useEffect(() => {
@@ -52,7 +52,7 @@ export default function PermissionsPage() {
       const res = await adminApi.listPermissions();
       setTuples(res.tuples);
 
-      // Extract unique documents from tuples to build the matrix
+      // Build the matrix axes from the real tuples only.
       const docs = Array.from(
         new Set(
           res.tuples
@@ -60,20 +60,24 @@ export default function PermissionsPage() {
             .map(t => t.object)
         )
       );
-      setMatrixDocs(docs.length > 0 ? docs : ["document:sec_doc_01", "document:sec_doc_02"]);
+      setMatrixDocs(docs);
+
+      const users = Array.from(
+        new Set(
+          res.tuples
+            .filter(t => t.user.startsWith("user:"))
+            .map(t => t.user)
+        )
+      );
+      setMatrixUsers(users);
     } catch (err: any) {
       console.error(err);
       setError(err?.message || "Failed to retrieve FGA tuples from the store.");
-      // Se non si connette a FGA, mockiamo un po' di tuple per fare una UI premium utilizzabile
-      const mockTuples = [
-        { user: "user:admin", relation: "owner", object: "document:sec_doc_01" },
-        { user: "user:analyst", relation: "direct_viewer", object: "document:sec_doc_01" },
-        { user: "user:viewer", relation: "direct_viewer", object: "document:sec_doc_02" },
-        { user: "document:sec_doc_01", relation: "parent_document", object: "chunk:chk_1" },
-        { user: "document:sec_doc_01", relation: "parent_document", object: "chunk:chk_2" }
-      ];
-      setTuples(mockTuples);
-      setMatrixDocs(["document:sec_doc_01", "document:sec_doc_02"]);
+      // No fake fallback: on error show an empty list + the error banner
+      // instead of fabricating permission tuples.
+      setTuples([]);
+      setMatrixDocs([]);
+      setMatrixUsers([]);
     } finally {
       setLoading(false);
     }
