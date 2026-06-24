@@ -127,12 +127,13 @@ export default function DashboardPage() {
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button render={<Link href="/chat" />} className="gap-2">
+          <Button nativeButton={false} render={<Link href="/chat" />} className="gap-2">
             <MessageSquare className="h-4 w-4" />
             New query
           </Button>
           <Button
             variant="outline"
+            nativeButton={false}
             render={<Link href="/ingest" />}
             className="gap-2"
           >
