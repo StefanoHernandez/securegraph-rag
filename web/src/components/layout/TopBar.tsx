@@ -9,6 +9,7 @@ import { ClassificationStamp } from "@/components/forensic";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -100,9 +101,11 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
             }
           />
           <DropdownMenuContent className="w-52">
-            <DropdownMenuLabel className="mono-meta">
-              switch tenant
-            </DropdownMenuLabel>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="mono-meta">
+                switch tenant
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             {TENANTS.map((t) => (
               <DropdownMenuItem
@@ -134,12 +137,14 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
             }
           />
           <DropdownMenuContent className="w-56" align="end">
-            <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col gap-1">
-                <p className="text-sm text-bone">Stefano Hernandez</p>
-                <p className="mono-meta">operator · clearance restricted</p>
-              </div>
-            </DropdownMenuLabel>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm text-bone">Stefano Hernandez</p>
+                  <p className="mono-meta">operator · clearance restricted</p>
+                </div>
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-xs cursor-pointer gap-2"
