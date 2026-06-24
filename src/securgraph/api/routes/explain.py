@@ -38,6 +38,10 @@ class ExplainReport(SGModel):
     evidence: list[dict[str, Any]]
     policy_summary: dict[str, int]
 
+    # Consensus snapshot (C2). Null on traces recorded before consensus was
+    # persisted — the UI renders a neutral "not recorded" state in that case.
+    consensus: dict[str, Any] | None = None
+
 
 @router.get(
     "/explain/{trace_id}",
@@ -156,6 +160,17 @@ async def explain_query(
             }
         )
 
+    consensus = (
+        {
+            "agreement_score": trace.agreement_score,
+            "high_trust": trace.high_trust,
+            "entity_overlap": trace.entity_overlap,
+            "claim_nli_score": trace.claim_nli_score,
+        }
+        if trace.agreement_score is not None or trace.high_trust is not None
+        else None
+    )
+
     return ExplainReport(
         trace_id=trace_id,
         query=trace.query,
@@ -168,4 +183,5 @@ async def explain_query(
         prov_entities=prov_entities,
         evidence=evidence_list,
         policy_summary={"allowed": allowed_count, "denied": denied_count},
+        consensus=consensus,
     )

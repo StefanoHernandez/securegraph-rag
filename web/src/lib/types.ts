@@ -104,6 +104,15 @@ export interface ExplainReport {
     allowed: number;
     denied: number;
   };
+
+  // Consensus snapshot (C2). Null for traces recorded before consensus was
+  // persisted; the timeline renders a neutral "not recorded" state.
+  consensus: {
+    agreement_score: number | null;
+    high_trust: boolean | null;
+    entity_overlap: number | null;
+    claim_nli_score: number | null;
+  } | null;
 }
 
 export interface ServiceStatus {

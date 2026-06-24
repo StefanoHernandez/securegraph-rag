@@ -173,6 +173,12 @@ async def query_pipeline(
             trace_row.answer = final_answer.text
             trace_row.latency_ms = latency_ms
             trace_row.completed_at = utcnow()
+            # Snapshot the consensus verdict (C2) so /explain can audit it from
+            # the trace. Not part of the tamper-hash payload.
+            trace_row.agreement_score = agreement_score
+            trace_row.high_trust = high_trust
+            trace_row.entity_overlap = entity_overlap
+            trace_row.claim_nli_score = confidence.claim_nli_score
 
             evidence_rows = []
             for rank, ev in enumerate(vector_context):

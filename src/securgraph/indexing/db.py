@@ -188,6 +188,15 @@ class QueryTraceRow(Base):
     latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Consensus snapshot (C2) — recorded so the verdict is auditable from the
+    # trace alone. Deliberately NOT part of the tamper-hash payload (see
+    # tamper.chain_query_trace / verify_table_chain field lists), so adding
+    # these columns does not invalidate existing chained rows.
+    agreement_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high_trust: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    entity_overlap: Mapped[float | None] = mapped_column(Float, nullable=True)
+    claim_nli_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     evidence: Mapped[list[RetrievalEvidenceRow]] = relationship(
         back_populates="trace", cascade="all, delete-orphan"
     )
