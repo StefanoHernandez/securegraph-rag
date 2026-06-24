@@ -2,7 +2,7 @@ import { QueryRequest, QueryResponse, ExplainReport, HealthResponse } from "./ty
 
 // Base API URL configuration.
 // By default, we proxy via next.config.ts rewrites under '/api'
-const BASE_URL = typeof window !== "undefined" ? "" : "http://localhost:8000";
+const BASE_URL = typeof window !== "undefined" ? "" : "http://127.0.0.1:8000";
 
 async function request<T>(
   path: string,
