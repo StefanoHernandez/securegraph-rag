@@ -19,6 +19,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from securgraph import __version__
 from securgraph.api.routes import admin as admin_routes
 from securgraph.api.routes import auth as auth_routes
+from securgraph.api.routes import config as config_routes
 from securgraph.api.routes import explain as explain_routes
 from securgraph.api.routes import health as health_routes
 from securgraph.api.routes import ingest as ingest_routes
@@ -121,6 +122,7 @@ def create_app() -> FastAPI:
     application.include_router(explain_routes.router)
     application.include_router(auth_routes.router)
     application.include_router(admin_routes.router)
+    application.include_router(config_routes.router)
 
     # OTel FastAPI instrumentation wraps every request in a server span and
     # injects the trace context downstream.

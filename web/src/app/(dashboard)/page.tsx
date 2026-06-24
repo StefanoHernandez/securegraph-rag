@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Panel, TamperChain, TrustVerdict, type ChainStatus } from "@/components/forensic";
 import { MessageSquare, UploadCloud, ArrowUpRight } from "lucide-react";
-import { adminApi, healthApi } from "@/lib/api";
+import { adminApi, healthApi, configApi, type ActiveConfig } from "@/lib/api";
 
 interface TraceRow {
   trace_id: string;
@@ -28,6 +28,7 @@ export default function DashboardPage() {
     count: 6,
   });
   const [recentQueries, setRecentQueries] = useState<TraceRow[]>([]);
+  const [config, setConfig] = useState<ActiveConfig | null>(null);
 
   useEffect(() => {
     const savedTenant = localStorage.getItem("securgraph_tenant") || "default";
@@ -47,6 +48,12 @@ export default function DashboardPage() {
           : "down";
     } catch {
       /* offline */
+    }
+
+    try {
+      setConfig(await configApi.getConfig());
+    } catch {
+      /* leave config null -> panel shows placeholders */
     }
 
     let totalTracesCount = 0;
@@ -225,13 +232,22 @@ export default function DashboardPage() {
 
         <Panel label="active configuration">
           <dl className="px-5 py-4 space-y-3 font-mono text-xs">
-            {[
-              ["core llm", "granite4.1:3b"],
-              ["embedding", "bge-m3"],
-              ["nli judge", "qwen3.5:2b"],
-              ["access store", "openfga rebac"],
-              ["tenant", tenantId],
-            ].map(([k, v]) => (
+            {(config
+              ? [
+                  ["core llm", `${config.llm.provider} · ${config.llm.model}`],
+                  ["embedding", config.embedding.replace(/^BAAI\//, "")],
+                  ["nli judge", `${config.judge.provider} · ${config.judge.model}`],
+                  ["access store", config.access_store],
+                  ["tenant", tenantId],
+                ]
+              : [
+                  ["core llm", "…"],
+                  ["embedding", "…"],
+                  ["nli judge", "…"],
+                  ["access store", "openfga rebac"],
+                  ["tenant", tenantId],
+                ]
+            ).map(([k, v]) => (
               <div
                 key={k}
                 className="flex items-center justify-between gap-3 border-b border-hairline pb-2 last:border-0 last:pb-0"

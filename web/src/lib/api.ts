@@ -91,6 +91,20 @@ export const healthApi = {
   getHealth: () => api.get<HealthResponse>("/api/health"),
 };
 
+export interface ActiveConfig {
+  llm: { provider: string; model: string };
+  extract: { provider: string; model: string };
+  judge: { provider: string; model: string };
+  embedding: string;
+  access_store: string;
+  auth_enabled: boolean;
+  tamper_evident: boolean;
+}
+
+export const configApi = {
+  getConfig: () => api.get<ActiveConfig>("/api/config"),
+};
+
 export const ingestApi = {
   uploadFile: (formData: FormData) =>
     api.postMultipart<{ job_id: string; document_id: string; trace_id: string; status: string; chunks_created: number }>("/api/ingest", formData),
