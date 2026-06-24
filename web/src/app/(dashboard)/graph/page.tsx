@@ -153,7 +153,7 @@ export default function GraphPage() {
       { id: "OpenFGA Server", type: "document", description: "Fine-grained access control database", classification: "restricted" },
       { id: "Neo4j Database", type: "document", description: "Property Graph Database for structure", classification: "internal" },
       { id: "Qdrant Vector DB", type: "document", description: "Dense semantic matching retriever", classification: "internal" },
-      { id: "granite4.1:3b", type: "concept", description: "Synthesis Model", classification: "public" }
+      { id: "mistral-small-latest", type: "concept", description: "Synthesis Model", classification: "public" }
     ];
 
     const demoLinks: GraphLink[] = [
@@ -162,7 +162,7 @@ export default function GraphPage() {
       { source: "SecurGraph RAG", target: "OpenFGA Server", type: "USES", description: "Uses OpenFGA for ReBAC verification", confidence: 1.0, classification: "public" },
       { source: "SecurGraph RAG", target: "Neo4j Database", type: "USES", description: "Graph retrieval lane", confidence: 1.0, classification: "public" },
       { source: "SecurGraph RAG", target: "Qdrant Vector DB", type: "USES", description: "Vector retrieval lane", confidence: 1.0, classification: "public" },
-      { source: "SecurGraph RAG", target: "granite4.1:3b", type: "RUNS_ON", description: "Uses granite for synthesis", confidence: 0.85, classification: "public" }
+      { source: "SecurGraph RAG", target: "mistral-small-latest", type: "RUNS_ON", description: "Uses Mistral for synthesis", confidence: 0.85, classification: "public" }
     ];
 
     setNodes(demoNodes);

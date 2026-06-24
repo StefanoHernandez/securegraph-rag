@@ -19,7 +19,7 @@ interface ChatMessage {
 
 const SUGGESTED_PROMPTS = [
   "Quali sono le policy di sicurezza per l'accesso ai dati sensibili?",
-  "Retrieve the consensus report for the Qwen stability metrics.",
+  "Retrieve the consensus report for the latest high-trust query.",
   "Elenco degli accessi negati per il tenant_a oggi.",
   "Show relationship between OpenFGA policies and Neo4j nodes."
 ];
@@ -36,7 +36,7 @@ const CLASSIFICATION_LEVELS = [
 const PIPELINE_STEPS = [
   {
     label: "Query Classification & Scope Routing",
-    detail: "Intent parsing (granite4.1)…",
+    detail: "Intent parsing…",
   },
   {
     label: "Dual-Lane Retrieval & FGA Pruning",
@@ -44,7 +44,7 @@ const PIPELINE_STEPS = [
   },
   {
     label: "Cross-Lane Consensus Audit (NLI Judge)",
-    detail: "Consensus checking (qwen3.5:2b)…",
+    detail: "Bidirectional NLI consensus…",
   },
   {
     label: "Secure Synthesis & Lineage Anchoring",
