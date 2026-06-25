@@ -145,6 +145,7 @@ class AuthorizedCommunityRetriever:
             # Record metrics and decisions
             try:
                 from securgraph.observability.otel import POLICY_DECISION_COUNT
+
                 POLICY_DECISION_COUNT.labels(
                     tenant_id=subject.tenant_id,
                     object_type="community",

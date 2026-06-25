@@ -160,9 +160,7 @@ class AnthropicLLMAdapter(LLMAdapter):
             )
             data = robust_json_loads(content)
         except Exception as e:
-            _LOG.warning(
-                "anthropic_extract_claims_failed", error=str(e), text_sample=text[:100]
-            )
+            _LOG.warning("anthropic_extract_claims_failed", error=str(e), text_sample=text[:100])
             return ClaimDecomposition(claims=[])
 
         normalized: list[AtomicClaim] = []
@@ -171,12 +169,7 @@ class AnthropicLLMAdapter(LLMAdapter):
                 if not isinstance(item, dict):
                     continue
                 cid = item.get("claim_id") or item.get("id") or f"c{idx}"
-                ctext = (
-                    item.get("text")
-                    or item.get("claim")
-                    or item.get("content")
-                    or ""
-                )
+                ctext = item.get("text") or item.get("claim") or item.get("content") or ""
                 raw_entities = item.get("entities") or []
                 entities: list[str] = []
                 if isinstance(raw_entities, list):
@@ -234,9 +227,7 @@ class AnthropicLLMAdapter(LLMAdapter):
             reason = data.get("reason") or "Vote completed."
             return NLIResult(label=label, confidence=confidence, reason=reason)
         except Exception as e:
-            _LOG.warning(
-                "anthropic_nli_vote_failed", error=str(e), temperature=temperature
-            )
+            _LOG.warning("anthropic_nli_vote_failed", error=str(e), temperature=temperature)
             return NLIResult(label="neutral", confidence=0.0, reason=f"Failed: {e!s}")
 
     async def judge_nli(self, claim: str, reference: str) -> NLIResult:

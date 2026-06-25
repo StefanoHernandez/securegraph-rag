@@ -12,8 +12,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
 import { adminApi } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
+import { useTenantSelection } from "@/lib/useTenantSelection";
+import type {
+  ForceGraphMethods,
+  LinkObject,
+  NodeObject,
+} from "react-force-graph-3d";
 
 // Dynamically import 3D Force Graph to avoid SSR issues with canvas/WebGL
+type ForceGraphComponent = typeof import("react-force-graph-3d").default;
 const ForceGraph3D = dynamic(
   () => import("react-force-graph-3d").then((mod) => mod.default),
   {
@@ -24,7 +32,7 @@ const ForceGraph3D = dynamic(
       </div>
     )
   }
-);
+) as ForceGraphComponent;
 
 function LoaderComponent() {
   return (
@@ -35,7 +43,7 @@ function LoaderComponent() {
   );
 }
 
-interface GraphNode {
+interface GraphNodeData {
   id: string;
   type: string;
   description: string;
@@ -45,16 +53,23 @@ interface GraphNode {
   x?: number;
   y?: number;
   z?: number;
-  __threeObj?: any;
 }
 
-interface GraphLink {
-  source: string | any;
-  target: string | any;
+interface GraphLinkData {
   type: string;
   description: string;
   confidence: number;
   classification: string;
+}
+
+type GraphNode = NodeObject<GraphNodeData>;
+type GraphLink = LinkObject<GraphNodeData, GraphLinkData>;
+
+function endpointId(endpoint: GraphLink["source"]): string {
+  if (typeof endpoint === "object" && endpoint !== null) {
+    return String(endpoint.id ?? "");
+  }
+  return String(endpoint ?? "");
 }
 
 // Forensic Vault node ramp — restrained bone tints by entity type, never rainbow.
@@ -75,7 +90,8 @@ const LINK_DIM = "rgba(232,230,223,0.04)";
 const LINK_ACTIVE = "rgba(232,178,58,0.85)";
 
 export default function GraphPage() {
-  const [tenantId, setTenantId] = useState("default");
+  const { tenants, tenantId, loadingTenants, tenantError, selectTenant } =
+    useTenantSelection();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,14 +107,16 @@ export default function GraphPage() {
   const [selectedClassifications, setSelectedClassifications] = useState<string[]>([]);
 
   // Graph control ref
-  const fgRef = useRef<any>(null);
+  const fgRef = useRef<
+    ForceGraphMethods<GraphNodeData, GraphLinkData> | undefined
+  >(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 600, height: 500 });
 
   useEffect(() => {
     if (!containerRef.current) return;
     const resizeObserver = new ResizeObserver((entries) => {
-      for (let entry of entries) {
+      for (const entry of entries) {
         const { width, height } = entry.contentRect;
         setDimensions({
           width: width || 600,
@@ -110,18 +128,10 @@ export default function GraphPage() {
     return () => resizeObserver.disconnect();
   }, []);
 
-  useEffect(() => {
-    const storedTenant = localStorage.getItem("securgraph_tenant");
-    if (storedTenant) {
-      setTenantId(storedTenant);
+  const fetchGraphData = useCallback(async () => {
+    if (!tenantId) {
+      return;
     }
-  }, []);
-
-  useEffect(() => {
-    fetchGraphData();
-  }, [tenantId]);
-
-  const fetchGraphData = async () => {
     setLoading(true);
     setError(null);
     setSelectedNode(null);
@@ -135,9 +145,9 @@ export default function GraphPage() {
       setSelectedTypes(types);
       const classes = Array.from(new Set(res.nodes.map(n => n.classification.toLowerCase())));
       setSelectedClassifications(classes);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError(err?.message || "Failed to load graph nodes from Neo4j.");
+      setError(getErrorMessage(err, "Failed to load graph nodes from Neo4j."));
       // No fake fallback: on error leave the graph empty so the empty-state
       // panel is shown instead of presenting fabricated nodes as real data.
       setNodes([]);
@@ -145,7 +155,12 @@ export default function GraphPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenantId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void fetchGraphData(), 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchGraphData]);
 
   // Filter nodes & links based on UI state — memoized to keep stable references
   // (avoids react-force-graph restarting the simulation on every hover re-render)
@@ -160,8 +175,8 @@ export default function GraphPage() {
   const filteredNodeIds = useMemo(() => new Set(filteredNodes.map(n => n.id)), [filteredNodes]);
 
   const filteredLinks = useMemo(() => links.filter(link => {
-    const srcId = typeof link.source === "object" ? link.source.id : link.source;
-    const tgtId = typeof link.target === "object" ? link.target.id : link.target;
+    const srcId = endpointId(link.source);
+    const tgtId = endpointId(link.target);
     return filteredNodeIds.has(srcId) && filteredNodeIds.has(tgtId);
   }), [links, filteredNodeIds]);
 
@@ -190,8 +205,8 @@ export default function GraphPage() {
   // Node details helper
   const getNodeNeighbors = (nodeId: string) => {
     return links.filter(l => {
-      const srcId = typeof l.source === "object" ? l.source.id : l.source;
-      const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+      const srcId = endpointId(l.source);
+      const tgtId = endpointId(l.target);
       return srcId === nodeId || tgtId === nodeId;
     });
   };
@@ -202,8 +217,8 @@ export default function GraphPage() {
     const set = new Set<string>();
     set.add(hoveredNode.id);
     for (const l of links) {
-      const srcId = typeof l.source === "object" ? l.source.id : l.source;
-      const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+      const srcId = endpointId(l.source);
+      const tgtId = endpointId(l.target);
       if (srcId === hoveredNode.id) set.add(tgtId);
       if (tgtId === hoveredNode.id) set.add(srcId);
     }
@@ -212,7 +227,7 @@ export default function GraphPage() {
 
   // Node color — vault bone ramp by type; selected node is amber. Dim
   // non-neighbours on hover (Obsidian-style focus).
-  const getNodeColor = useCallback((node: any) => {
+  const getNodeColor = useCallback((node: GraphNode) => {
     if (selectedNode && node.id === selectedNode.id) return NODE_AMBER;
     const t = (node.type || "").toLowerCase();
     const baseColor = NODE_BONE_RAMP[t] || NODE_BONE;
@@ -222,10 +237,10 @@ export default function GraphPage() {
   }, [hoveredNeighborIds, selectedNode]);
 
   // Link color: highlight edges of hovered node, dim the rest
-  const getLinkColor = useCallback((link: any) => {
+  const getLinkColor = useCallback((link: GraphLink) => {
     if (!hoveredNeighborIds) return LINK_BASE;
-    const srcId = typeof link.source === "object" ? link.source.id : link.source;
-    const tgtId = typeof link.target === "object" ? link.target.id : link.target;
+    const srcId = endpointId(link.source);
+    const tgtId = endpointId(link.target);
     if (hoveredNeighborIds.has(srcId) && hoveredNeighborIds.has(tgtId)) {
       return LINK_ACTIVE;
     }
@@ -233,16 +248,16 @@ export default function GraphPage() {
   }, [hoveredNeighborIds]);
 
   // Link width: thicken edges connected to hovered node
-  const getLinkWidth = useCallback((link: any) => {
+  const getLinkWidth = useCallback((link: GraphLink) => {
     if (!hoveredNeighborIds) return 1.5;
-    const srcId = typeof link.source === "object" ? link.source.id : link.source;
-    const tgtId = typeof link.target === "object" ? link.target.id : link.target;
+    const srcId = endpointId(link.source);
+    const tgtId = endpointId(link.target);
     if (hoveredNeighborIds.has(srcId) && hoveredNeighborIds.has(tgtId)) return 3;
     return 0.5;
   }, [hoveredNeighborIds]);
 
   // Hover handler
-  const handleNodeHover = useCallback((node: any) => {
+  const handleNodeHover = useCallback((node: GraphNode | null) => {
     setHoveredNode(node || null);
     // Change cursor style
     if (containerRef.current) {
@@ -251,7 +266,7 @@ export default function GraphPage() {
   }, []);
 
   // Center node in viewport
-  const handleFocusNode = (node: any) => {
+  const handleFocusNode = (node: GraphNode) => {
     if (!fgRef.current || !node) return;
 
     // Search the node object in force-graph model
@@ -268,7 +283,11 @@ export default function GraphPage() {
         y: (graphNode.y || 0) * distRatio,
         z: (graphNode.z || 0) * distRatio
       },
-      graphNode,
+      {
+        x: graphNode.x || 0,
+        y: graphNode.y || 0,
+        z: graphNode.z || 0,
+      },
       2500 // transition ms
     );
     setSelectedNode(node);
@@ -295,19 +314,19 @@ export default function GraphPage() {
 
         <div className="flex items-center gap-3">
           <select
-            value={tenantId}
+            value={tenantId ?? ""}
             onChange={(e) => {
-              const val = e.target.value;
-              setTenantId(val);
-              localStorage.setItem("securgraph_tenant", val);
-              window.location.reload();
+              selectTenant(e.target.value);
             }}
+            disabled={loadingTenants || tenants.length === 0}
             className="bg-vault-raised border border-hairline px-2.5 py-1.5 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
           >
-            <option value="default">default</option>
-            <option value="mrd">mrd</option>
-            <option value="demo_tenant">demo_tenant</option>
-            <option value="test_tenant_async">test_tenant_async</option>
+            {!tenantId && <option value="">no tenant</option>}
+            {tenants.map((tenant) => (
+              <option key={tenant.id} value={tenant.id}>
+                {tenant.display_name}
+              </option>
+            ))}
           </select>
           <Button size="sm" onClick={fetchGraphData} variant="outline" disabled={loading} className="gap-1.5">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
@@ -321,6 +340,12 @@ export default function GraphPage() {
           <p className="mono-meta text-seal-red mb-1">neo4j connection failed</p>
           <p className="font-mono text-[0.625rem] text-bone-dim">{error}</p>
           <p className="font-mono text-[0.625rem] text-bone-dim mt-1">Loading local demo graph.</p>
+        </div>
+      )}
+      {tenantError && (
+        <div className="border border-seal-red/40 bg-vault-sunk px-4 py-3 max-w-xl flex-shrink-0">
+          <p className="mono-meta text-seal-red mb-1">tenant directory failed</p>
+          <p className="font-mono text-[0.625rem] text-bone-dim">{tenantError}</p>
         </div>
       )}
 
@@ -429,12 +454,12 @@ export default function GraphPage() {
                 </div>
               </div>
             )}
-            <ForceGraph3D
+            <ForceGraph3D<GraphNodeData, GraphLinkData>
               ref={fgRef}
               graphData={graphData}
               width={dimensions.width}
               height={dimensions.height}
-              nodeLabel={(n: any) => `${n.id} (${n.type})`}
+              nodeLabel={(node: GraphNode) => `${node.id} (${node.type})`}
               nodeColor={getNodeColor}
               nodeVal={4}
               nodeOpacity={1}

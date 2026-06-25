@@ -74,19 +74,19 @@ export interface ExplainReport {
     id: string;
     type: string;
     label: string;
-    [key: string]: any;
+    [key: string]: unknown;
   }>;
   prov_activities: Array<{
     id: string;
     type: string;
     label: string;
-    [key: string]: any;
+    [key: string]: unknown;
   }>;
   prov_entities: Array<{
     id: string;
     type: string;
     label: string;
-    [key: string]: any;
+    [key: string]: unknown;
   }>;
 
   // Diagnostic overview
@@ -140,12 +140,70 @@ export interface IngestionJob {
   updated_at: string;
 }
 
+export interface SessionMembership {
+  tenant_id: string;
+  role: string;
+}
+
+export interface SessionUser {
+  id: string;
+  username: string;
+  display_name: string;
+  email: string | null;
+  role: string;
+  tenant_id: string | null;
+  is_super_admin: boolean;
+  must_change_password: boolean;
+  memberships: SessionMembership[];
+}
+
 export interface UserSession {
-  token: string;
-  user: {
-    id: string;
-    username: string;
-    role: string;
-    tenant_id: string;
-  };
+  user: SessionUser;
+}
+
+export interface TenantSummary {
+  id: string;
+  display_name: string;
+  status: string;
+  tenant_admin_settings_enabled: boolean;
+}
+
+export interface ActiveSession {
+  id: string;
+  tenant_id: string | null;
+  current: boolean;
+  user_agent: string | null;
+  ip_address: string | null;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string | null;
+}
+
+export type ProviderName = "openai" | "anthropic" | "gemini" | "mistral" | "ollama";
+
+export interface ProviderCredentialStatus {
+  provider: ProviderName;
+  tenant_id: string;
+  configured: boolean;
+  fingerprint: string;
+  status: string;
+  last_tested_at: string | null;
+  last_test_ok: boolean | null;
+  models_discovered: number;
+}
+
+export interface RuntimeSetting {
+  key: string;
+  value: Record<string, unknown>;
+  restart_required: boolean;
+  version: number;
+  updated_at: string | null;
+}
+
+export interface ModelCatalogEntry {
+  provider: ProviderName;
+  model_id: string;
+  capabilities: string[];
+  status: string;
+  discovered_at: string | null;
 }

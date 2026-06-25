@@ -30,10 +30,20 @@ async def test_community_generation_partitions_by_policy_class(
         {"chunk_id": "c2", "owner_id": "bob", "policy_tags": [], "direct_viewers": []},
     ]
     mock_relations = [
-        {"source": "SSL", "target": "TLS", "type": "RELATED_TO", "confidence": 0.9,
-         "source_chunk_ids": ["c1"]},
-        {"source": "Payroll", "target": "Bank", "type": "RELATED_TO", "confidence": 0.8,
-         "source_chunk_ids": ["c2"]},
+        {
+            "source": "SSL",
+            "target": "TLS",
+            "type": "RELATED_TO",
+            "confidence": 0.9,
+            "source_chunk_ids": ["c1"],
+        },
+        {
+            "source": "Payroll",
+            "target": "Bank",
+            "type": "RELATED_TO",
+            "confidence": 0.8,
+            "source_chunk_ids": ["c2"],
+        },
     ]
 
     merged_communities: list[dict] = []
@@ -58,8 +68,10 @@ async def test_community_generation_partitions_by_policy_class(
     class MockSession:
         async def __aenter__(self):  # type: ignore[no-untyped-def]
             return self
+
         async def __aexit__(self, *a):  # type: ignore[no-untyped-def]
             pass
+
         async def run(self, cypher: str, **kwargs):  # type: ignore[no-untyped-def]
             return await mock_run_fn(cypher, **kwargs)
 
@@ -108,8 +120,10 @@ async def test_global_retriever_and_rebac_filtering() -> None:
     class MockSession:
         async def __aenter__(self) -> MockSession:
             return self
+
         async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
             pass
+
         async def run(self, cypher: str, **kwargs) -> Any:
             return await mock_run(cypher, **kwargs)
 
@@ -158,15 +172,12 @@ async def test_global_workflow_routing_and_synthesis(monkeypatch: pytest.MonkeyP
     mock_retrieve = AsyncMock(return_value=[mock_summary])
     monkeypatch.setattr(
         "securgraph.indexing.global_retriever.AuthorizedCommunityRetriever.retrieve_communities",
-        mock_retrieve
+        mock_retrieve,
     )
 
     mock_adapter = AsyncMock()
     mock_adapter.chat.return_value = "Risposta sintetica globale basata sulle comunità."
-    monkeypatch.setattr(
-        "securgraph.orchestration.workflow.get_llm_adapter",
-        lambda: mock_adapter
-    )
+    monkeypatch.setattr("securgraph.orchestration.workflow.get_llm_adapter", lambda: mock_adapter)
 
     # 1. Compile LangGraph workflow
     qdrant = MagicMock()

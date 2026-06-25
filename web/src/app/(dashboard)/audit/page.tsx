@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ChevronLeft,
@@ -11,6 +11,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Panel, TamperChain, type ChainStatus } from "@/components/forensic";
 import { adminApi } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
+import { useTenantSelection } from "@/lib/useTenantSelection";
 
 interface AuditTrace {
   trace_id: string;
@@ -33,7 +35,6 @@ interface VerificationReport {
   >;
 }
 
-const TENANTS = ["default", "mrd", "demo_tenant", "test_tenant_async"];
 const TABLE_LABELS: Record<string, string> = {
   query_traces: "query traces",
   retrieval_evidence: "retrieval evidence",
@@ -41,7 +42,8 @@ const TABLE_LABELS: Record<string, string> = {
 };
 
 export default function AuditPage() {
-  const [tenantId, setTenantId] = useState("default");
+  const { tenants, tenantId, loadingTenants, tenantError, selectTenant } =
+    useTenantSelection();
   const [traces, setTraces] = useState<AuditTrace[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -52,17 +54,10 @@ export default function AuditPage() {
   const [verifReport, setVerifReport] = useState<VerificationReport | null>(null);
   const [verifError, setVerifError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const stored = localStorage.getItem("securgraph_tenant");
-    if (stored) setTenantId(stored);
-  }, []);
-
-  useEffect(() => {
-    fetchTraces();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, page]);
-
-  const fetchTraces = async () => {
+  const fetchTraces = useCallback(async () => {
+    if (!tenantId) {
+      return;
+    }
     setLoadingTraces(true);
     try {
       const res = await adminApi.getAuditTraces(tenantId, page, size);
@@ -73,17 +68,25 @@ export default function AuditPage() {
     } finally {
       setLoadingTraces(false);
     }
-  };
+  }, [page, tenantId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void fetchTraces(), 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchTraces]);
 
   const handleVerifyChain = async () => {
+    if (!tenantId) {
+      return;
+    }
     setVerifying(true);
     setVerifError(null);
     setVerifReport(null);
     try {
       const report = await adminApi.verifyAuditChain(tenantId);
       setVerifReport(report);
-    } catch (err: any) {
-      setVerifError(err?.message || "Chain verification failed.");
+    } catch (err: unknown) {
+      setVerifError(getErrorMessage(err, "Chain verification failed."));
     } finally {
       setVerifying(false);
     }
@@ -134,17 +137,18 @@ export default function AuditPage() {
         </div>
         <div className="flex items-center gap-3">
           <select
-            value={tenantId}
+            value={tenantId ?? ""}
             onChange={(e) => {
-              setTenantId(e.target.value);
-              localStorage.setItem("securgraph_tenant", e.target.value);
-              window.location.reload();
+              selectTenant(e.target.value);
+              setPage(1);
             }}
+            disabled={loadingTenants || tenants.length === 0}
             className="bg-vault-raised border border-hairline px-2.5 py-1.5 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
           >
-            {TENANTS.map((t) => (
-              <option key={t} value={t}>
-                {t}
+            {!tenantId && <option value="">no tenant</option>}
+            {tenants.map((tenant) => (
+              <option key={tenant.id} value={tenant.id}>
+                {tenant.display_name}
               </option>
             ))}
           </select>
@@ -160,6 +164,12 @@ export default function AuditPage() {
           </Button>
         </div>
       </header>
+
+      {tenantError && (
+        <Panel classification="restricted" label="tenant directory error">
+          <p className="px-5 py-4 font-mono text-xs text-seal-red">{tenantError}</p>
+        </Panel>
+      )}
 
       {/* Hero — interactive chain verification */}
       <Panel
@@ -254,7 +264,7 @@ export default function AuditPage() {
             </div>
           ) : traces.length === 0 ? (
             <div className="py-20 text-center mono-meta">
-              no records for tenant {tenantId}
+              no records for tenant {tenantId ?? "—"}
             </div>
           ) : (
             <table className="w-full text-left text-xs border-collapse min-w-[720px]">

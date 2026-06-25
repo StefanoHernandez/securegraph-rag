@@ -22,9 +22,11 @@ import pytest
 from securgraph.adapters.llm import (
     LLMAdapter,
     get_llm_adapter,
+    get_llm_adapter_for,
     reset_llm_adapter_cache,
 )
 from securgraph.adapters.llm.ollama import OllamaLLMAdapter
+from securgraph.runtime_overrides import clear_runtime_overrides, set_runtime_override
 
 pytestmark = pytest.mark.unit
 
@@ -42,17 +44,20 @@ def _isolate_llm_env(monkeypatch):
     monkeypatch.setenv("SECURGRAPH_OLLAMA_URL", "http://localhost:11434")
 
     from securgraph.config import Settings
+
     # Build a mock settings loader that ignores the local `.env` file
     def mock_get_settings():
         return Settings(_env_file=None)
+
     mock_get_settings.cache_clear = lambda: None
 
     monkeypatch.setattr("securgraph.config.get_settings", mock_get_settings)
-    monkeypatch.setattr("securgraph.adapters.llm.base.get_settings", mock_get_settings)
 
     reset_llm_adapter_cache()
+    clear_runtime_overrides()
     yield
     reset_llm_adapter_cache()
+    clear_runtime_overrides()
 
 
 def test_default_provider_is_ollama(monkeypatch):
@@ -125,6 +130,23 @@ def test_per_role_provider_override(monkeypatch):
         get_llm_adapter("judge")
 
 
+def test_tenant_runtime_provider_override_does_not_leak(monkeypatch):
+    """Tenant-scoped runtime provider overrides affect only that tenant."""
+    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    from securgraph.config import get_settings
+
+    get_settings.cache_clear()
+    reset_llm_adapter_cache()
+    set_runtime_override("mrd-lab", "llm_provider_judge", "openai")
+
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY is not set"):
+        get_llm_adapter_for("judge", tenant_id="mrd-lab")
+
+    adapter = get_llm_adapter_for("judge", tenant_id="other-tenant")
+    assert isinstance(adapter, OllamaLLMAdapter)
+
+
 def test_unknown_provider_raises_value_error(monkeypatch):
     """An unsupported provider id is rejected with a clear error.
 
@@ -157,18 +179,12 @@ def test_chat_route_through_adapter(monkeypatch):
     adapter = get_llm_adapter()
     fake_response = "mocked answer"
 
-    with patch.object(
-        adapter, "chat", new=AsyncMock(return_value=fake_response)
-    ) as mock_chat:
+    with patch.object(adapter, "chat", new=AsyncMock(return_value=fake_response)) as mock_chat:
         import asyncio
 
-        result = asyncio.run(
-            adapter.chat(system="sys", user="usr", temperature=0.0)
-        )
+        result = asyncio.run(adapter.chat(system="sys", user="usr", temperature=0.0))
         assert result == fake_response
-        mock_chat.assert_awaited_once_with(
-            system="sys", user="usr", temperature=0.0
-        )
+        mock_chat.assert_awaited_once_with(system="sys", user="usr", temperature=0.0)
 
 
 def test_backcompat_shim_still_works():
@@ -182,6 +198,7 @@ def test_backcompat_shim_still_works():
         get_ollama_client,
         judge_nli,
     )
+
     assert callable(extract_claims)
     assert callable(extract_graph_slice)
     assert callable(judge_nli)

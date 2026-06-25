@@ -27,6 +27,7 @@ try:
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.llms import LangchainLLMWrapper
     from ragas.metrics import answer_relevance, context_precision, context_recall, faithfulness
+
     RAGAS_AVAILABLE = True
 except ImportError:
     RAGAS_AVAILABLE = False
@@ -35,6 +36,7 @@ except ImportError:
 async def main() -> None:
     # Ensure Qdrant collection is initialized
     from securgraph.adapters.qdrant_init import init_qdrant_collection
+
     print("Ensuring Qdrant collection is initialized...")
     try:
         init_qdrant_collection()
@@ -46,9 +48,14 @@ async def main() -> None:
     from securgraph.ingestion.service import IngestionRequest, ingest_document
 
     doc_text = (
-        "Stefano Hernandez is a software engineer. He is leading the development of SecureGraph, a high-trust Graph-RAG framework designed for regulated environments.\n\n"
-        "Stefano is based in Milan. Stefano is a member of the Advanced Agentic Coding team.\n\n"
-        "SecureGraph enforces fine-grained access control (ReBAC) on vector and graph databases, records W3C PROV-compliant explainability traces, and performs bidirectional NLI consensus claim verification.\n"
+        "Stefano Hernandez is a software engineer. He is leading the development "
+        "of SecureGraph, a high-trust Graph-RAG framework designed for regulated "
+        "environments.\n\n"
+        "Stefano is based in Milan. Stefano is a member of the Advanced Agentic "
+        "Coding team.\n\n"
+        "SecureGraph enforces fine-grained access control (ReBAC) on vector and "
+        "graph databases, records W3C PROV-compliant explainability traces, and "
+        "performs bidirectional NLI consensus claim verification.\n"
     )
 
     print("Ingesting evaluation source document...")
@@ -57,7 +64,7 @@ async def main() -> None:
         source_uri="evaluation_source.txt",
         owner_id="user:stefano",
         data=doc_text.encode("utf-8"),
-        policy_tags=("dev",)
+        policy_tags=("dev",),
     )
 
     async with AsyncSessionLocal() as session:
@@ -75,8 +82,8 @@ async def main() -> None:
         print(f"Error: Golden QA dataset not found at {corpus_path}")
         sys.exit(1)
 
-    with open(corpus_path, encoding="utf-8") as f:
-        qa_pairs = yaml.safe_load(f)
+    corpus_text = await asyncio.to_thread(corpus_path.read_text, encoding="utf-8")
+    qa_pairs = yaml.safe_load(corpus_text)
 
     print(f"Loaded {len(qa_pairs)} golden QA pairs.")
 
@@ -98,10 +105,7 @@ async def main() -> None:
                 "tenant_id": "mrd",
                 "user_id": "user:stefano",
                 "query": question,
-                "options": {
-                    "consensus_threshold": 0.6,
-                    "top_k": 5
-                }
+                "options": {"consensus_threshold": 0.6, "top_k": 5},
             }
 
             try:
@@ -130,12 +134,14 @@ async def main() -> None:
                 if not contexts:
                     contexts = [expected_context]
 
-                test_cases.append({
-                    "question": question,
-                    "answer": answer,
-                    "contexts": contexts,
-                    "ground_truth": ground_truth
-                })
+                test_cases.append(
+                    {
+                        "question": question,
+                        "answer": answer,
+                        "contexts": contexts,
+                        "ground_truth": ground_truth,
+                    }
+                )
             except Exception as e:
                 print(f"  Error querying pipeline: {e}")
 
@@ -150,7 +156,7 @@ async def main() -> None:
         "question": [t["question"] for t in test_cases],
         "contexts": [t["contexts"] for t in test_cases],
         "answer": [t["answer"] for t in test_cases],
-        "ground_truth": [t["ground_truth"] for t in test_cases]
+        "ground_truth": [t["ground_truth"] for t in test_cases],
     }
 
     dataset = Dataset.from_dict(data)
@@ -176,23 +182,21 @@ async def main() -> None:
 
             metrics = [faithfulness, answer_relevance, context_precision, context_recall]
 
-            print("Computing Ragas quality metrics (Faithfulness, Answer Relevance, Context Precision/Recall)...")
-            result = evaluate(
-                dataset,
-                metrics=metrics,
-                llm=ragas_llm,
-                embeddings=ragas_emb
+            print(
+                "Computing Ragas quality metrics "
+                "(Faithfulness, Answer Relevance, Context Precision/Recall)..."
             )
+            result = evaluate(dataset, metrics=metrics, llm=ragas_llm, embeddings=ragas_emb)
 
-            print("\n" + "="*80)
+            print("\n" + "=" * 80)
             print("                      RAGAS EVALUATION METRICS REPORT")
-            print("="*80)
+            print("=" * 80)
             df = result.to_pandas()
             print(df.to_string(index=False))
             print("\nOverall Scores:")
             for metric_name, val in result.scores.items():
                 print(f"  - {metric_name}: {val:.4f}")
-            print("="*80)
+            print("=" * 80)
         except Exception as e:
             print(f"Ragas evaluation encountered an error: {e}")
             print("Falling back to raw RAG execution report.")
@@ -203,12 +207,12 @@ async def main() -> None:
 
 
 def _print_raw_report(test_cases: list[dict]) -> None:
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("                         RAW RAG EXECUTION REPORT")
-    print("="*80)
+    print("=" * 80)
     df = pd.DataFrame(test_cases)
     print(df[["question", "answer", "contexts"]].to_string(index=False))
-    print("="*80)
+    print("=" * 80)
 
 
 if __name__ == "__main__":

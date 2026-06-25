@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 import structlog
+from arq.connections import ArqRedis, RedisSettings, create_pool
 from fastapi import Depends
 from openfga_sdk import ClientConfiguration, OpenFgaClient
 from openfga_sdk.models import CreateStoreRequest, TypeDefinition, WriteAuthorizationModelRequest
@@ -28,8 +29,6 @@ settings = get_settings()
 # Async engine configured using DSN from central Settings
 engine = create_async_engine(settings.postgres_dsn, pool_pre_ping=True)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-
-from arq.connections import ArqRedis, RedisSettings, create_pool
 
 # Singletons or cache for OpenFGA client, adapter, and Redis pool
 _fga_client: OpenFgaClient | None = None
@@ -222,9 +221,7 @@ async def bootstrap_openfga(app_settings: Settings) -> None:
                     },
                     "metadata": {
                         "relations": {
-                            "in_class": {
-                                "directly_related_user_types": [{"type": "policy_class"}]
-                            },
+                            "in_class": {"directly_related_user_types": [{"type": "policy_class"}]},
                             "viewer": {"directly_related_user_types": []},
                         }
                     },
@@ -311,9 +308,7 @@ async def get_graph_retriever(
         from securgraph.adapters.neo4j import get_neo4j_driver
         from securgraph.indexing.graph_retriever import AuthorizedGraphRetriever
 
-        _graph_retriever = AuthorizedGraphRetriever(
-            driver=get_neo4j_driver(), fga=policy
-        )
+        _graph_retriever = AuthorizedGraphRetriever(driver=get_neo4j_driver(), fga=policy)
     return _graph_retriever
 
 
@@ -324,51 +319,3 @@ async def get_redis_pool() -> ArqRedis:
         _settings = get_settings()
         _redis_pool = await create_pool(RedisSettings.from_dsn(_settings.redis_url))
     return _redis_pool
-
-
-async def bootstrap_users() -> None:
-    """Seed demo users if none exist in the database."""
-    import uuid
-
-    from sqlalchemy import select
-
-    from securgraph.api.routes.auth import hash_password
-    from securgraph.indexing.db import AuthUserRow
-
-    async with AsyncSessionLocal() as session:
-        try:
-            stmt = select(AuthUserRow)
-            result = await session.execute(stmt)
-            existing = result.scalars().first()
-            if not existing:
-                logger.info("No users found in database. Seeding default demo users.")
-                demo_users = [
-                    AuthUserRow(
-                        id=str(uuid.uuid4()),
-                        username="admin",
-                        password_hash=hash_password("admin123"),
-                        role="admin",
-                        tenant_id="default",
-                    ),
-                    AuthUserRow(
-                        id=str(uuid.uuid4()),
-                        username="analyst",
-                        password_hash=hash_password("analyst123"),
-                        role="analyst",
-                        tenant_id="default",
-                    ),
-                    AuthUserRow(
-                        id=str(uuid.uuid4()),
-                        username="viewer",
-                        password_hash=hash_password("viewer123"),
-                        role="viewer",
-                        tenant_id="default",
-                    ),
-                ]
-                session.add_all(demo_users)
-                await session.commit()
-                logger.info("Default demo users seeded successfully.")
-        except Exception:
-            logger.exception("user_seeding_failed")
-
-

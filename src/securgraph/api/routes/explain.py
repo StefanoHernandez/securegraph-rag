@@ -1,6 +1,7 @@
 """FastAPI route for compiling W3C-aligned query explainability reports.
 
-Provides verifiable lineage and auditability for past Graph-RAG queries while enforcing ReBAC filters.
+Provides verifiable lineage and auditability for past Graph-RAG queries while
+enforcing ReBAC filters.
 """
 
 from __future__ import annotations
@@ -13,10 +14,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session
-from securgraph.api.routes.auth import require_user
+from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.domain.base import SGModel
 from securgraph.indexing.db import (
-    AuthUserRow,
     PolicyDecisionRow,
     QueryTraceRow,
     RetrievalEvidenceRow,
@@ -47,6 +47,8 @@ class ExplainReport(SGModel):
     # Consensus snapshot (C2). Null on traces recorded before consensus was
     # persisted — the UI renders a neutral "not recorded" state in that case.
     consensus: dict[str, Any] | None = None
+    authorization_status: str
+    integrity_status: str
 
 
 @router.get(
@@ -57,17 +59,11 @@ class ExplainReport(SGModel):
 async def explain_query(
     trace_id: str,
     tenant_id: str = Query(..., description="Tenant scope to enforce isolation"),
-    user_id: str = Query(..., description="User ID requesting the audit"),
     session: AsyncSession = Depends(get_db_session),
-    current_user: AuthUserRow | None = Depends(require_user),
+    current_user: AuthenticatedPrincipal | None = Depends(require_user),
 ) -> ExplainReport:
     """Compile W3C-aligned provenance report for a past RAG trace."""
-    # Tenant binding: a non-admin token may only audit its own tenant.
-    if (
-        current_user is not None
-        and current_user.role != "admin"
-        and tenant_id != current_user.tenant_id
-    ):
+    if current_user is not None and not current_user.can_access_tenant(tenant_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token tenant does not match the requested tenant.",
@@ -86,6 +82,14 @@ async def explain_query(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to this trace.",
         )
+    if current_user is not None:
+        trace_owner = trace.user_id.removeprefix("user:")
+        is_owner = trace_owner == current_user.user_id
+        if not is_owner and not current_user.can_admin_tenant(tenant_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the trace owner or a tenant auditor may view this trace.",
+            )
 
     # 2. Fetch associated evidence and policy decisions
     evidence_stmt = select(RetrievalEvidenceRow).where(RetrievalEvidenceRow.trace_id == trace_id)
@@ -111,7 +115,7 @@ async def explain_query(
     # 3. Secure output: redact actual text/data of denied elements
     evidence_list: list[dict[str, Any]] = []
     for ev in evidence_rows:
-        is_allowed = object_decisions.get(ev.object_id, "allow") == "allow"
+        is_allowed = object_decisions.get(ev.object_id) == "allow"
 
         evidence_list.append(
             {
@@ -122,14 +126,24 @@ async def explain_query(
                 "original_score": ev.original_score,
                 "included_in_prompt": ev.included_in_prompt,
                 "status": "allowed" if is_allowed else "redacted",
-                "object_data": "CONFIDENTIAL - ACCESS DENIED" if not is_allowed else f"Grounded data for {ev.object_id}",
+                "object_data": "CONFIDENTIAL - ACCESS DENIED"
+                if not is_allowed
+                else f"Grounded data for {ev.object_id}",
             }
         )
 
     # 4. Construct W3C PROV-O aligned lineage graph
     prov_agents = [
-        {"id": f"agent:user:{user_id}", "type": "prov:Person", "label": f"User {user_id}"},
-        {"id": "agent:securgraph-service", "type": "prov:SoftwareAgent", "label": "SecurGraph RAG Service v0.1.0"},
+        {
+            "id": f"agent:{trace.user_id}",
+            "type": "prov:Person",
+            "label": f"User {trace.user_id}",
+        },
+        {
+            "id": "agent:securgraph-service",
+            "type": "prov:SoftwareAgent",
+            "label": "SecurGraph RAG Service v0.1.0",
+        },
     ]
 
     prov_activities = [
@@ -165,7 +179,7 @@ async def explain_query(
         )
 
     for ev in evidence_rows:
-        is_allowed = object_decisions.get(ev.object_id, "allow") == "allow"
+        is_allowed = object_decisions.get(ev.object_id) == "allow"
         prov_entities.append(
             {
                 "id": f"entity:evidence:{ev.object_id}",
@@ -201,4 +215,6 @@ async def explain_query(
         evidence=evidence_list,
         policy_summary={"allowed": allowed_count, "denied": denied_count},
         consensus=consensus,
+        authorization_status="authorized",
+        integrity_status="unverified" if trace.tamper_hash is None else "sealed_unverified",
     )

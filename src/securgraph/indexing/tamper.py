@@ -40,10 +40,17 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Select, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.config import get_settings
-from securgraph.indexing.db import Base, PolicyDecisionRow, QueryTraceRow, RetrievalEvidenceRow
+from securgraph.indexing.db import (
+    AuditChainHeadRow,
+    Base,
+    PolicyDecisionRow,
+    QueryTraceRow,
+    RetrievalEvidenceRow,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +122,37 @@ def compute_payload_hmac(data: dict[str, Any], prev_hash: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+async def _lock_chain_head(
+    session: AsyncSession,
+    tenant_id: str,
+    chain_name: str,
+    genesis: str,
+) -> AuditChainHeadRow:
+    """Create then lock a stable chain head, including for the first writer."""
+    create = (
+        pg_insert(AuditChainHeadRow)
+        .values(
+            tenant_id=tenant_id,
+            chain_name=chain_name,
+            last_hash=genesis,
+            sequence=0,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[AuditChainHeadRow.tenant_id, AuditChainHeadRow.chain_name]
+        )
+    )
+    await session.execute(create)
+    result = await session.execute(
+        select(AuditChainHeadRow)
+        .where(
+            AuditChainHeadRow.tenant_id == tenant_id,
+            AuditChainHeadRow.chain_name == chain_name,
+        )
+        .with_for_update()
+    )
+    return result.scalar_one()
+
+
 async def chain_query_trace(session: AsyncSession, row: QueryTraceRow) -> None:
     """Compute and set ``tamper_hash`` on *row*.
 
@@ -122,18 +160,11 @@ async def chain_query_trace(session: AsyncSession, row: QueryTraceRow) -> None:
     Call this function *after* all fields on *row* are populated (answer, latency_ms,
     completed_at) and *before* the row is added to the session.
     """
-    stmt = (
-        select(QueryTraceRow.tamper_hash)
-        .where(
-            QueryTraceRow.tenant_id == row.tenant_id,
-            QueryTraceRow.trace_id != row.trace_id,
-        )
-        .order_by(QueryTraceRow.started_at.desc())
-        .limit(1)
-        .with_for_update()
+    head = await _lock_chain_head(
+        session, row.tenant_id, QueryTraceRow.__tablename__, "genesis_trace"
     )
-    result = await session.execute(stmt)
-    prev_hash: str = result.scalar_one_or_none() or "genesis_trace"
+    prev_hash = head.last_hash
+    row.chain_sequence = head.sequence + 1
 
     data = {
         "trace_id": row.trace_id,
@@ -146,11 +177,11 @@ async def chain_query_trace(session: AsyncSession, row: QueryTraceRow) -> None:
         "latency_ms": row.latency_ms,
     }
     row.tamper_hash = compute_payload_hmac(data, prev_hash)
+    head.last_hash = row.tamper_hash
+    head.sequence = row.chain_sequence
 
 
-async def chain_evidence_batch(
-    session: AsyncSession, rows: list[RetrievalEvidenceRow]
-) -> None:
+async def chain_evidence_batch(session: AsyncSession, rows: list[RetrievalEvidenceRow]) -> None:
     """Compute and set sequential ``tamper_hash`` values for a batch of evidence rows.
 
     Uses ``SELECT FOR UPDATE`` to serialise concurrent writers for the same tenant.
@@ -165,21 +196,16 @@ async def chain_evidence_batch(
     rows = sorted(rows, key=lambda r: r.evidence_id)
 
     tenant_id = rows[0].tenant_id
-    exclude_ids = [r.evidence_id for r in rows]
-    stmt = (
-        select(RetrievalEvidenceRow.tamper_hash)
-        .where(
-            RetrievalEvidenceRow.tenant_id == tenant_id,
-            ~RetrievalEvidenceRow.evidence_id.in_(exclude_ids),
-        )
-        .order_by(RetrievalEvidenceRow.evidence_id.desc())
-        .limit(1)
-        .with_for_update()
+    head = await _lock_chain_head(
+        session,
+        tenant_id,
+        RetrievalEvidenceRow.__tablename__,
+        "genesis_evidence",
     )
-    result = await session.execute(stmt)
-    prev_hash: str = result.scalar_one_or_none() or "genesis_evidence"
+    prev_hash = head.last_hash
 
     for r in rows:
+        r.chain_sequence = head.sequence + 1
         data = {
             "evidence_id": r.evidence_id,
             "trace_id": r.trace_id,
@@ -192,6 +218,8 @@ async def chain_evidence_batch(
         }
         r.tamper_hash = compute_payload_hmac(data, prev_hash)
         prev_hash = r.tamper_hash
+        head.last_hash = r.tamper_hash
+        head.sequence = r.chain_sequence
 
 
 async def chain_policy_decisions(
@@ -206,24 +234,16 @@ async def chain_policy_decisions(
     if not rows:
         return
 
-    exclude_ids = [r["decision_id"] for r in rows]
-    stmt = (
-        select(PolicyDecisionRow.tamper_hash)
-        .where(
-            PolicyDecisionRow.tenant_id == tenant_id,
-            ~PolicyDecisionRow.decision_id.in_(exclude_ids),
-        )
-        .order_by(
-            PolicyDecisionRow.evaluated_at.desc(),
-            PolicyDecisionRow.decision_id.desc(),
-        )
-        .limit(1)
-        .with_for_update()
+    head = await _lock_chain_head(
+        session,
+        tenant_id,
+        PolicyDecisionRow.__tablename__,
+        "genesis_decision",
     )
-    result = await session.execute(stmt)
-    prev_hash: str = result.scalar_one_or_none() or "genesis_decision"
+    prev_hash = head.last_hash
 
     for r in rows:
+        r["chain_sequence"] = head.sequence + 1
         data = {
             "decision_id": r["decision_id"],
             "trace_id": r["trace_id"],
@@ -239,6 +259,8 @@ async def chain_policy_decisions(
         }
         r["tamper_hash"] = compute_payload_hmac(data, prev_hash)
         prev_hash = r["tamper_hash"]
+        head.last_hash = r["tamper_hash"]
+        head.sequence = r["chain_sequence"]
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +309,7 @@ async def verify_table_chain(
         stmt: Select[Any] = (
             select(QueryTraceRow)
             .where(QueryTraceRow.tenant_id == tenant_id)
-            .order_by(QueryTraceRow.started_at.asc())
+            .order_by(QueryTraceRow.chain_sequence.asc().nulls_first())
         )
         genesis = "genesis_trace"
         pk_field = "trace_id"
@@ -308,7 +330,7 @@ async def verify_table_chain(
         stmt = (
             select(RetrievalEvidenceRow)
             .where(RetrievalEvidenceRow.tenant_id == tenant_id)
-            .order_by(RetrievalEvidenceRow.evidence_id.asc())
+            .order_by(RetrievalEvidenceRow.chain_sequence.asc().nulls_first())
         )
         genesis = "genesis_evidence"
         pk_field = "evidence_id"
@@ -329,10 +351,7 @@ async def verify_table_chain(
         stmt = (
             select(PolicyDecisionRow)
             .where(PolicyDecisionRow.tenant_id == tenant_id)
-            .order_by(
-                PolicyDecisionRow.evaluated_at.asc(),
-                PolicyDecisionRow.decision_id.asc(),
-            )
+            .order_by(PolicyDecisionRow.chain_sequence.asc().nulls_first())
         )
         genesis = "genesis_decision"
         pk_field = "decision_id"

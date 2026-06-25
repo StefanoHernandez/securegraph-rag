@@ -123,6 +123,7 @@ class OpenFGAPolicyAdapter:
 
             try:
                 from securgraph.observability.otel import POLICY_DECISION_COUNT
+
                 POLICY_DECISION_COUNT.labels(
                     tenant_id=subject.tenant_id,
                     object_type=PolicyObjectType.CHUNK.value,
@@ -203,6 +204,7 @@ class OpenFGAPolicyAdapter:
 
             try:
                 from securgraph.observability.otel import POLICY_DECISION_COUNT
+
                 POLICY_DECISION_COUNT.labels(
                     tenant_id=subject.tenant_id,
                     object_type=PolicyObjectType.CHUNK.value,
@@ -215,8 +217,6 @@ class OpenFGAPolicyAdapter:
 
         results = await asyncio.gather(*(check_id(cid) for cid in unique_ids))
 
-        authorized = {
-            cid for cid, dec in results if dec.decision == PolicyDecisionValue.ALLOW
-        }
+        authorized = {cid for cid, dec in results if dec.decision == PolicyDecisionValue.ALLOW}
         all_decisions = [dec for _, dec in results]
         return authorized, all_decisions

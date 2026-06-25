@@ -8,6 +8,7 @@ INSIDE one bucket, so a community's members are derived only from edges of a
 single class. This property test pins that structural guarantee against random
 graphs and random per-chunk access labels.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -73,17 +74,14 @@ def test_no_bucket_contains_a_cross_class_edge(data) -> None:  # type: ignore[no
         for ce in class_edges:
             # find original edges matching this projected edge
             matching = [
-                e for e in edges
-                if e["source"] == ce.source
-                and e["target"] == ce.target
-                and e["type"] == ce.type
+                e
+                for e in edges
+                if e["source"] == ce.source and e["target"] == ce.target and e["type"] == ce.type
             ]
             assert matching, "projected edge must trace to an original edge"
             legit_keys: set[str] = set()
             for e in matching:
                 for cid in e["source_chunk_ids"]:
                     label = chunk_labels.get(cid)
-                    legit_keys.add(
-                        policy_class_key(label) if label else "unlabeled"
-                    )
+                    legit_keys.add(policy_class_key(label) if label else "unlabeled")
             assert class_key in legit_keys, "edge placed in a class it does not belong to"

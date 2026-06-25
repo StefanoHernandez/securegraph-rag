@@ -14,11 +14,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, get_redis_pool
-from securgraph.api.routes.auth import require_user
+from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.config import get_settings
 from securgraph.domain import Classification, DocumentType
 from securgraph.domain.base import SGModel
-from securgraph.indexing.db import AuthUserRow, IngestionJobRow
+from securgraph.indexing.db import AuthUserRow, IngestionJobRow, TenantMembershipRow
 from securgraph.indexing.postgres_writer import create_ingestion_job
 from securgraph.ingestion.metadata import derive_document_id
 from securgraph.ingestion.metadata import source_hash as compute_source_hash
@@ -59,7 +59,9 @@ class IngestionJobStatusResponse(SGModel):
 async def ingest_file(
     file: Annotated[UploadFile, File(description="File bytes to parse")],
     tenant_id: Annotated[str, Form(description="Tenant scope identifier")],
-    owner_id: Annotated[str, Form(description="Author/Owner user identifier")],
+    owner_id: Annotated[
+        str | None, Form(description="Optional owner; defaults to authenticated uploader")
+    ],
     response: Response,
     document_type: Annotated[
         DocumentType, Form(description="Type of document (e.g. policy, manual)")
@@ -71,24 +73,47 @@ async def ingest_file(
     title_override: Annotated[str | None, Form(description="Optional custom title")] = None,
     session: AsyncSession = Depends(get_db_session),
     redis: ArqRedis = Depends(get_redis_pool),
-    current_user: AuthUserRow | None = Depends(require_user),
+    current_user: AuthenticatedPrincipal | None = Depends(require_user),
 ) -> IngestResponse:
     """Run full ingestion pipeline: parse, chunk, bind policy, and index."""
-    # Tenant binding: a non-admin token may only ingest into its own tenant.
-    if (
-        current_user is not None
-        and current_user.role != "admin"
-        and tenant_id != current_user.tenant_id
-    ):
+    if current_user is not None and not current_user.can_access_tenant(tenant_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token tenant does not match the ingestion tenant.",
         )
-    if ":" in owner_id and not owner_id.startswith("user:"):
+    effective_owner = owner_id or (
+        f"user:{current_user.user_id}" if current_user is not None else "user:anonymous"
+    )
+    if ":" in effective_owner and not effective_owner.startswith("user:"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="owner_id cannot contain ':' unless prefixed with 'user:' to prevent FGA-namespace ambiguity.",
+            detail=(
+                "owner_id cannot contain ':' unless prefixed with 'user:' to prevent "
+                "FGA-namespace ambiguity."
+            ),
         )
+    if current_user is not None:
+        requested_owner_id = effective_owner.removeprefix("user:")
+        if requested_owner_id != current_user.user_id:
+            if not current_user.can_admin_tenant(tenant_id):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only tenant administrators may delegate document ownership.",
+                )
+            target_user = await session.get(AuthUserRow, requested_owner_id)
+            target_membership = await session.get(
+                TenantMembershipRow, (tenant_id, requested_owner_id)
+            )
+            if (
+                target_user is None
+                or not target_user.is_active
+                or target_membership is None
+                or not target_membership.is_active
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Delegated owner is not an active member of this tenant.",
+                )
 
     settings = get_settings()
     data = await file.read()
@@ -123,6 +148,8 @@ async def ingest_file(
             trace_id=trace_id,
             tenant_id=tenant_id,
             document_id=document_id,
+            requested_by=current_user.user_id if current_user else None,
+            owner_id=effective_owner.removeprefix("user:"),
             status="queued",
         )
         await session.commit()
@@ -131,7 +158,7 @@ async def ingest_file(
         request_dict = {
             "tenant_id": tenant_id,
             "source_uri": f"file://{file.filename}",
-            "owner_id": owner_id,
+            "owner_id": effective_owner,
             "data": data,
             "document_type": document_type.value,
             "classification": classification.value,
@@ -154,7 +181,7 @@ async def ingest_file(
     request = IngestionRequest(
         tenant_id=tenant_id,
         source_uri=f"file://{file.filename}",
-        owner_id=owner_id,
+        owner_id=effective_owner,
         data=data,
         document_type=document_type,
         classification=classification,
@@ -187,6 +214,7 @@ async def ingest_file(
 async def get_ingest_status(
     job_id: str,
     session: AsyncSession = Depends(get_db_session),
+    current_user: AuthenticatedPrincipal | None = Depends(require_user),
 ) -> IngestionJobStatusResponse:
     """Look up current state and execution metrics of an ingestion job."""
     row = await session.get(IngestionJobRow, job_id)
@@ -195,6 +223,12 @@ async def get_ingest_status(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Ingestion job {job_id} not found.",
         )
+    if current_user is not None:
+        if not current_user.can_access_tenant(row.tenant_id):
+            raise HTTPException(status_code=403, detail="Access denied to this ingestion job.")
+        owns_job = current_user.user_id in {row.requested_by, row.owner_id}
+        if not owns_job and not current_user.can_admin_tenant(row.tenant_id):
+            raise HTTPException(status_code=403, detail="Access denied to this ingestion job.")
     return IngestionJobStatusResponse(
         job_id=row.job_id,
         trace_id=row.trace_id,
@@ -205,4 +239,3 @@ async def get_ingest_status(
         completed_at=row.completed_at,
         error=row.error,
     )
-

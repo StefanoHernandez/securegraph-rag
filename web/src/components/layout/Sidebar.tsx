@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { useTenantSelection } from "@/lib/useTenantSelection";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -13,6 +14,8 @@ import {
   Activity,
   ScrollText,
   Network,
+  Settings,
+  Cpu,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -32,10 +35,13 @@ const navItems = [
   { name: "Graph", code: "05", href: "/graph", icon: Network },
   { name: "Custody Ledger", code: "06", href: "/audit", icon: ScrollText },
   { name: "Health", code: "07", href: "/health", icon: Activity },
+  { name: "Settings", code: "08", href: "/settings", icon: Settings },
+  { name: "Models", code: "09", href: "/models", icon: Cpu },
 ];
 
 export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   const pathname = usePathname();
+  const { tenantId } = useTenantSelection();
 
   return (
     <aside
@@ -116,7 +122,7 @@ export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
           <div className="space-y-1.5">
             <p className="mono-meta">operator</p>
             <p className="text-sm text-bone truncate">Stefano H.</p>
-            <p className="mono-meta">tenant · default</p>
+            <p className="mono-meta">tenant · {tenantId ?? "none"}</p>
           </div>
         ) : (
           <div className="mx-auto h-7 w-7 border border-hairline flex items-center justify-center font-mono text-xs text-bone">

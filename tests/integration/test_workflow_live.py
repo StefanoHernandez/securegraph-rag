@@ -11,11 +11,13 @@ from securgraph.orchestration.workflow import QueryState, compile_workflow
 
 pytestmark = [pytest.mark.integration, pytest.mark.live]
 
+
 @pytest.fixture(autouse=True)
 def clear_adapter_cache():
     reset_llm_adapter_cache()
     yield
     reset_llm_adapter_cache()
+
 
 class MockRetrievalEvidence(RetrievalEvidence):
     model_config = ConfigDict(extra="allow")
@@ -24,6 +26,7 @@ class MockRetrievalEvidence(RetrievalEvidence):
     def __str__(self) -> str:
         return self.text
 
+
 class MockGraphPath(GraphPath):
     model_config = ConfigDict(extra="allow")
     text: str
@@ -31,8 +34,11 @@ class MockGraphPath(GraphPath):
     def __str__(self) -> str:
         return self.text
 
+
 class MockQdrant:
-    async def search_dense(self, tenant_id: str, query: str, limit: int, trace_id: str) -> list[RetrievalEvidence]:
+    async def search_dense(
+        self, tenant_id: str, query: str, limit: int, trace_id: str
+    ) -> list[RetrievalEvidence]:
         return [
             MockRetrievalEvidence(
                 evidence_id="ev_dense_1",
@@ -45,16 +51,27 @@ class MockQdrant:
                 original_rank=0,
                 original_score=0.9,
                 policy_check_id="policy_1",
-                text="Stefano is a software engineer on the Advanced Agentic Coding team based in Milan."
+                text=(
+                    "Stefano is a software engineer on the Advanced Agentic Coding "
+                    "team based in Milan."
+                ),
             )
         ]
 
-    async def search_lexical(self, tenant_id: str, query: str, limit: int, trace_id: str) -> list[RetrievalEvidence]:
+    async def search_lexical(
+        self, tenant_id: str, query: str, limit: int, trace_id: str
+    ) -> list[RetrievalEvidence]:
         return []
+
 
 class MockGraph:
     async def traverse_authorized_subgraph(
-        self, session: Any, subject: Subject, seed_entities: list[str], trace_id: str, max_depth: int
+        self,
+        session: Any,
+        subject: Subject,
+        seed_entities: list[str],
+        trace_id: str,
+        max_depth: int,
     ) -> list[GraphPath]:
         return [
             MockGraphPath(
@@ -63,9 +80,13 @@ class MockGraph:
                 edges=("LIVES_IN",),
                 source_chunk_ids=("chk_2",),
                 confidence=1.0,
-                text="Stefano is a software engineer based in Milan on the Advanced Agentic Coding team."
+                text=(
+                    "Stefano is a software engineer based in Milan on the Advanced "
+                    "Agentic Coding team."
+                ),
             )
         ]
+
 
 @pytest.mark.asyncio
 async def test_workflow_live_compile_and_run() -> None:
@@ -87,7 +108,7 @@ async def test_workflow_live_compile_and_run() -> None:
         "graph_claims": [],
         "consensus_report": None,
         "final_answer": None,
-        "warnings": []
+        "warnings": [],
     }
 
     # Execute the LangGraph workflow compiled graph

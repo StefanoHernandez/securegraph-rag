@@ -122,4 +122,3 @@ def classify_query(query_text: str) -> QueryClassification:
     if any(kw in q for kw in _GRAPH_KEYWORDS):
         return QueryClassification.ENTITY_RELATIONSHIP
     return QueryClassification.FACTUAL_SEMANTIC
-

@@ -121,6 +121,7 @@ async def async_ingest_task(
         except Exception as e:
             print(f"!!! [WORKER] EXCEPTION OCCURRED DURING INGESTION: {e} !!!")
             import traceback
+
             traceback.print_exc()
             await session.rollback()
             _LOG.exception("worker_ingestion_failed", job_id=job_id, error=str(e))

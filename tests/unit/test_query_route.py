@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 
+from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.domain import (
     Answer,
     Claim,
@@ -112,7 +113,9 @@ async def test_query_route_success(
             agreement_score=0.8,
             high_trust=True,
         ),
-        "final_answer": Answer(text="Stefano is a software engineer working on SecurGraph.", citations=()),
+        "final_answer": Answer(
+            text="Stefano is a software engineer working on SecurGraph.", citations=()
+        ),
         "warnings": ["Low database connections"],
     }
 
@@ -174,7 +177,7 @@ async def test_query_route_missing_fields(client: AsyncClient) -> None:
 
 
 async def test_query_route_empty_query(client: AsyncClient) -> None:
-    """Test that empty query strings yield 422 Unprocessable Entity due to min_length constraints."""
+    """Empty query strings yield 422 due to minimum-length constraints."""
     payload = {
         "tenant_id": "mrd",
         "user_id": "user:stefano",
@@ -182,3 +185,65 @@ async def test_query_route_empty_query(client: AsyncClient) -> None:
     }
     resp = await client.post("/query", json=payload)
     assert resp.status_code == 422
+
+
+async def test_query_uses_authenticated_identity_not_payload_identity(
+    fastapi_app,
+    client: AsyncClient,
+) -> None:
+    principal = AuthenticatedPrincipal(
+        user_id="alice",
+        username="alice",
+        tenant_id="mrd",
+        role="analyst",
+        is_super_admin=False,
+        must_change_password=False,
+        session_id="ses-1",
+    )
+    fastapi_app.dependency_overrides[require_user] = lambda: principal
+    workflow = AsyncMock()
+    workflow.ainvoke.return_value = {
+        "vector_context": [],
+        "graph_context": [],
+        "consensus_report": None,
+        "final_answer": Answer(text="Authorized answer", citations=()),
+        "warnings": [],
+    }
+
+    with patch("securgraph.api.routes.query.compile_workflow", return_value=workflow):
+        response = await client.post(
+            "/query",
+            json={
+                "tenant_id": "mrd",
+                "user_id": "user:bob",
+                "query": "Who can read this?",
+                "options": {},
+            },
+        )
+
+    assert response.status_code == 200
+    state = workflow.ainvoke.call_args.args[0]
+    assert state["subject"].user_id == "user:alice"
+
+
+async def test_query_rejects_cross_tenant_principal(fastapi_app, client: AsyncClient) -> None:
+    principal = AuthenticatedPrincipal(
+        user_id="alice",
+        username="alice",
+        tenant_id="mrd",
+        role="analyst",
+        is_super_admin=False,
+        must_change_password=False,
+        session_id="ses-1",
+    )
+    fastapi_app.dependency_overrides[require_user] = lambda: principal
+    response = await client.post(
+        "/query",
+        json={
+            "tenant_id": "other",
+            "user_id": "user:alice",
+            "query": "Cross tenant query",
+            "options": {},
+        },
+    )
+    assert response.status_code == 403

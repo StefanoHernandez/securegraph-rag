@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
+import { authApi } from "@/lib/api";
 
 export default function DashboardLayout({
   children,
@@ -15,13 +16,27 @@ export default function DashboardLayout({
   const router = useRouter();
 
   useEffect(() => {
-    // Simple client-side auth check
-    const token = localStorage.getItem("securgraph_token");
-    if (!token) {
-      router.push("/login");
-    } else {
-      setAuthChecked(true);
-    }
+    let active = true;
+    authApi
+      .me()
+      .then((user) => {
+        if (!active) {
+          return;
+        }
+        localStorage.setItem("securgraph_user", JSON.stringify(user));
+        if (user.tenant_id) {
+          localStorage.setItem("securgraph_tenant", user.tenant_id);
+        }
+        setAuthChecked(true);
+      })
+      .catch(() => {
+        if (active) {
+          router.push("/login");
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, [router]);
 
   if (!authChecked) {

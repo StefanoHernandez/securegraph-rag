@@ -93,10 +93,16 @@ class IngestionRequest:
 
     def __post_init__(self) -> None:
         if ":" in self.owner_id and not self.owner_id.startswith("user:"):
-            raise ValueError("owner_id cannot contain ':' unless prefixed with 'user:' to prevent FGA-namespace ambiguity.")
+            raise ValueError(
+                "owner_id cannot contain ':' unless prefixed with 'user:' to prevent "
+                "FGA-namespace ambiguity."
+            )
         for viewer in self.direct_viewers:
             if ":" in viewer and not viewer.startswith("user:"):
-                raise ValueError("direct_viewers elements cannot contain ':' unless prefixed with 'user:' to prevent FGA-namespace ambiguity.")
+                raise ValueError(
+                    "direct_viewers elements cannot contain ':' unless prefixed with "
+                    "'user:' to prevent FGA-namespace ambiguity."
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,7 +267,7 @@ async def ingest_document(
     from securgraph.adapters.neo4j_writer import write_graph_slice
 
     n4j_driver = neo4j_driver or get_neo4j_driver()
-    extract_adapter = get_llm_adapter_for("extract")
+    extract_adapter = get_llm_adapter_for("extract", tenant_id=request.tenant_id)
     for chunk in chunks:
         # Extract graph slice from chunk text using the configured LLM provider
         # (default Ollama; can be OpenAI/Google/Mistral/Anthropic via config).
@@ -353,9 +359,7 @@ async def _write_document_owner_tuples(
     obj = f"document:{doc_id}"
     writes: list[ClientTuple] = []
     if owner_id:
-        writes.append(
-            ClientTuple(user=_fga_user_principal(owner_id), relation="owner", object=obj)
-        )
+        writes.append(ClientTuple(user=_fga_user_principal(owner_id), relation="owner", object=obj))
     for viewer in direct_viewers:
         if not viewer:
             continue

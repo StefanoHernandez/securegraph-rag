@@ -16,8 +16,8 @@ from securgraph.community.policy_class import (
     partition_edges_by_class,
     policy_class_key,
 )
-from securgraph.config import get_settings
 from securgraph.logging import get_logger
+from securgraph.runtime_overrides import get_effective_settings
 
 _LOG = get_logger(__name__)
 
@@ -73,8 +73,8 @@ async def generate_hierarchical_communities(
             tenant_id=tenant_id,
         )
 
-    settings = get_settings()
-    adapter = get_llm_adapter()
+    settings = get_effective_settings(tenant_id)
+    adapter = get_llm_adapter(tenant_id=tenant_id)
     written: list[dict[str, Any]] = []
 
     # 3. Per class: Louvain level0 + level1, summarize, write
@@ -95,8 +95,15 @@ async def generate_hierarchical_communities(
         for level, comms in ((0, level_0), (1, level_1)):
             for idx, members in enumerate(comms):
                 comm = await _summarize_and_write_community(
-                    driver, adapter, settings, tenant_id,
-                    class_key, class_edges, members, level, idx,
+                    driver,
+                    adapter,
+                    settings,
+                    tenant_id,
+                    class_key,
+                    class_edges,
+                    members,
+                    level,
+                    idx,
                 )
                 written.append(comm)
 
@@ -122,7 +129,9 @@ async def generate_hierarchical_communities(
 
     _LOG.info(
         "generating_communities_completed",
-        tenant_id=tenant_id, classes=len(buckets), communities=len(written),
+        tenant_id=tenant_id,
+        classes=len(buckets),
+        communities=len(written),
     )
 
     if fga is not None:
@@ -187,15 +196,22 @@ async def _summarize_and_write_community(
             "SET c.title = $title, c.summary = $summary, c.level = $level, "
             "    c.member_entities = $member_entities, "
             "    c.policy_class_key = $policy_class_key",
-            comm_id=comm_id, tenant_id=tenant_id, title=title, summary=summary,
-            level=level, member_entities=member_list, policy_class_key=class_key,
+            comm_id=comm_id,
+            tenant_id=tenant_id,
+            title=title,
+            summary=summary,
+            level=level,
+            member_entities=member_list,
+            policy_class_key=class_key,
         )
         await session.run(
             "UNWIND $member_entities AS ent_name "
             "MATCH (c:Community {community_id: $comm_id, tenant_id: $tenant_id}) "
             "MATCH (e:Entity {name: ent_name, tenant_id: $tenant_id}) "
             "MERGE (c)-[:CONTAINS_ENTITY]->(e)",
-            comm_id=comm_id, tenant_id=tenant_id, member_entities=member_list,
+            comm_id=comm_id,
+            tenant_id=tenant_id,
+            member_entities=member_list,
         )
 
     return {
@@ -238,17 +254,13 @@ async def emit_community_authorization_tuples(
             continue
         obj = f"policy_class:{key}"
         if lbl.owner:
-            tuples.append(
-                ClientTuple(user=_fga_user(lbl.owner), relation="owner", object=obj)
-            )
+            tuples.append(ClientTuple(user=_fga_user(lbl.owner), relation="owner", object=obj))
         for g in sorted(lbl.group_viewers):
             tuples.append(
                 ClientTuple(user=f"group:{g}#member", relation="group_viewer", object=obj)
             )
         for d in sorted(lbl.direct_viewers):
-            tuples.append(
-                ClientTuple(user=_fga_user(d), relation="direct_viewer", object=obj)
-            )
+            tuples.append(ClientTuple(user=_fga_user(d), relation="direct_viewer", object=obj))
 
     for comm in written:
         tuples.append(

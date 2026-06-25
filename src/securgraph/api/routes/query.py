@@ -15,7 +15,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, get_graph_retriever, get_qdrant_retriever
-from securgraph.api.routes.auth import require_user
+from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.config import get_settings
 from securgraph.domain import (
     ChannelSummary,
@@ -27,8 +27,9 @@ from securgraph.domain import (
     classify_query,
     utcnow,
 )
-from securgraph.indexing.db import AuthUserRow, QueryTraceRow, RetrievalEvidenceRow
+from securgraph.indexing.db import QueryTraceRow, RetrievalEvidenceRow
 from securgraph.indexing.tamper import chain_evidence_batch, chain_query_trace
+from securgraph.logging import get_logger
 from securgraph.observability import get_tracer
 from securgraph.observability.otel import (
     CONSENSUS_AGREEMENT,
@@ -38,6 +39,7 @@ from securgraph.observability.otel import (
 from securgraph.orchestration.workflow import compile_workflow
 
 router = APIRouter(tags=["query"])
+logger = get_logger(__name__)
 
 
 @router.post(
@@ -51,19 +53,17 @@ async def query_pipeline(
     qdrant: Annotated[Any, Depends(get_qdrant_retriever)],
     graph: Annotated[Any, Depends(get_graph_retriever)],
     session: AsyncSession = Depends(get_db_session),
-    current_user: AuthUserRow | None = Depends(require_user),
+    current_user: AuthenticatedPrincipal | None = Depends(require_user),
 ) -> QueryResponse:
     """Run the 8-node LangGraph workflow with consensus verification and policy pruning."""
-    # Tenant binding: a non-admin token may only query its own tenant.
-    if (
-        current_user is not None
-        and current_user.role != "admin"
-        and request.tenant_id != current_user.tenant_id
-    ):
+    if current_user is not None and not current_user.can_access_tenant(request.tenant_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token tenant does not match the requested tenant.",
         )
+    effective_user_id = (
+        f"user:{current_user.user_id}" if current_user is not None else request.user_id
+    )
     trace_id = str(uuid.uuid4())
     start_time = time.perf_counter()
     tracer = get_tracer()
@@ -71,12 +71,12 @@ async def query_pipeline(
     with tracer.start_as_current_span("query_pipeline") as span:
         span.set_attribute("securgraph.trace_id", trace_id)
         span.set_attribute("securgraph.tenant_id", request.tenant_id)
-        span.set_attribute("securgraph.user_id", request.user_id)
+        span.set_attribute("securgraph.user_id", effective_user_id)
         span.set_attribute("securgraph.query", request.query)
 
         subject = Subject(
             tenant_id=request.tenant_id,
-            user_id=request.user_id,
+            user_id=effective_user_id,
         )
 
         # 1. Build the initial trace row — do NOT insert yet.
@@ -91,7 +91,7 @@ async def query_pipeline(
         trace_row = QueryTraceRow(
             trace_id=trace_id,
             tenant_id=request.tenant_id,
-            user_id=request.user_id,
+            user_id=effective_user_id,
             query=request.query,
             started_at=utcnow(),
         )
@@ -151,8 +151,12 @@ async def query_pipeline(
 
             # Calculate channel summary diagnostics
             vector_context = result.get("vector_context", [])
-            vector_count = sum(1 for ev in vector_context if getattr(ev, "retriever_id", None) == "vector")
-            lexical_count = sum(1 for ev in vector_context if getattr(ev, "retriever_id", None) == "lexical")
+            vector_count = sum(
+                1 for ev in vector_context if getattr(ev, "retriever_id", None) == "vector"
+            )
+            lexical_count = sum(
+                1 for ev in vector_context if getattr(ev, "retriever_id", None) == "lexical"
+            )
 
             graph_context = result.get("graph_context", [])
             graph_count = len(graph_context)
@@ -268,14 +272,19 @@ async def query_pipeline(
             try:
                 await session.rollback()
                 from sqlalchemy import update
+
                 await session.execute(
                     update(QueryTraceRow)
                     .where(QueryTraceRow.trace_id == trace_id)
                     .values(completed_at=func.now(), latency_ms=latency_ms)
                 )
                 await session.commit()
-            except Exception:
-                pass
+            except Exception as audit_error:
+                logger.exception(
+                    "Failed to persist HTTP query failure audit",
+                    error=str(audit_error),
+                    trace_id=trace_id,
+                )
             raise
         except Exception as e:
             # Increment failure metrics and set span error status
@@ -288,14 +297,19 @@ async def query_pipeline(
             try:
                 await session.rollback()
                 from sqlalchemy import update
+
                 await session.execute(
                     update(QueryTraceRow)
                     .where(QueryTraceRow.trace_id == trace_id)
                     .values(completed_at=func.now(), latency_ms=latency_ms)
                 )
                 await session.commit()
-            except Exception:
-                pass
+            except Exception as audit_error:
+                logger.exception(
+                    "Failed to persist query failure audit",
+                    error=str(audit_error),
+                    trace_id=trace_id,
+                )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Query execution failed: {e!s}",

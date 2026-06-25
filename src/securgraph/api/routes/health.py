@@ -1,17 +1,14 @@
-"""Liveness / readiness endpoint.
-
-M0 returns a static OK plus an empty components map. M1+ progressively wires
-live pings to each backend (Postgres, Qdrant, Neo4j, OpenFGA, Ollama) under
-the same shape.
-"""
+"""Zero-cost liveness/readiness and explicit privileged diagnostics."""
 
 from __future__ import annotations
 
+import asyncio
 import time
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Literal
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from openfga_sdk import OpenFgaClient
 from pydantic import Field
@@ -20,6 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph import __version__
 from securgraph.api.dependencies import get_db_session, get_openfga_client
+from securgraph.api.routes.auth import (
+    AuthenticatedPrincipal,
+    require_super_admin,
+    require_user,
+)
+from securgraph.config import get_settings
 from securgraph.domain.base import SGModel
 
 router = APIRouter(tags=["meta"])
@@ -36,6 +39,13 @@ class ComponentReport(SGModel):
     status: ComponentStatus
     detail: str | None = None
     latency_ms: float | None = Field(default=None, ge=0.0)
+    checked_at: datetime | None = None
+
+
+class LivenessResponse(SGModel):
+    status: Literal["ok"] = "ok"
+    service: str
+    version: str
 
 
 class HealthResponse(SGModel):
@@ -46,138 +56,187 @@ class HealthResponse(SGModel):
     components: dict[str, ComponentReport] = Field(default_factory=dict)
 
 
+_provider_diagnostic: ComponentReport | None = None
+_provider_diagnostic_at: datetime | None = None
+_DIAGNOSTIC_CACHE_TTL = timedelta(minutes=15)
+
+
+def _failed_report() -> ComponentReport:
+    return ComponentReport(
+        status=ComponentStatus.UNAVAILABLE,
+        detail="check failed",
+        checked_at=datetime.now(UTC),
+    )
+
+
 async def ping_postgres(session: AsyncSession) -> ComponentReport:
-    """Check connectivity to PostgreSQL."""
     start = time.perf_counter()
     try:
         await session.execute(text("SELECT 1"))
-        latency = (time.perf_counter() - start) * 1000.0
-        return ComponentReport(status=ComponentStatus.OK, latency_ms=latency)
-    except Exception as e:
-        return ComponentReport(status=ComponentStatus.UNAVAILABLE, detail=str(e))
+        return ComponentReport(
+            status=ComponentStatus.OK,
+            latency_ms=(time.perf_counter() - start) * 1000,
+            checked_at=datetime.now(UTC),
+        )
+    except Exception:
+        return _failed_report()
 
 
 async def ping_qdrant() -> ComponentReport:
-    """Check connectivity to Qdrant by pinging the configured collection."""
     from qdrant_client import QdrantClient
 
-    from securgraph.config import get_settings
-
+    settings = get_settings()
     start = time.perf_counter()
+
+    def check() -> None:
+        client = QdrantClient(url=settings.qdrant_url, check_compatibility=False)
+        try:
+            client.get_collection(collection_name=settings.qdrant_collection)
+        finally:
+            client.close()
+
     try:
-        settings = get_settings()
-        client = QdrantClient(url=settings.qdrant_url)
-        # Attempt to retrieve collection info to verify connection and existence
-        client.get_collection(collection_name=settings.qdrant_collection)
-        latency = (time.perf_counter() - start) * 1000.0
-        return ComponentReport(status=ComponentStatus.OK, latency_ms=latency)
-    except Exception as e:
-        return ComponentReport(status=ComponentStatus.UNAVAILABLE, detail=str(e))
+        await asyncio.to_thread(check)
+        return ComponentReport(
+            status=ComponentStatus.OK,
+            latency_ms=(time.perf_counter() - start) * 1000,
+            checked_at=datetime.now(UTC),
+        )
+    except Exception:
+        return _failed_report()
 
 
 async def ping_neo4j() -> ComponentReport:
-    """Check connectivity to Neo4j database."""
     start = time.perf_counter()
     try:
         from securgraph.adapters.neo4j import get_neo4j_driver
 
-        driver = get_neo4j_driver()
-        await driver.verify_connectivity()
-        latency = (time.perf_counter() - start) * 1000.0
-        return ComponentReport(status=ComponentStatus.OK, latency_ms=latency)
-    except Exception as e:
-        return ComponentReport(status=ComponentStatus.UNAVAILABLE, detail=str(e))
+        await get_neo4j_driver().verify_connectivity()
+        return ComponentReport(
+            status=ComponentStatus.OK,
+            latency_ms=(time.perf_counter() - start) * 1000,
+            checked_at=datetime.now(UTC),
+        )
+    except Exception:
+        return _failed_report()
+
+
+async def ping_openfga(client: OpenFgaClient) -> ComponentReport:
+    start = time.perf_counter()
+    try:
+        await client.read_latest_authorization_model()
+        return ComponentReport(
+            status=ComponentStatus.OK,
+            latency_ms=(time.perf_counter() - start) * 1000,
+            checked_at=datetime.now(UTC),
+        )
+    except Exception:
+        return _failed_report()
 
 
 async def ping_ollama() -> ComponentReport:
-    """Check connectivity to the configured LLM provider.
-
-    For ``ollama`` (default) this pings the local Ollama ``/api/tags``
-    endpoint. For cloud providers (OpenAI, Google, Mistral, Anthropic) we
-    issue a trivial chat completion against the active adapter; a 200/OK
-    means credentials and endpoint are valid.
-    """
+    """Explicitly validate the active provider; never called by readiness."""
     start = time.perf_counter()
     try:
-        from securgraph.adapters.llm import get_llm_adapter
-        from securgraph.config import get_settings
-
         settings = get_settings()
         if settings.llm_provider == "ollama":
-            # Native Ollama ping — list installed models (no token cost).
             from securgraph.adapters.llm.ollama import get_ollama_client
 
             await get_ollama_client().list()
         else:
-            # Cloud provider: minimal chat to validate credentials + endpoint.
-            # Use a 1-token reply to keep cost negligible.
-            adapter = get_llm_adapter()
-            await adapter.chat(
+            from securgraph.adapters.llm import get_llm_adapter
+
+            await get_llm_adapter().chat(
                 system="Reply with the single word: ok",
                 user="ping",
                 temperature=0.0,
             )
-        latency = (time.perf_counter() - start) * 1000.0
-        return ComponentReport(status=ComponentStatus.OK, latency_ms=latency)
-    except Exception as e:
-        return ComponentReport(status=ComponentStatus.UNAVAILABLE, detail=str(e))
+        return ComponentReport(
+            status=ComponentStatus.OK,
+            latency_ms=(time.perf_counter() - start) * 1000,
+            checked_at=datetime.now(UTC),
+        )
+    except Exception:
+        return _failed_report()
 
 
-async def ping_openfga(client: OpenFgaClient) -> ComponentReport:
-    """Check connectivity to OpenFGA by reading the latest authorization model."""
-    start = time.perf_counter()
-    try:
-        await client.read_latest_authorization_model()
-        latency = (time.perf_counter() - start) * 1000.0
-        return ComponentReport(status=ComponentStatus.OK, latency_ms=latency)
-    except Exception as e:
-        return ComponentReport(status=ComponentStatus.UNAVAILABLE, detail=str(e))
+def _cached_provider_report() -> ComponentReport:
+    if _provider_diagnostic is None or _provider_diagnostic_at is None:
+        return ComponentReport(status=ComponentStatus.DEGRADED, detail="not_tested")
+    if datetime.now(UTC) - _provider_diagnostic_at > _DIAGNOSTIC_CACHE_TTL:
+        return ComponentReport(
+            status=ComponentStatus.DEGRADED,
+            detail="stale",
+            latency_ms=_provider_diagnostic.latency_ms,
+            checked_at=_provider_diagnostic.checked_at,
+        )
+    return _provider_diagnostic
 
 
-@router.get(
-    "/health",
-    response_model=HealthResponse,
-    summary="Liveness/readiness probe",
-    response_description="Service health and per-component status.",
-)
-async def health(
-    session: AsyncSession = Depends(get_db_session),
-    openfga_client: OpenFgaClient = Depends(get_openfga_client),
-) -> JSONResponse:
-    """Return overall health."""
-    from securgraph.config import get_settings
-
+@router.get("/health/live", response_model=LivenessResponse)
+async def liveness() -> LivenessResponse:
     settings = get_settings()
+    return LivenessResponse(service=settings.service_name, version=__version__)
 
-    postgres_report = await ping_postgres(session)
-    qdrant_report = await ping_qdrant()
-    neo4j_report = await ping_neo4j()
-    ollama_report = await ping_ollama()
-    openfga_report = await ping_openfga(openfga_client)
 
-    components: dict[str, ComponentReport] = {
-        "postgres": postgres_report,
-        "qdrant": qdrant_report,
-        "neo4j": neo4j_report,
-        "openfga": openfga_report,
-        "ollama": ollama_report,
+async def _readiness_body(session: AsyncSession, openfga_client: OpenFgaClient) -> HealthResponse:
+    postgres, qdrant, neo4j, openfga = await asyncio.gather(
+        ping_postgres(session),
+        ping_qdrant(),
+        ping_neo4j(),
+        ping_openfga(openfga_client),
+    )
+    components = {
+        "postgres": postgres,
+        "qdrant": qdrant,
+        "neo4j": neo4j,
+        "openfga": openfga,
+        "provider": _cached_provider_report(),
     }
-
-    overall_status = "ok"
-    if (
-        postgres_report.status == ComponentStatus.UNAVAILABLE
-        or qdrant_report.status == ComponentStatus.UNAVAILABLE
-        or neo4j_report.status == ComponentStatus.UNAVAILABLE
-        or ollama_report.status == ComponentStatus.UNAVAILABLE
-        or openfga_report.status == ComponentStatus.UNAVAILABLE
-    ):
-        overall_status = "down"
-
-    body = HealthResponse(
-        status=overall_status,
+    required = (postgres, qdrant, neo4j, openfga)
+    overall = "down" if any(r.status == ComponentStatus.UNAVAILABLE for r in required) else "ok"
+    settings = get_settings()
+    return HealthResponse(
+        status=overall,
         service=settings.service_name,
         version=__version__,
         env=settings.env,
         components=components,
     )
+
+
+@router.get("/health/ready", response_model=HealthResponse)
+async def readiness(
+    session: AsyncSession = Depends(get_db_session),
+    openfga_client: OpenFgaClient = Depends(get_openfga_client),
+    _principal: AuthenticatedPrincipal | None = Depends(require_user),
+) -> HealthResponse:
+    return await _readiness_body(session, openfga_client)
+
+
+@router.get("/health", response_model=HealthResponse, deprecated=True)
+async def legacy_health(
+    session: AsyncSession = Depends(get_db_session),
+    openfga_client: OpenFgaClient = Depends(get_openfga_client),
+    _principal: AuthenticatedPrincipal | None = Depends(require_user),
+) -> JSONResponse:
+    body = await _readiness_body(session, openfga_client)
     return JSONResponse(status_code=status.HTTP_200_OK, content=body.model_dump(mode="json"))
+
+
+@router.post("/admin/diagnostics/providers/{provider}", response_model=ComponentReport)
+async def provider_diagnostic(
+    provider: str,
+    _principal: AuthenticatedPrincipal | None = Depends(require_super_admin),
+) -> ComponentReport:
+    global _provider_diagnostic, _provider_diagnostic_at
+    if provider != get_settings().llm_provider:
+        raise HTTPException(status_code=400, detail="Provider is not active")
+    if (
+        _provider_diagnostic_at is not None
+        and datetime.now(UTC) - _provider_diagnostic_at < _DIAGNOSTIC_CACHE_TTL
+    ):
+        return _provider_diagnostic or _cached_provider_report()
+    _provider_diagnostic = await ping_ollama()
+    _provider_diagnostic_at = datetime.now(UTC)
+    return _provider_diagnostic

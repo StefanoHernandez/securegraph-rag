@@ -26,11 +26,13 @@ async def test_verifier_ensemble_voting_success(monkeypatch: pytest.MonkeyPatch)
     adapter = get_llm_adapter_for("judge")
 
     # Sequential chat returns (raw JSON strings)
-    mock_chat = AsyncMock(side_effect=[
-        '{"label": "contradiction", "confidence": 0.9, "reason": "direct contradiction"}',
-        '{"label": "contradiction", "confidence": 0.8, "reason": "strict contradiction"}',
-        '{"label": "entailment", "confidence": 0.75, "reason": "some support"}'
-    ])
+    mock_chat = AsyncMock(
+        side_effect=[
+            '{"label": "contradiction", "confidence": 0.9, "reason": "direct contradiction"}',
+            '{"label": "contradiction", "confidence": 0.8, "reason": "strict contradiction"}',
+            '{"label": "entailment", "confidence": 0.75, "reason": "some support"}',
+        ]
+    )
 
     monkeypatch.setattr(adapter, "chat", mock_chat)
 

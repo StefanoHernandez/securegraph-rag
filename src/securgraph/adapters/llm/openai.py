@@ -221,12 +221,7 @@ class OpenAILLMAdapter(LLMAdapter):
                 if not isinstance(item, dict):
                     continue
                 cid = item.get("claim_id") or item.get("id") or f"c{idx}"
-                ctext = (
-                    item.get("text")
-                    or item.get("claim")
-                    or item.get("content")
-                    or ""
-                )
+                ctext = item.get("text") or item.get("claim") or item.get("content") or ""
                 raw_entities = item.get("entities") or []
                 entities: list[str] = []
                 if isinstance(raw_entities, list):

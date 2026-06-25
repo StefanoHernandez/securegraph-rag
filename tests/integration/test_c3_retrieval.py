@@ -17,10 +17,22 @@ async def test_user_authorized_only_to_one_class() -> None:
     """User authorized to class A receives A communities, never B."""
     key_a, key_b = "aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"
     records = [
-        {"community_id": f"comm_l1_0_{key_a}_t1", "title": "A", "summary": "sa",
-         "level": 1, "member_entities": ["SSL"], "policy_class_key": key_a},
-        {"community_id": f"comm_l1_0_{key_b}_t1", "title": "B", "summary": "sb",
-         "level": 1, "member_entities": ["Payroll"], "policy_class_key": key_b},
+        {
+            "community_id": f"comm_l1_0_{key_a}_t1",
+            "title": "A",
+            "summary": "sa",
+            "level": 1,
+            "member_entities": ["SSL"],
+            "policy_class_key": key_a,
+        },
+        {
+            "community_id": f"comm_l1_0_{key_b}_t1",
+            "title": "B",
+            "summary": "sb",
+            "level": 1,
+            "member_entities": ["Payroll"],
+            "policy_class_key": key_b,
+        },
     ]
     mock_run = AsyncMock()
     mock_result = MagicMock()
@@ -30,8 +42,10 @@ async def test_user_authorized_only_to_one_class() -> None:
     class MockSession:
         async def __aenter__(self):  # type: ignore[no-untyped-def]
             return self
+
         async def __aexit__(self, *a):  # type: ignore[no-untyped-def]
             pass
+
         async def run(self, cypher: str, **kwargs):  # type: ignore[no-untyped-def]
             return await mock_run(cypher, **kwargs)
 

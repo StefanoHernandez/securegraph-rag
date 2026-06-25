@@ -4,11 +4,13 @@ from securgraph.adapters.llm import get_llm_adapter, reset_llm_adapter_cache
 
 pytestmark = [pytest.mark.integration, pytest.mark.live]
 
+
 @pytest.fixture(autouse=True)
 def clear_adapter_cache():
     reset_llm_adapter_cache()
     yield
     reset_llm_adapter_cache()
+
 
 @pytest.mark.asyncio
 async def test_extract_claims_live() -> None:
@@ -19,6 +21,7 @@ async def test_extract_claims_live() -> None:
     # Check that claims decompose facts cleanly
     assert any("doctor" in c.text.lower() or "medicine" in c.text.lower() for c in res.claims)
     assert any("marco" in c.text.lower() or "doctor" in c.text.lower() for c in res.claims)
+
 
 @pytest.mark.asyncio
 async def test_judge_nli_live() -> None:

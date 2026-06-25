@@ -60,7 +60,7 @@ def test_partition_groups_single_class_edges() -> None:
     ]
     buckets = partition_edges_by_class(edges, chunk_labels)
     assert len(buckets) == 1
-    (_key, class_edges), = buckets.items()
+    ((_key, class_edges),) = buckets.items()
     assert {e.source for e in class_edges} | {e.target for e in class_edges} == {"A", "B", "C"}
 
 
@@ -78,8 +78,11 @@ def test_multi_class_edge_fans_into_each_class() -> None:
     chunk_labels = {"c1": _label("alice"), "c2": _label("bob")}
     edges = [
         {
-            "source": "A", "target": "B", "type": "R",
-            "confidence": 0.9, "source_chunk_ids": ["c1", "c2"],
+            "source": "A",
+            "target": "B",
+            "type": "R",
+            "confidence": 0.9,
+            "source_chunk_ids": ["c1", "c2"],
         },
     ]
     buckets = partition_edges_by_class(edges, chunk_labels)
@@ -92,8 +95,11 @@ def test_edge_with_unknown_chunk_goes_to_unlabeled_class() -> None:
     chunk_labels: dict[str, AccessLabel] = {}
     edges = [
         {
-            "source": "A", "target": "B", "type": "R",
-            "confidence": 0.9, "source_chunk_ids": ["missing"],
+            "source": "A",
+            "target": "B",
+            "type": "R",
+            "confidence": 0.9,
+            "source_chunk_ids": ["missing"],
         },
     ]
     buckets = partition_edges_by_class(edges, chunk_labels)

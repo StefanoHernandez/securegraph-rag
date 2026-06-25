@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
 import { ingestApi } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 
 interface IngestionTrackerJob {
   job_id: string;
@@ -41,7 +42,43 @@ const DOCUMENT_TYPES = [
   { value: "other", label: "Other Document" }
 ];
 
+function loadStoredJobs(): IngestionTrackerJob[] {
+  if (typeof window === "undefined") return [];
+  const savedJobs = localStorage.getItem("securgraph_ingest_jobs");
+  if (!savedJobs) return [];
+  try {
+    return JSON.parse(savedJobs) as IngestionTrackerJob[];
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredIdentity(): { tenantId: string; ownerId: string } {
+  if (typeof window === "undefined") {
+    return { tenantId: "default", ownerId: "user:admin" };
+  }
+  const storedTenant = localStorage.getItem("securgraph_tenant");
+  const storedUser = localStorage.getItem("securgraph_user");
+  if (!storedUser) {
+    return { tenantId: storedTenant || "default", ownerId: "user:admin" };
+  }
+  try {
+    const user = JSON.parse(storedUser) as {
+      id?: string;
+      username?: string;
+      tenant_id?: string;
+    };
+    return {
+      tenantId: storedTenant || user.tenant_id || "default",
+      ownerId: `user:${user.id || user.username || "admin"}`,
+    };
+  } catch {
+    return { tenantId: storedTenant || "default", ownerId: "user:admin" };
+  }
+}
+
 export default function IngestPage() {
+  const [initialIdentity] = useState(loadStoredIdentity);
   const [file, setFile] = useState<File | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -49,41 +86,16 @@ export default function IngestPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Form Fields
-  const [tenantId, setTenantId] = useState("default");
-  const [ownerId, setOwnerId] = useState("user:admin");
+  const [tenantId, setTenantId] = useState(initialIdentity.tenantId);
+  const [ownerId, setOwnerId] = useState(initialIdentity.ownerId);
   const [documentType, setDocumentType] = useState("policy");
   const [classification, setClassification] = useState("internal");
   const [policyTags, setPolicyTags] = useState("");
   const [titleOverride, setTitleOverride] = useState("");
 
   // Jobs Tracker
-  const [jobs, setJobs] = useState<IngestionTrackerJob[]>([]);
+  const [jobs, setJobs] = useState<IngestionTrackerJob[]>(loadStoredJobs);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Load jobs from localStorage
-  useEffect(() => {
-    const savedJobs = localStorage.getItem("securgraph_ingest_jobs");
-    if (savedJobs) {
-      try {
-        setJobs(JSON.parse(savedJobs));
-      } catch (e) {
-        console.error("Failed to parse ingestion jobs from localStorage", e);
-      }
-    }
-
-    // Load user context to default tenant/owner
-    const userStr = localStorage.getItem("securgraph_user");
-    const storedTenant = localStorage.getItem("securgraph_tenant");
-    if (userStr) {
-      try {
-        const parsed = JSON.parse(userStr);
-        setTenantId(storedTenant || parsed.tenant_id || "default");
-        setOwnerId(`user:${parsed.id || parsed.username || "admin"}`);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  }, []);
 
   // Save jobs to localStorage
   const saveJobsToStorage = (updatedJobs: IngestionTrackerJob[]) => {
@@ -233,8 +245,10 @@ export default function IngestPage() {
       setFile(null);
       setTitleOverride("");
       setPolicyTags("");
-    } catch (err: any) {
-      setErrorMessage(err?.message || "Upload fallito. Verifica la connessione al server.");
+    } catch (err: unknown) {
+      setErrorMessage(
+        getErrorMessage(err, "Upload fallito. Verifica la connessione al server.")
+      );
     } finally {
       setLoading(false);
     }

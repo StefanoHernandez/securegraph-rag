@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from unittest.mock import MagicMock
 
 import pytest
@@ -29,6 +30,7 @@ async def test_async_ingestion_flow(
 
     and is correctly processed by the arq background worker.
     """
+
     # Mock heavy integrations so the worker runs instantly
     async def mock_extract(text: str) -> ExtractedGraphSlice:
         return ExtractedGraphSlice(entities=[], relations=[])
@@ -56,7 +58,9 @@ async def test_async_ingestion_flow(
     monkeypatch.setattr(qdrant_writer, "upsert_chunks_to_qdrant", lambda *a, **kw: None)
 
     # Monkeypatch the module imports in worker.py directly to bypass module-level imports
-    monkeypatch.setattr("securgraph.ingestion.worker.get_embedding_adapter", lambda: DummyEmbeddingAdapter())
+    monkeypatch.setattr(
+        "securgraph.ingestion.worker.get_embedding_adapter", lambda: DummyEmbeddingAdapter()
+    )
     monkeypatch.setattr("securgraph.ingestion.worker.get_neo4j_driver", MagicMock())
 
     settings = get_settings()
@@ -147,18 +151,12 @@ async def test_async_ingestion_flow(
 
     finally:
         # Clean up background worker
-        try:
+        with suppress(Exception):
             await worker.close()
-        except Exception:
-            pass
 
         worker_task.cancel()
-        try:
+        with suppress(asyncio.CancelledError, Exception):
             await worker_task
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            pass
 
         # Clean up database records created in test
         async with AsyncSessionLocal() as clean_session:

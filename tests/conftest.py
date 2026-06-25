@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator, Iterator
+from contextlib import suppress
 
 import pytest
 from fastapi import FastAPI
@@ -40,7 +41,7 @@ def _test_env_defaults() -> Iterator[None]:
 @pytest.fixture
 def fastapi_app() -> FastAPI:
     """Fresh FastAPI app for tests (bypasses the process-level singleton)."""
-    from unittest.mock import AsyncMock
+    from unittest.mock import AsyncMock, MagicMock
 
     from securgraph.api.dependencies import get_db_session
     from securgraph.api.main import create_app
@@ -49,6 +50,8 @@ def fastapi_app() -> FastAPI:
 
     async def mock_db_session() -> AsyncIterator[AsyncMock]:
         mock = AsyncMock()
+        mock.add = MagicMock()
+        mock.add_all = MagicMock()
         mock.execute.return_value = None
         yield mock
 
@@ -73,9 +76,7 @@ async def cleanup_engine() -> AsyncIterator[None]:
     await engine.dispose()
     # Also clear the LLM adapter cache so provider swaps in one test don't leak
     # into the next.
-    try:
+    with suppress(Exception):
         from securgraph.adapters.llm import reset_llm_adapter_cache
 
         reset_llm_adapter_cache()
-    except Exception:
-        pass

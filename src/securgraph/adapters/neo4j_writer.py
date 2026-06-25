@@ -146,13 +146,17 @@ async def _repair_transaction(
 ) -> None:
     if action == "delete":
         cypher = """
-        MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})-[r:RELATED_TO]->(tgt:Entity {name: $target_name, tenant_id: $tenant_id})
+        MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})
+              -[r:RELATED_TO]->
+              (tgt:Entity {name: $target_name, tenant_id: $tenant_id})
         DELETE r
         """
         await tx.run(cypher, source_name=source_name, target_name=target_name, tenant_id=tenant_id)
     elif action == "flag":
         cypher = """
-        MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})-[r:RELATED_TO]->(tgt:Entity {name: $target_name, tenant_id: $tenant_id})
+        MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})
+              -[r:RELATED_TO]->
+              (tgt:Entity {name: $target_name, tenant_id: $tenant_id})
         SET r.confidence = 0.1,
             r.needs_review = true,
             r.conflict_reason = $reason
@@ -162,14 +166,18 @@ async def _repair_transaction(
             source_name=source_name,
             target_name=target_name,
             tenant_id=tenant_id,
-            reason=reason or "Flagged due to RAG consensus contradiction."
+            reason=reason or "Flagged due to RAG consensus contradiction.",
         )
     elif action == "update":
         delete_cypher = """
-        MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})-[r:RELATED_TO]->(tgt:Entity {name: $target_name, tenant_id: $tenant_id})
+        MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})
+              -[r:RELATED_TO]->
+              (tgt:Entity {name: $target_name, tenant_id: $tenant_id})
         DELETE r
         """
-        await tx.run(delete_cypher, source_name=source_name, target_name=target_name, tenant_id=tenant_id)
+        await tx.run(
+            delete_cypher, source_name=source_name, target_name=target_name, tenant_id=tenant_id
+        )
 
         if new_target_name:
             update_cypher = """
@@ -181,4 +189,9 @@ async def _repair_transaction(
                 r.needs_review = false,
                 r.source_chunk_ids = ["self_healing"]
             """
-            await tx.run(update_cypher, source_name=source_name, new_target_name=new_target_name, tenant_id=tenant_id)
+            await tx.run(
+                update_cypher,
+                source_name=source_name,
+                new_target_name=new_target_name,
+                tenant_id=tenant_id,
+            )

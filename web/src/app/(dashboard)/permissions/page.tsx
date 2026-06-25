@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ShieldAlert,
   Trash2,
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
 import { adminApi } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 
 interface FGATuple {
   user: string;
@@ -23,7 +24,6 @@ interface FGATuple {
 }
 
 const DEMO_USERS = ["user:admin", "user:analyst", "user:viewer"];
-const DEMO_RELATIONS = ["owner", "direct_viewer", "viewer", "group_viewer"];
 
 export default function PermissionsPage() {
   const [tuples, setTuples] = useState<FGATuple[]>([]);
@@ -41,11 +41,7 @@ export default function PermissionsPage() {
   const [matrixUsers, setMatrixUsers] = useState<string[]>([]);
   const [matrixDocs, setMatrixDocs] = useState<string[]>([]);
 
-  useEffect(() => {
-    fetchTuples();
-  }, []);
-
-  const fetchTuples = async () => {
+  const fetchTuples = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -70,9 +66,11 @@ export default function PermissionsPage() {
         )
       );
       setMatrixUsers(users);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError(err?.message || "Failed to retrieve FGA tuples from the store.");
+      setError(
+        getErrorMessage(err, "Failed to retrieve FGA tuples from the store.")
+      );
       // No fake fallback: on error show an empty list + the error banner
       // instead of fabricating permission tuples.
       setTuples([]);
@@ -81,7 +79,12 @@ export default function PermissionsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void fetchTuples(), 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchTuples]);
 
   const handleGrant = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,9 +100,9 @@ export default function PermissionsPage() {
     try {
       await adminApi.grantPermission(subject.trim(), relation, object.trim());
       setFormSuccess(`Permesso registrato! ${subject} è ora ${relation} di ${object}`);
-      fetchTuples();
-    } catch (err: any) {
-      setError(err?.message || "Impossibile scrivere la relazione FGA.");
+      await fetchTuples();
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Impossibile scrivere la relazione FGA."));
     } finally {
       setSubmitting(false);
     }
@@ -113,9 +116,9 @@ export default function PermissionsPage() {
     setLoading(true);
     try {
       await adminApi.revokePermission(tuple.user, tuple.relation, tuple.object);
-      fetchTuples();
-    } catch (err: any) {
-      setError(err?.message || "Impossibile revocare la relazione FGA.");
+      await fetchTuples();
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Impossibile revocare la relazione FGA."));
       setLoading(false);
     }
   };

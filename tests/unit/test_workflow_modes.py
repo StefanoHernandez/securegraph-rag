@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from securgraph.domain import Subject
+from securgraph.domain import RetrievalEvidence, RetrieverId, Subject
 from securgraph.orchestration.workflow import compile_workflow
 
 pytestmark = pytest.mark.unit
@@ -46,9 +46,7 @@ def _fake_adapter(text: str = "draft") -> Any:
     exercises its LLM call sites without hitting any real provider."""
     adapter = MagicMock()
     adapter.chat = AsyncMock(return_value=text)
-    adapter.extract_claims = AsyncMock(
-        return_value=MagicMock(claims=[])
-    )
+    adapter.extract_claims = AsyncMock(return_value=MagicMock(claims=[]))
     adapter.judge_nli = AsyncMock(
         return_value=MagicMock(label="neutral", confidence=0.5, reason="mock")
     )
@@ -155,3 +153,40 @@ async def test_auto_mode_defaults_to_hybrid(monkeypatch: pytest.MonkeyPatch) -> 
     qdrant.search_dense.assert_awaited()
     qdrant.search_lexical.assert_awaited()
     graph.traverse_authorized_subgraph.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_vector_policy_audit_failure_aborts_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    qdrant, graph = _build_mocks()
+    evidence = RetrievalEvidence(
+        evidence_id="ev-1",
+        trace_id="tr1",
+        tenant_id="t1",
+        evidence_type="chunk",
+        object_id="chunk-1",
+        retriever_id=RetrieverId.VECTOR,
+        retrieval_strategy="dense",
+        original_rank=0,
+        original_score=0.9,
+        policy_check_id="pending",
+    )
+    qdrant.search_dense.return_value = [evidence]
+    graph.fga.filter_chunk_ids = AsyncMock(return_value=({"chunk-1"}, [MagicMock()]))
+    write_decisions = AsyncMock(side_effect=RuntimeError("audit unavailable"))
+    monkeypatch.setattr(
+        "securgraph.indexing.postgres_writer.write_policy_decisions", write_decisions
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("answer"),
+    )
+
+    workflow = compile_workflow(qdrant, graph)
+    with pytest.raises(RuntimeError, match="audit unavailable"):
+        await workflow.ainvoke(_empty_state("vector"))

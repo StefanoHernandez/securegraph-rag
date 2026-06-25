@@ -26,11 +26,13 @@ from typing import Any, ClassVar
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -130,6 +132,11 @@ class PolicyDecisionRow(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    chain_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "chain_sequence", name="uq_policy_chain_sequence"),
+    )
 
 
 class IngestionJobRow(Base):
@@ -139,11 +146,19 @@ class IngestionJobRow(Base):
     trace_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     document_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    requested_by: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    owner_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    current_step: Mapped[str] = mapped_column(String(64), nullable=False, default="queued")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
@@ -187,6 +202,7 @@ class QueryTraceRow(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    chain_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Consensus snapshot (C2) — recorded so the verdict is auditable from the
     # trace alone. Deliberately NOT part of the tamper-hash payload (see
@@ -201,23 +217,37 @@ class QueryTraceRow(Base):
         back_populates="trace", cascade="all, delete-orphan"
     )
 
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "chain_sequence", name="uq_trace_chain_sequence"),
+    )
+
 
 class RetrievalEvidenceRow(Base):
     __tablename__ = "retrieval_evidence"
 
     evidence_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     trace_id: Mapped[str] = mapped_column(
-        String(128), ForeignKey("query_traces.trace_id", ondelete="CASCADE"), nullable=False, index=True
+        String(128),
+        ForeignKey("query_traces.trace_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
     object_id: Mapped[str] = mapped_column(String(256), nullable=False)
-    retriever_id: Mapped[str] = mapped_column(String(64), nullable=False)  # "vector", "lexical", "graph"
+    retriever_id: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )  # "vector", "lexical", "graph"
     original_rank: Mapped[int] = mapped_column(Integer, nullable=False)
     original_score: Mapped[float] = mapped_column(Float, nullable=False)
     included_in_prompt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    chain_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     trace: Mapped[QueryTraceRow] = relationship(back_populates="evidence")
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "chain_sequence", name="uq_evidence_chain_sequence"),
+    )
 
 
 class AuthUserRow(Base):
@@ -225,7 +255,318 @@ class AuthUserRow(Base):
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
     username: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    email: Mapped[str | None] = mapped_column(String(320), unique=True, index=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
-    role: Mapped[str] = mapped_column(String(64), nullable=False, default="viewer")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_super_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    memberships: Mapped[list[TenantMembershipRow]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    sessions: Mapped[list[AuthSessionRow]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class TenantRow(Base):
+    __tablename__ = "tenants"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    tenant_admin_settings_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    memberships: Mapped[list[TenantMembershipRow]] = relationship(
+        back_populates="tenant", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'suspended', 'archived')", name="ck_tenant_status"),
+    )
+
+
+class TenantMembershipRow(Base):
+    __tablename__ = "tenant_memberships"
+
+    tenant_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("auth_users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="viewer")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    tenant: Mapped[TenantRow] = relationship(back_populates="memberships")
+    user: Mapped[AuthUserRow] = relationship(back_populates="memberships")
+
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('super_admin', 'tenant_admin', 'analyst', 'viewer')",
+            name="ck_membership_role",
+        ),
+        Index("ix_membership_user_active", "user_id", "is_active"),
+    )
+
+
+class AuthSessionRow(Base):
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("auth_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    tenant_id: Mapped[str | None] = mapped_column(
+        String(128), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    refresh_token_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, index=True
+    )
+    csrf_token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped[AuthUserRow] = relationship(back_populates="sessions")
+
+
+class GroupRow(Base):
+    __tablename__ = "groups"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, default="functional")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "slug", name="uq_group_tenant_slug"),
+        CheckConstraint("kind IN ('functional', 'project')", name="ck_group_kind"),
+    )
+
+
+class GroupMembershipRow(Base):
+    __tablename__ = "group_memberships"
+
+    group_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("auth_users.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AccessTemplateRow(Base):
+    __tablename__ = "document_access_templates"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    document_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    default_classification: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="internal"
+    )
+    owner_rule: Mapped[str] = mapped_column(String(32), nullable=False, default="uploader")
+    allowed_group_ids: Mapped[list[str]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=list
+    )
+    direct_viewer_ids: Mapped[list[str]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=list
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "document_type", name="uq_access_template_type"),
+        CheckConstraint(
+            "default_classification IN ('public', 'internal', 'confidential', 'restricted')",
+            name="ck_access_template_classification",
+        ),
+        CheckConstraint(
+            "owner_rule IN ('uploader', 'tenant_admin')", name="ck_access_template_owner_rule"
+        ),
+    )
+
+
+class AdminAuditEventRow(Base):
+    __tablename__ = "admin_audit_events"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    actor_user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(128), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False, default="success")
+    event_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ProviderCredentialRow(Base):
+    __tablename__ = "provider_credentials"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    encrypted_secret: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    key_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="configured")
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_test_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "provider", name="uq_provider_credential_scope"),
+    )
+
+
+class RuntimeSettingRow(Base):
+    __tablename__ = "runtime_settings"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    key: Mapped[str] = mapped_column(String(128), nullable=False)
+    value: Mapped[dict[str, Any]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict
+    )
+    restart_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_runtime_setting_scope"),)
+
+
+class ModelCatalogRow(Base):
+    __tablename__ = "model_catalog"
+
+    id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    model_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    capabilities: Mapped[list[str]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=list
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="available")
+    discovered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "provider", "model_id", name="uq_model_catalog_scope"),
+    )
+
+
+class OperationJobRow(Base):
+    __tablename__ = "operation_jobs"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    parameters: Mapped[dict[str, Any]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict
+    )
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    result: Mapped[dict[str, Any]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_by: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AuditChainHeadRow(Base):
+    __tablename__ = "audit_chain_heads"
+
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    chain_name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    last_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class AuditAnchorRow(Base):
+    __tablename__ = "audit_anchors"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    from_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    to_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    merkle_root: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    object_version: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    anchored_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

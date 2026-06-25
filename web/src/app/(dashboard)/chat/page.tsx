@@ -8,6 +8,7 @@ import { Panel } from "@/components/forensic";
 import { queryApi } from "@/lib/api";
 import { QueryRequest, QueryResponse, RetrievalMode, QueryType } from "@/lib/types";
 import AnswerCard from "@/components/chat/AnswerCard";
+import { getErrorMessage } from "@/lib/errors";
 
 interface ChatMessage {
   id: string;
@@ -57,9 +58,29 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0); // 0: routing, 1: retrieval, 2: consensus, 3: synthesis
-  const [user, setUser] = useState<any>(null);
-  const [tenantId, setTenantId] = useState("default");
-  const [userId, setUserId] = useState("admin");
+  const [tenantId] = useState(() => {
+    if (typeof window === "undefined") return "default";
+    const storedTenant = localStorage.getItem("securgraph_tenant");
+    const storedUser = localStorage.getItem("securgraph_user");
+    if (!storedUser) return storedTenant || "default";
+    try {
+      const parsed = JSON.parse(storedUser) as { tenant_id?: string };
+      return storedTenant || parsed.tenant_id || "default";
+    } catch {
+      return storedTenant || "default";
+    }
+  });
+  const [userId] = useState(() => {
+    if (typeof window === "undefined") return "admin";
+    const storedUser = localStorage.getItem("securgraph_user");
+    if (!storedUser) return "admin";
+    try {
+      const parsed = JSON.parse(storedUser) as { id?: string; username?: string };
+      return parsed.id || parsed.username || "admin";
+    } catch {
+      return "admin";
+    }
+  });
 
   // Query Engine Options
   const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("auto");
@@ -77,22 +98,6 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Retrieve logged in user and tenant from localStorage
-    const userStr = localStorage.getItem("securgraph_user");
-    const storedTenant = localStorage.getItem("securgraph_tenant");
-    if (userStr) {
-      try {
-        const parsed = JSON.parse(userStr);
-        setUser(parsed);
-        setUserId(parsed.id || parsed.username || "admin");
-        setTenantId(storedTenant || parsed.tenant_id || "default");
-      } catch (e) {
-        console.error("Error parsing user from localStorage", e);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
     // Scroll to bottom when messages list changes
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
@@ -101,7 +106,6 @@ export default function ChatPage() {
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (loading) {
-      setLoadingStep(0);
       const runTimeline = () => {
         timer = setTimeout(() => {
           setLoadingStep((prev) => {
@@ -170,11 +174,12 @@ export default function ChatPage() {
         timestamp: new Date()
       };
       setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const detail = getErrorMessage(error, "Unknown Error");
       const errorMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: `**Errore di recupero:** Non è stato possibile completare la query. \n\nDettaglio errore: \`${error?.message || error || "Unknown Error"}\`. \n\nAssicurati che i container del backend e dei database (Postgres, Neo4j, Qdrant) siano attivi.`,
+        content: `**Errore di recupero:** Non è stato possibile completare la query. \n\nDettaglio errore: \`${detail}\`. \n\nAssicurati che i container del backend e dei database (Postgres, Neo4j, Qdrant) siano attivi.`,
         timestamp: new Date()
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -447,7 +452,7 @@ export default function ChatPage() {
                   className="w-full h-1.5 bg-vault-sunk appearance-none cursor-pointer accent-signal-amber"
                 />
                 <p className="text-[0.625rem] text-bone-dim leading-tight">
-                  Agreement score limit required to trigger the "High Trust" verdict.
+                  Agreement score limit required to trigger the &quot;High Trust&quot; verdict.
                 </p>
               </div>
 

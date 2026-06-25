@@ -56,7 +56,9 @@ class GraphPath(SGModel):
     edges: tuple[str, ...] = Field(default_factory=tuple)
     source_chunk_ids: tuple[str, ...] = Field(default_factory=tuple)
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
-    text: str | None = Field(default=None, description="Descriptive text reconstructed from source chunks.")
+    text: str | None = Field(
+        default=None, description="Descriptive text reconstructed from source chunks."
+    )
 
     @model_validator(mode="after")
     def _validate_lengths(self) -> GraphPath:

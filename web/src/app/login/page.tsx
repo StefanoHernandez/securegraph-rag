@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
-import { api } from "@/lib/api";
-import { UserSession } from "@/lib/types";
+import { authApi } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,11 +16,20 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // If already logged in, redirect to dashboard
-    const token = localStorage.getItem("securgraph_token");
-    if (token) {
-      router.push("/");
-    }
+    let active = true;
+    authApi
+      .me()
+      .then(() => {
+        if (active) {
+          router.push("/");
+        }
+      })
+      .catch(() => {
+        // Anonymous users stay on the login screen.
+      });
+    return () => {
+      active = false;
+    };
   }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -34,18 +43,18 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      const response = await api.post<UserSession>("/api/auth/login", {
-        username,
-        password,
-      });
+      const response = await authApi.login(username, password);
 
-      localStorage.setItem("securgraph_token", response.token);
       localStorage.setItem("securgraph_user", JSON.stringify(response.user));
-      localStorage.setItem("securgraph_tenant", response.user.tenant_id);
+      if (response.user.tenant_id) {
+        localStorage.setItem("securgraph_tenant", response.user.tenant_id);
+      }
 
       router.push("/");
-    } catch (err: any) {
-      setError(err.message || "Invalid username or password. Please try again.");
+    } catch (err: unknown) {
+      setError(
+        getErrorMessage(err, "Invalid username or password. Please try again.")
+      );
     } finally {
       setLoading(false);
     }

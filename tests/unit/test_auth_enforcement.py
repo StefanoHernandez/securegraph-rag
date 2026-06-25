@@ -11,6 +11,7 @@ import os
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
 from securgraph.api.routes.auth import require_admin, require_user
 from securgraph.config import get_settings
@@ -32,16 +33,20 @@ class _User:
         self.tenant_id = "default"
 
 
+def _request() -> Request:
+    return Request({"type": "http", "headers": []})
+
+
 @pytest.mark.unit
 async def test_require_user_bypasses_when_disabled():
     # Default (auth disabled): open route, no credential needed.
-    assert await require_user(credentials=None, session=None) is None
+    assert await require_user(request=_request(), credentials=None, session=None) is None
 
 
 @pytest.mark.unit
 async def test_require_user_401_without_token(auth_on):
     with pytest.raises(HTTPException) as exc:
-        await require_user(credentials=None, session=None)
+        await require_user(request=_request(), credentials=None, session=None)
     assert exc.value.status_code == 401
 
 
@@ -59,7 +64,7 @@ async def test_require_admin_403_for_non_admin(auth_on):
 
 @pytest.mark.unit
 async def test_require_admin_allows_admin(auth_on):
-    user = _User("admin")
+    user = _User("tenant_admin")
     assert await require_admin(user=user) is user
 
 

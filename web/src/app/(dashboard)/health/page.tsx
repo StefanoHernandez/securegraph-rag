@@ -6,6 +6,7 @@ import { HealthResponse } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/forensic";
 import { RefreshCw, Activity } from "lucide-react";
+import { getErrorMessage } from "@/lib/errors";
 
 export default function HealthPage() {
   const [data, setData] = useState<HealthResponse | null>(null);
@@ -21,22 +22,23 @@ export default function HealthPage() {
       setData(response);
       setError(null);
       setLastUpdated(new Date());
-    } catch (err: any) {
-      setError(err.message || "Failed to fetch system health.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to fetch system health."));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchHealth();
+    const timer = window.setTimeout(() => void fetchHealth(), 0);
+    return () => window.clearTimeout(timer);
   }, [fetchHealth]);
 
   useEffect(() => {
     if (!autoRefresh) return;
     const interval = setInterval(() => {
       fetchHealth();
-    }, 10000); // 10 seconds auto-refresh
+    }, 60000);
 
     return () => clearInterval(interval);
   }, [autoRefresh, fetchHealth]);
@@ -51,6 +53,8 @@ export default function HealthPage() {
         return "Neo4j · knowledge graph";
       case "openfga":
         return "OpenFGA · access control model";
+      case "provider":
+        return "LLM provider · cached diagnostic";
       case "ollama":
         return "Ollama · in-host llm engine";
       case "redis":

@@ -1,38 +1,53 @@
-import { QueryRequest, QueryResponse, ExplainReport, HealthResponse } from "./types";
+import {
+  QueryRequest,
+  QueryResponse,
+  ExplainReport,
+  HealthResponse,
+  ActiveSession,
+  TenantSummary,
+  ModelCatalogEntry,
+  ProviderCredentialStatus,
+  ProviderName,
+  RuntimeSetting,
+} from "./types";
 
-// Backend origin. We talk to FastAPI DIRECTLY (CORS is open in dev,
-// allow_origins=*) instead of going through the Next.js dev rewrite: that
-// rewrite proxy intermittently resets POST bodies ("socket hang up" /
-// ECONNRESET), which surfaced as random 500s on /query, /explain and
-// /ingest. Override the origin via NEXT_PUBLIC_API_DIRECT in other
-// environments; on the server we also hit the backend directly.
-const DIRECT_BACKEND =
-  process.env.NEXT_PUBLIC_API_DIRECT || "http://127.0.0.1:8000";
+const API_PREFIX = "/api/v1";
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const prefix = `${name}=`;
+  const cookie = document.cookie
+    .split("; ")
+    .find((entry) => entry.startsWith(prefix));
+  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
+}
 
 async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
   const headers = new Headers(options.headers);
+  const method = (options.method ?? "GET").toUpperCase();
+  const csrfToken = readCookie("securgraph_csrf");
 
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("securgraph_token");
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-    }
+  if (csrfToken && UNSAFE_METHODS.has(method) && !headers.has("X-CSRF-Token")) {
+    headers.set("X-CSRF-Token", csrfToken);
   }
 
-  // Backend routes are mounted without the "/api" prefix the UI uses, so strip it.
-  const url = `${DIRECT_BACKEND}${path.replace(/^\/api/, "")}`;
+  const url = path.startsWith(API_PREFIX) ? path : `${API_PREFIX}${path}`;
 
   const response = await fetch(url, {
     ...options,
     headers,
+    credentials: "include",
   });
 
   if (response.status === 401) {
     if (typeof window !== "undefined") {
-      localStorage.removeItem("securgraph_token");
       localStorage.removeItem("securgraph_user");
       window.location.href = "/login";
     }
@@ -46,6 +61,9 @@ async function request<T>(
     );
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return response.json() as Promise<T>;
 }
 
@@ -53,10 +71,21 @@ export const api = {
   get: <T>(path: string, options?: RequestInit) =>
     request<T>(path, { ...options, method: "GET" }),
 
-  post: <T>(path: string, body: any, options?: RequestInit) =>
+  post: <T>(path: string, body: unknown, options?: RequestInit) =>
     request<T>(path, {
       ...options,
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+      body: JSON.stringify(body),
+    }),
+
+  put: <T>(path: string, body: unknown, options?: RequestInit) =>
+    request<T>(path, {
+      ...options,
+      method: "PUT",
       headers: {
         "Content-Type": "application/json",
         ...options?.headers,
@@ -75,20 +104,22 @@ export const api = {
 
 // API Endpoints mappings:
 export const queryApi = {
-  submitQuery: (req: QueryRequest) => api.post<QueryResponse>("/api/query", req),
+  submitQuery: (req: QueryRequest) => api.post<QueryResponse>("/query", req),
 };
 
 export const explainApi = {
-  getReport: (traceId: string, tenantId: string, userId: string) =>
-    api.get<ExplainReport>(
-      `/api/explain/${traceId}?tenant_id=${encodeURIComponent(
+  getReport: (traceId: string, tenantId: string, _userId?: string) => {
+    void _userId;
+    return api.get<ExplainReport>(
+      `/explain/${traceId}?tenant_id=${encodeURIComponent(
         tenantId
-      )}&user_id=${encodeURIComponent(userId)}`
-    ),
+      )}`
+    );
+  },
 };
 
 export const healthApi = {
-  getHealth: () => api.get<HealthResponse>("/api/health"),
+  getHealth: () => api.get<HealthResponse>("/health"),
 };
 
 export interface ActiveConfig {
@@ -102,12 +133,16 @@ export interface ActiveConfig {
 }
 
 export const configApi = {
-  getConfig: () => api.get<ActiveConfig>("/api/config"),
+  getConfig: () => api.get<ActiveConfig>("/config"),
+};
+
+export const tenantApi = {
+  listTenants: () => api.get<TenantSummary[]>("/tenants"),
 };
 
 export const ingestApi = {
   uploadFile: (formData: FormData) =>
-    api.postMultipart<{ job_id: string; document_id: string; trace_id: string; status: string; chunks_created: number }>("/api/ingest", formData),
+    api.postMultipart<{ job_id: string; document_id: string; trace_id: string; status: string; chunks_created: number }>("/ingest", formData),
   
   getStatus: (jobId: string) =>
     api.get<{
@@ -116,7 +151,7 @@ export const ingestApi = {
       tenant_id: string;
       status: "queued" | "running" | "completed" | "failed";
       error?: string | null;
-    }>(`/api/ingest/status/${jobId}`),
+    }>(`/ingest/status/${jobId}`),
 };
 
 export const adminApi = {
@@ -135,8 +170,10 @@ export const adminApi = {
         completed_at: string | null;
         latency_ms: number | null;
         tamper_hash: string | null;
+        agreement_score?: number | null;
+        high_trust?: boolean | null;
       }>;
-    }>(`/api/admin/audit/traces?tenant_id=${encodeURIComponent(tenantId)}&page=${page}&size=${size}`),
+    }>(`/admin/audit/traces?tenant_id=${encodeURIComponent(tenantId)}&page=${page}&size=${size}`),
 
   verifyAuditChain: (tenantId: string) =>
     api.post<{
@@ -150,7 +187,7 @@ export const adminApi = {
           tampered_ids: string[];
         }
       >;
-    }>("/api/admin/audit/verify-chain", { tenant_id: tenantId }),
+    }>("/admin/audit/verify-chain", { tenant_id: tenantId }),
 
   listPermissions: () =>
     api.get<{
@@ -159,17 +196,17 @@ export const adminApi = {
         relation: string;
         object: string;
       }>;
-    }>("/api/admin/permissions"),
+    }>("/admin/permissions"),
 
   grantPermission: (user: string, relation: string, object: string) =>
-    api.post<{ status: string; message: string }>("/api/admin/permissions/grant", {
+    api.post<{ status: string; message: string }>("/admin/permissions/grant", {
       user,
       relation,
       object,
     }),
 
   revokePermission: (user: string, relation: string, object: string) =>
-    api.post<{ status: string; message: string }>("/api/admin/permissions/revoke", {
+    api.post<{ status: string; message: string }>("/admin/permissions/revoke", {
       user,
       relation,
       object,
@@ -191,7 +228,7 @@ export const adminApi = {
         confidence: number;
         classification: string;
       }>;
-    }>(`/api/admin/graph/nodes?tenant_id=${encodeURIComponent(tenantId)}`),
+    }>(`/admin/graph/nodes?tenant_id=${encodeURIComponent(tenantId)}`),
 
   getGraphCommunities: (tenantId: string) =>
     api.get<{
@@ -201,6 +238,69 @@ export const adminApi = {
         level: number;
         summary: string;
       }>;
-    }>(`/api/admin/graph/communities?tenant_id=${encodeURIComponent(tenantId)}`),
+    }>(`/admin/graph/communities?tenant_id=${encodeURIComponent(tenantId)}`),
 };
 
+export const authApi = {
+  login: (username: string, password: string, tenantId?: string) =>
+    api.post<import("./types").UserSession>("/auth/login", {
+      username,
+      password,
+      tenant_id: tenantId || undefined,
+    }),
+
+  me: () => api.get<import("./types").SessionUser>("/auth/me"),
+
+  refresh: () => api.post<import("./types").UserSession>("/auth/refresh", {}),
+
+  logout: () => api.post<void>("/auth/logout", {}),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post<void>("/auth/change-password", {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+
+  listSessions: () => api.get<ActiveSession[]>("/auth/sessions"),
+
+  revokeSession: (sessionId: string) =>
+    request<void>(`/api/v1/auth/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+    }),
+};
+
+export const settingsApi = {
+  listProviders: (tenantId: string) =>
+    api.get<ProviderCredentialStatus[]>(
+      `/tenants/${encodeURIComponent(tenantId)}/settings/providers`
+    ),
+
+  saveProviderCredential: (
+    tenantId: string,
+    provider: ProviderName,
+    apiKey: string,
+    baseUrl?: string
+  ) =>
+    api.post<ProviderCredentialStatus>(
+      `/tenants/${encodeURIComponent(tenantId)}/settings/providers/${provider}/credential`,
+      {
+        api_key: apiKey,
+        base_url: baseUrl || undefined,
+      }
+    ),
+
+  listModels: (tenantId: string) =>
+    api.get<ModelCatalogEntry[]>(
+      `/tenants/${encodeURIComponent(tenantId)}/settings/models`
+    ),
+
+  saveRuntimeSetting: (
+    tenantId: string,
+    key: string,
+    value: Record<string, unknown>
+  ) =>
+    api.put<RuntimeSetting>(
+      `/tenants/${encodeURIComponent(tenantId)}/settings/runtime/${encodeURIComponent(key)}`,
+      { key, value }
+    ),
+};

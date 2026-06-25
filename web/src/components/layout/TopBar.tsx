@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Menu, LogOut, Settings, User, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClassificationStamp } from "@/components/forensic";
+import { authApi } from "@/lib/api";
+import { useTenantSelection } from "@/lib/useTenantSelection";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,8 +22,6 @@ interface TopBarProps {
   setSidebarCollapsed: () => void;
 }
 
-const TENANTS = ["default", "mrd", "demo_tenant", "test_tenant_async"];
-
 const TITLES: Record<string, { eyebrow: string; title: string }> = {
   "/": { eyebrow: "section 00", title: "Operator Briefing" },
   "/chat": { eyebrow: "section 01", title: "Query Console" },
@@ -31,12 +31,15 @@ const TITLES: Record<string, { eyebrow: string; title: string }> = {
   "/graph": { eyebrow: "section 05", title: "Knowledge Graph" },
   "/audit": { eyebrow: "section 06", title: "Chain of Custody" },
   "/health": { eyebrow: "section 07", title: "System Health" },
+  "/settings": { eyebrow: "section 08", title: "Settings" },
+  "/models": { eyebrow: "section 09", title: "Model Catalog" },
+  "/profile": { eyebrow: "operator", title: "Profile" },
 };
 
 export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [tenant, setTenant] = useState("default");
+  const { tenants, tenantId, loadingTenants, selectTenant } = useTenantSelection();
 
   const meta =
     TITLES[pathname ?? "/"] ??
@@ -44,19 +47,13 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
       ? { eyebrow: "section 03", title: "Provenance Detail" }
       : { eyebrow: "secure", title: "SecureGraph" });
 
-  useEffect(() => {
-    const saved = localStorage.getItem("securgraph_tenant");
-    if (saved) setTenant(saved);
-  }, []);
-
   const handleTenantChange = (selected: string) => {
-    setTenant(selected);
-    localStorage.setItem("securgraph_tenant", selected);
+    selectTenant(selected);
     window.location.reload();
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("securgraph_token");
+  const handleLogout = async () => {
+    await authApi.logout().catch(() => undefined);
     localStorage.removeItem("securgraph_user");
     router.push("/login");
   };
@@ -93,9 +90,10 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
                 variant="outline"
                 size="sm"
                 className="gap-2 h-8 font-mono text-[0.6875rem] uppercase tracking-wider"
+                disabled={loadingTenants || tenants.length === 0}
               >
                 <span className="text-bone-dim">tenant</span>
-                <span className="text-bone">{tenant}</span>
+                <span className="text-bone">{tenantId ?? "none"}</span>
                 <ChevronDown className="h-3 w-3 text-bone-dim" />
               </Button>
             }
@@ -107,16 +105,16 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            {TENANTS.map((t) => (
+            {tenants.map((tenant) => (
               <DropdownMenuItem
-                key={t}
-                onClick={() => handleTenantChange(t)}
+                key={tenant.id}
+                onClick={() => handleTenantChange(tenant.id)}
                 className={cn(
                   "font-mono text-xs cursor-pointer",
-                  tenant === t && "text-signal-amber"
+                  tenantId === tenant.id && "text-signal-amber"
                 )}
               >
-                {t}
+                {tenant.display_name}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
@@ -148,12 +146,15 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-xs cursor-pointer gap-2"
-              onClick={() => router.push("/")}
+              onClick={() => router.push("/profile")}
             >
               <User className="h-3.5 w-3.5 text-bone-dim" />
               Profile
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-xs cursor-pointer gap-2">
+            <DropdownMenuItem
+              className="text-xs cursor-pointer gap-2"
+              onClick={() => router.push("/settings")}
+            >
               <Settings className="h-3.5 w-3.5 text-bone-dim" />
               Settings
             </DropdownMenuItem>

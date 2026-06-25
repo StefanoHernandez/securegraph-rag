@@ -18,7 +18,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.mark.asyncio
 async def test_self_healing_pipeline_execution(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify that a contradiction in graph claims triggers resolve_graph_contradiction and repairs Neo4j."""
+    """A contradiction triggers graph resolution and repairs Neo4j."""
     settings = get_settings()
     settings.feature_self_healing_enabled = True
 
@@ -45,25 +45,23 @@ async def test_self_healing_pipeline_execution(monkeypatch: pytest.MonkeyPatch) 
     # 2. Mock LLM adapter for self-healing JSON response
     mock_adapter = AsyncMock()
     mock_adapter.chat.return_value = (
-        '{\n'
+        "{\n"
         '  "source_entity": "Cane",\n'
         '  "incorrect_target_entity": "Rosso",\n'
         '  "corrected_target_entity": "Blu",\n'
         '  "action": "update",\n'
         '  "reason": "Il testo originale dichiara esplicitamente che il cane è blu."\n'
-        '}'
+        "}"
     )
 
     monkeypatch.setattr(
-        "securgraph.ingestion.self_healing.get_llm_adapter_for",
-        lambda role: mock_adapter
+        "securgraph.ingestion.self_healing.get_llm_adapter_for", lambda role: mock_adapter
     )
 
     # Reset metrics count before testing
     try:
         initial_metric_val = GRAPH_SELF_HEALING_COUNT.labels(
-            tenant_id="test_tenant_self_healing",
-            action="update"
+            tenant_id="test_tenant_self_healing", action="update"
         )._value.get()
     except Exception:
         initial_metric_val = 0.0
@@ -73,7 +71,7 @@ async def test_self_healing_pipeline_execution(monkeypatch: pytest.MonkeyPatch) 
         driver=mock_driver,
         tenant_id="test_tenant_self_healing",
         claim_text="Cane è rosso",
-        vector_context="Il cane è blu ed il gatto è nero."
+        vector_context="Il cane è blu ed il gatto è nero.",
     )
 
     assert res is not None
@@ -97,8 +95,7 @@ async def test_self_healing_pipeline_execution(monkeypatch: pytest.MonkeyPatch) 
 
     # Assert metric increment
     final_metric_val = GRAPH_SELF_HEALING_COUNT.labels(
-        tenant_id="test_tenant_self_healing",
-        action="update"
+        tenant_id="test_tenant_self_healing", action="update"
     )._value.get()
     assert final_metric_val == initial_metric_val + 1.0
 
@@ -108,15 +105,14 @@ async def test_self_healing_pipeline_execution(monkeypatch: pytest.MonkeyPatch) 
 
 @pytest.mark.asyncio
 async def test_workflow_self_healing_integration(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify that consensus verifier node schedules resolve_graph_contradiction on contradiction."""
+    """The consensus verifier schedules graph resolution on contradiction."""
     settings = get_settings()
     settings.feature_self_healing_enabled = True
 
     # Mock resolve_graph_contradiction to track if it is called
     mock_resolve = AsyncMock()
     monkeypatch.setattr(
-        "securgraph.ingestion.self_healing.resolve_graph_contradiction",
-        mock_resolve
+        "securgraph.ingestion.self_healing.resolve_graph_contradiction", mock_resolve
     )
 
     # Mock Ollama NLI judge and other workflow requirements
@@ -135,8 +131,7 @@ async def test_workflow_self_healing_integration(monkeypatch: pytest.MonkeyPatch
     mock_adapter.judge_nli = AsyncMock()
     mock_adapter.judge_nli.side_effect = [mock_nli_entailment, mock_nli_contradiction]
     monkeypatch.setattr(
-        "securgraph.orchestration.workflow.get_llm_adapter_for",
-        lambda role: mock_adapter
+        "securgraph.orchestration.workflow.get_llm_adapter_for", lambda role: mock_adapter
     )
 
     # 1. Construct State Graph inputs
@@ -158,7 +153,7 @@ async def test_workflow_self_healing_integration(monkeypatch: pytest.MonkeyPatch
                 claim_id="vc0",
                 text="Il cane è blu",
                 supporting_evidence_ids=(),
-                verifier_status=VerifierStatus.NOT_CHECKED
+                verifier_status=VerifierStatus.NOT_CHECKED,
             )
         ],
         "graph_context": [],
@@ -168,7 +163,7 @@ async def test_workflow_self_healing_integration(monkeypatch: pytest.MonkeyPatch
                 claim_id="gc0",
                 text="Cane è rosso",
                 supporting_evidence_ids=(),
-                verifier_status=VerifierStatus.NOT_CHECKED
+                verifier_status=VerifierStatus.NOT_CHECKED,
             )
         ],
         "consensus_report": None,

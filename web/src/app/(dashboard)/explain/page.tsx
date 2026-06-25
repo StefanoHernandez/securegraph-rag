@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { HelpCircle, ShieldAlert, ArrowLeft, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Panel } from "@/components/forensic";
 import { CustodyTimeline } from "@/components/explain/CustodyTimeline";
 import { explainApi } from "@/lib/api";
 import { ExplainReport } from "@/lib/types";
+import { getErrorMessage } from "@/lib/errors";
 
 function ExplainContent() {
   const searchParams = useSearchParams();
@@ -20,14 +21,7 @@ function ExplainContent() {
   const [report, setReport] = useState<ExplainReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (traceIdParam) {
-      fetchReport(traceIdParam);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [traceIdParam]);
-
-  const fetchReport = async (tid: string) => {
+  const fetchReport = useCallback(async (tid: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -42,17 +36,25 @@ function ExplainContent() {
       }
       const res = await explainApi.getReport(tid, tId, uId);
       setReport(res);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
       setError(
-        err?.message ||
+        getErrorMessage(
+          err,
           "Could not retrieve the explainability report. Check the trace id is correct."
+        )
       );
       setReport(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!traceIdParam) return;
+    const timer = window.setTimeout(() => void fetchReport(traceIdParam), 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchReport, traceIdParam]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,6 +1,7 @@
 """Unit tests for the /admin API endpoints.
 
-Exercises audit traces pagination, tamper-evident verification, ReBAC tuple management, and Neo4j graph export.
+Exercises audit pagination, tamper-evident verification, ReBAC tuple management,
+and Neo4j graph export.
 """
 
 from __future__ import annotations
@@ -14,9 +15,35 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 
 from securgraph.api.dependencies import get_db_session, get_openfga_client
+from securgraph.api.routes.auth import (
+    AuthenticatedPrincipal,
+    require_admin,
+    require_user,
+)
+from securgraph.config import get_settings
 from securgraph.indexing.db import QueryTraceRow
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture
+def auth_on(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("SECURGRAPH_AUTH_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def _tenant_admin() -> AuthenticatedPrincipal:
+    return AuthenticatedPrincipal(
+        user_id="admin",
+        username="admin",
+        tenant_id="MRD",
+        role="tenant_admin",
+        is_super_admin=False,
+        must_change_password=False,
+        session_id="ses-admin",
+    )
 
 
 @pytest.fixture
@@ -32,7 +59,7 @@ def mock_traces() -> list[QueryTraceRow]:
             started_at=datetime(2026, 6, 22, 1, 0, 0, tzinfo=UTC),
             completed_at=datetime(2026, 6, 22, 1, 0, 1, tzinfo=UTC),
             latency_ms=100.0,
-            tamper_hash="hash-1"
+            tamper_hash="hash-1",
         ),
         QueryTraceRow(
             trace_id="trace-2",
@@ -43,15 +70,13 @@ def mock_traces() -> list[QueryTraceRow]:
             started_at=datetime(2026, 6, 22, 1, 1, 0, tzinfo=UTC),
             completed_at=datetime(2026, 6, 22, 1, 1, 2, tzinfo=UTC),
             latency_ms=2000.0,
-            tamper_hash="hash-2"
-        )
+            tamper_hash="hash-2",
+        ),
     ]
 
 
 async def test_get_audit_traces(
-    fastapi_app: FastAPI,
-    client: AsyncClient,
-    mock_traces: list[QueryTraceRow]
+    fastapi_app: FastAPI, client: AsyncClient, mock_traces: list[QueryTraceRow]
 ) -> None:
     """Test successful paginated retrieval of audit traces."""
     mock_session = AsyncMock()
@@ -82,18 +107,24 @@ async def test_get_audit_traces(
     assert body["traces"][1]["trace_id"] == "trace-2"
 
 
+async def test_tenant_admin_cannot_read_other_tenant_audit(
+    fastapi_app: FastAPI, client: AsyncClient
+) -> None:
+    fastapi_app.dependency_overrides[require_admin] = _tenant_admin
+    response = await client.get("/admin/audit/traces?tenant_id=OTHER")
+    assert response.status_code == 403
+
+
 @patch("securgraph.api.routes.admin.verify_table_chain")
 async def test_verify_audit_chain(
-    mock_verify_table_chain: MagicMock,
-    fastapi_app: FastAPI,
-    client: AsyncClient
+    mock_verify_table_chain: MagicMock, fastapi_app: FastAPI, client: AsyncClient
 ) -> None:
     """Test successful verification of cryptographic chains."""
     # Mock verify_table_chain responses for: QueryTraceRow, RetrievalEvidenceRow, PolicyDecisionRow
     mock_verify_table_chain.side_effect = [
         (True, []),  # Traces: intact
         (True, []),  # Evidence: intact
-        (False, ["dec_bad_123"])  # Decisions: tampered!
+        (False, ["dec_bad_123"]),  # Decisions: tampered!
     ]
 
     resp = await client.post("/admin/audit/verify-chain", json={"tenant_id": "MRD"})
@@ -108,10 +139,7 @@ async def test_verify_audit_chain(
     assert body["tables"]["policy_decisions"]["tampered_ids"] == ["dec_bad_123"]
 
 
-async def test_list_permissions(
-    fastapi_app: FastAPI,
-    client: AsyncClient
-) -> None:
+async def test_list_permissions(fastapi_app: FastAPI, client: AsyncClient) -> None:
     """Test reading direct permission tuples from OpenFGA store."""
     mock_fga_client = AsyncMock()
 
@@ -144,10 +172,15 @@ async def test_list_permissions(
     assert body["tuples"][1]["object"] == "document:doc2"
 
 
-async def test_grant_permission(
-    fastapi_app: FastAPI,
-    client: AsyncClient
+async def test_raw_permissions_require_superadmin(
+    fastapi_app: FastAPI, client: AsyncClient, auth_on: None
 ) -> None:
+    fastapi_app.dependency_overrides[require_user] = _tenant_admin
+    response = await client.get("/admin/permissions")
+    assert response.status_code == 403
+
+
+async def test_grant_permission(fastapi_app: FastAPI, client: AsyncClient) -> None:
     """Test successful writing of an authorization tuple to OpenFGA."""
     mock_fga_client = AsyncMock()
     mock_fga_client.write.return_value = None
@@ -157,21 +190,14 @@ async def test_grant_permission(
 
     fastapi_app.dependency_overrides[get_openfga_client] = mock_openfga
 
-    payload = {
-        "user": "user:stefano",
-        "relation": "viewer",
-        "object": "document:sec_doc_01"
-    }
+    payload = {"user": "user:stefano", "relation": "viewer", "object": "document:sec_doc_01"}
     resp = await client.post("/admin/permissions/grant", json=payload)
     assert resp.status_code == 200
     assert resp.json()["status"] == "success"
     mock_fga_client.write.assert_called_once()
 
 
-async def test_revoke_permission(
-    fastapi_app: FastAPI,
-    client: AsyncClient
-) -> None:
+async def test_revoke_permission(fastapi_app: FastAPI, client: AsyncClient) -> None:
     """Test successful deletion of an authorization tuple from OpenFGA."""
     mock_fga_client = AsyncMock()
     mock_fga_client.write.return_value = None
@@ -181,11 +207,7 @@ async def test_revoke_permission(
 
     fastapi_app.dependency_overrides[get_openfga_client] = mock_openfga
 
-    payload = {
-        "user": "user:stefano",
-        "relation": "viewer",
-        "object": "document:sec_doc_01"
-    }
+    payload = {"user": "user:stefano", "relation": "viewer", "object": "document:sec_doc_01"}
     resp = await client.post("/admin/permissions/revoke", json=payload)
     assert resp.status_code == 200
     assert resp.json()["status"] == "success"
@@ -194,9 +216,7 @@ async def test_revoke_permission(
 
 @patch("securgraph.adapters.neo4j.get_neo4j_driver")
 async def test_get_graph_nodes(
-    mock_get_neo4j_driver: MagicMock,
-    fastapi_app: FastAPI,
-    client: AsyncClient
+    mock_get_neo4j_driver: MagicMock, fastapi_app: FastAPI, client: AsyncClient
 ) -> None:
     """Test exporting entities and relationships from Neo4j."""
     mock_driver = MagicMock()
@@ -208,13 +228,30 @@ async def test_get_graph_nodes(
     # Mock Neo4j run responses: 1st call return nodes, 2nd call return relationships
     mock_nodes_result = AsyncMock()
     mock_nodes_result.data.return_value = [
-        {"id": "Bob", "type": "Person", "description": "Bob is a person", "classification": "internal"},
-        {"id": "Alice", "type": "Person", "description": "Alice is a person", "classification": "public"}
+        {
+            "id": "Bob",
+            "type": "Person",
+            "description": "Bob is a person",
+            "classification": "internal",
+        },
+        {
+            "id": "Alice",
+            "type": "Person",
+            "description": "Alice is a person",
+            "classification": "public",
+        },
     ]
 
     mock_edges_result = AsyncMock()
     mock_edges_result.data.return_value = [
-        {"source": "Bob", "target": "Alice", "type": "KNOWS", "description": "Bob knows Alice", "confidence": 0.9, "classification": "internal"}
+        {
+            "source": "Bob",
+            "target": "Alice",
+            "type": "KNOWS",
+            "description": "Bob knows Alice",
+            "confidence": 0.9,
+            "classification": "internal",
+        }
     ]
 
     mock_session.run.side_effect = [mock_nodes_result, mock_edges_result]
@@ -234,9 +271,7 @@ async def test_get_graph_nodes(
 
 @patch("securgraph.adapters.neo4j.get_neo4j_driver")
 async def test_get_graph_communities(
-    mock_get_neo4j_driver: MagicMock,
-    fastapi_app: FastAPI,
-    client: AsyncClient
+    mock_get_neo4j_driver: MagicMock, fastapi_app: FastAPI, client: AsyncClient
 ) -> None:
     """Test querying Neo4j community summaries."""
     mock_driver = MagicMock()
@@ -247,7 +282,12 @@ async def test_get_graph_communities(
 
     mock_communities_result = AsyncMock()
     mock_communities_result.data.return_value = [
-        {"id": "comm-1", "title": "Community 1", "level": 1, "summary": "Detailed community summary text"}
+        {
+            "id": "comm-1",
+            "title": "Community 1",
+            "level": 1,
+            "summary": "Detailed community summary text",
+        }
     ]
 
     mock_session.run.return_value = mock_communities_result

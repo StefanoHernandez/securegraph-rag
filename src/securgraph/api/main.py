@@ -12,18 +12,21 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from securgraph import __version__
+from securgraph.api.middleware import CSRFMiddleware
 from securgraph.api.routes import admin as admin_routes
 from securgraph.api.routes import auth as auth_routes
 from securgraph.api.routes import config as config_routes
+from securgraph.api.routes import control_plane as control_plane_routes
 from securgraph.api.routes import explain as explain_routes
 from securgraph.api.routes import health as health_routes
 from securgraph.api.routes import ingest as ingest_routes
 from securgraph.api.routes import query as query_routes
+from securgraph.api.routes import settings as settings_routes
 from securgraph.config import get_settings
 from securgraph.logging import configure_logging, get_logger
 from securgraph.observability import setup_observability, shutdown_observability
@@ -56,17 +59,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log.exception("openfga_bootstrapping_failed")
         if settings.env in ("prod", "stage"):
             raise
-
-    # Bootstrap default users
-    try:
-        from securgraph.api.dependencies import bootstrap_users
-
-        await bootstrap_users()
-    except Exception:
-        log.exception("user_bootstrapping_failed")
-        if settings.env in ("prod", "stage"):
-            raise
-
 
     try:
         yield
@@ -105,24 +97,39 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json",
     )
 
-    # CORS open in dev so the future Next.js frontend (port 3000/3001) can call
-    # the API without TLS plumbing. Production deployments override this list.
+    application.add_middleware(CSRFMiddleware)
+
+    # The normal browser path is the same-origin Next.js BFF. Explicit origins
+    # remain available in development for direct API diagnostics.
     if settings.env == "dev":
         application.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=False,
+            allow_origins=settings.cors_origins,
+            allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
         )
 
-    application.include_router(health_routes.router)
-    application.include_router(ingest_routes.router)
-    application.include_router(query_routes.router)
-    application.include_router(explain_routes.router)
-    application.include_router(auth_routes.router)
-    application.include_router(admin_routes.router)
-    application.include_router(config_routes.router)
+    routers = (
+        health_routes.router,
+        ingest_routes.router,
+        query_routes.router,
+        explain_routes.router,
+        auth_routes.router,
+        admin_routes.router,
+        config_routes.router,
+        control_plane_routes.router,
+        settings_routes.router,
+    )
+    versioned = APIRouter(prefix="/api/v1")
+    for router in routers:
+        versioned.include_router(router)
+    application.include_router(versioned)
+
+    # Temporary alpha compatibility aliases. They are intentionally omitted
+    # from OpenAPI; all generated clients and the UI use /api/v1.
+    for router in routers:
+        application.include_router(router, include_in_schema=False)
 
     # OTel FastAPI instrumentation wraps every request in a server span and
     # injects the trace context downstream.

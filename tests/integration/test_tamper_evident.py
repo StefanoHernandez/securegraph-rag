@@ -16,6 +16,7 @@ Key scenarios tested
    key is later added (documents the key rotation hazard).
 6. PolicyDecisionRow chaining via write_policy_decisions.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -208,7 +209,12 @@ async def test_attacker_patching_stored_hash_to_sha256_is_caught() -> None:
             new_query = "Malicious query"
             row.query = new_query
             # Attacker computes SHA-256 without key — this is what the old code accepted
-            canonical = f"answer={row.answer}|completed_at={row.completed_at.isoformat()}|latency_ms={row.latency_ms:.6f}|prev_hash=genesis_trace|query={new_query}|started_at={row.started_at.isoformat()}|tenant_id={tenant}|trace_id={trace_id}|user_id={row.user_id}"
+            canonical = (
+                f"answer={row.answer}|completed_at={row.completed_at.isoformat()}|"
+                f"latency_ms={row.latency_ms:.6f}|prev_hash=genesis_trace|"
+                f"query={new_query}|started_at={row.started_at.isoformat()}|"
+                f"tenant_id={tenant}|trace_id={trace_id}|user_id={row.user_id}"
+            )
             fake_hash = hashlib.sha256(canonical.encode()).hexdigest()
             row.tamper_hash = fake_hash
             session.add(row)

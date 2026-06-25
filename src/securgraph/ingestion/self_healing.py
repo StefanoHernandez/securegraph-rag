@@ -8,9 +8,9 @@ from neo4j import AsyncDriver
 
 from securgraph.adapters.llm import get_llm_adapter_for, robust_json_loads
 from securgraph.adapters.neo4j_writer import flag_or_delete_relationship
-from securgraph.config import get_settings
 from securgraph.logging import get_logger
 from securgraph.observability.otel import GRAPH_SELF_HEALING_COUNT
+from securgraph.runtime_overrides import get_effective_settings
 
 _LOG = get_logger(__name__)
 
@@ -30,18 +30,20 @@ async def resolve_graph_contradiction(
         tenant_id=tenant_id,
         claim_text=claim_text[:60],
     )
-    adapter = get_llm_adapter_for("judge")
-    settings = get_settings()
+    adapter = get_llm_adapter_for("judge", tenant_id=tenant_id)
+    settings = get_effective_settings(tenant_id)
 
     system_prompt = (
         "You are an expert graph reconciliation assistant.\n"
-        "A knowledge graph relation extracted from the text has been flagged as a CONTRADICTION to the original document context.\n"
+        "A knowledge graph relation extracted from the text has been flagged as a "
+        "CONTRADICTION to the original document context.\n"
         "You must identify:\n"
         "1. The source entity name.\n"
         "2. The incorrect target entity name.\n"
         "3. The corrected target entity name (if any, directly from the true context).\n"
-        "4. The recommended action: \"delete\" (relationship is completely false/hallucinated), "
-        "\"update\" (relationship exists but has an incorrect target/value), or \"flag\" (uncertain).\n\n"
+        '4. The recommended action: "delete" (relationship is completely false/hallucinated), '
+        '"update" (relationship exists but has an incorrect target/value), or '
+        '"flag" (uncertain).\n\n'
         "Output strictly in JSON matching this schema:\n"
         "{\n"
         '  "source_entity": "subject name",\n'
@@ -53,10 +55,7 @@ async def resolve_graph_contradiction(
         "Do not write markdown blocks or text, return ONLY the raw JSON."
     )
 
-    prompt = (
-        f"Wrong Graph Claim: {claim_text}\n"
-        f"True Vector Context: {vector_context}"
-    )
+    prompt = f"Wrong Graph Claim: {claim_text}\nTrue Vector Context: {vector_context}"
 
     try:
         content = await adapter.chat(

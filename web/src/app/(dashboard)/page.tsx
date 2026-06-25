@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Panel, TamperChain, TrustVerdict, type ChainStatus } from "@/components/forensic";
 import { MessageSquare, UploadCloud, ArrowUpRight } from "lucide-react";
 import { adminApi, healthApi, configApi, type ActiveConfig } from "@/lib/api";
+import { useTenantSelection } from "@/lib/useTenantSelection";
 
 interface TraceRow {
   trace_id: string;
@@ -17,7 +18,7 @@ interface TraceRow {
 }
 
 export default function DashboardPage() {
-  const [tenantId, setTenantId] = useState("default");
+  const { tenantId } = useTenantSelection();
   const [stats, setStats] = useState({
     totalDocuments: 0,
     totalQueries: 0,
@@ -30,13 +31,7 @@ export default function DashboardPage() {
   const [recentQueries, setRecentQueries] = useState<TraceRow[]>([]);
   const [config, setConfig] = useState<ActiveConfig | null>(null);
 
-  useEffect(() => {
-    const savedTenant = localStorage.getItem("securgraph_tenant") || "default";
-    setTenantId(savedTenant);
-    loadDashboardData(savedTenant);
-  }, []);
-
-  const loadDashboardData = async (tenant: string) => {
+  const loadDashboardData = useCallback(async (tenant: string) => {
     let healthStr = "unavailable";
     try {
       const hRes = await healthApi.getHealth();
@@ -61,7 +56,7 @@ export default function DashboardPage() {
     try {
       const tracesRes = await adminApi.getAuditTraces(tenant, 1, 10);
       totalTracesCount = tracesRes.total;
-      mappedQueries = tracesRes.traces.map((t: any) => {
+      mappedQueries = tracesRes.traces.map((t) => {
         const latencyStr = t.latency_ms
           ? `${(t.latency_ms / 1000).toFixed(1)}s`
           : "—";
@@ -96,8 +91,8 @@ export default function DashboardPage() {
       const permRes = await adminApi.listPermissions();
       const docs = new Set(
         permRes.tuples
-          .filter((t: any) => t.object.startsWith("document:"))
-          .map((t: any) => t.object)
+          .filter((tuple) => tuple.object.startsWith("document:"))
+          .map((tuple) => tuple.object)
       );
       docCount = docs.size;
     } catch {
@@ -123,7 +118,15 @@ export default function DashboardPage() {
       healthStatus: healthStr,
     });
     setRecentQueries(mappedQueries);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!tenantId) {
+      return;
+    }
+    const timer = window.setTimeout(() => void loadDashboardData(tenantId), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadDashboardData, tenantId]);
 
   const figures = [
     { k: "documents under custody", v: stats.totalDocuments },

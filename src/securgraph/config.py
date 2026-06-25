@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # ---------------------------------------------------------------------- API
     api_host: str = "0.0.0.0"  # noqa: S104 — dev binding; harden in prod
     api_port: int = Field(default=8000, ge=1, le=65535)
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
+    )
 
     # ----------------------------------------------------------------- postgres
     # PostgreSQL credentials use bare env names so the same .env feeds both
@@ -105,9 +108,7 @@ class Settings(BaseSettings):
     # Cloud provider API keys. Read by the corresponding adapter lazily; if a
     # provider is not configured the key stays empty and that adapter is never
     # instantiated.
-    openai_api_key: SecretStr = Field(
-        default=SecretStr(""), validation_alias="OPENAI_API_KEY"
-    )
+    openai_api_key: SecretStr = Field(default=SecretStr(""), validation_alias="OPENAI_API_KEY")
     openai_base_url: str = Field(
         default="https://api.openai.com/v1",
         validation_alias="OPENAI_BASE_URL",
@@ -116,15 +117,11 @@ class Settings(BaseSettings):
             "the Mistral adapter, or to a local vLLM/LiteLLLM proxy."
         ),
     )
-    google_api_key: SecretStr = Field(
-        default=SecretStr(""), validation_alias="GOOGLE_API_KEY"
-    )
+    google_api_key: SecretStr = Field(default=SecretStr(""), validation_alias="GOOGLE_API_KEY")
     anthropic_api_key: SecretStr = Field(
         default=SecretStr(""), validation_alias="ANTHROPIC_API_KEY"
     )
-    mistral_api_key: SecretStr = Field(
-        default=SecretStr(""), validation_alias="MISTRAL_API_KEY"
-    )
+    mistral_api_key: SecretStr = Field(default=SecretStr(""), validation_alias="MISTRAL_API_KEY")
 
     # ---------------------------------------------------------------- tokenizer
     # HuggingFace tokenizer used by the chunker for token budgeting. Default is
@@ -162,9 +159,13 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------- auth settings
     jwt_secret: SecretStr = Field(
         default=SecretStr("securgraph-jwt-secret-very-secure-key-default-replace-me"),
-        validation_alias="JWT_SECRET"
+        validation_alias="JWT_SECRET",
     )
     auth_enabled: bool = True
+    access_token_ttl_minutes: int = Field(default=15, ge=5, le=60)
+    refresh_token_ttl_days: int = Field(default=7, ge=1, le=90)
+    session_cookie_secure: bool = False
+    master_key: SecretStr = SecretStr("")
 
     # ----------------------------------------------------------- audit integrity
     # HMAC key for tamper-evident audit chaining. Must be set to a random 32+

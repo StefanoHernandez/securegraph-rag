@@ -36,7 +36,10 @@ async def test_health_returns_ok(client: AsyncClient) -> None:
         assert body["service"] == "securgraph-api"
         assert body["env"] == "test"
         assert isinstance(body["components"], dict)
-        assert {"postgres", "qdrant", "neo4j", "openfga", "ollama"} <= set(body["components"])
+        assert {"postgres", "qdrant", "neo4j", "openfga", "provider"} <= set(
+            body["components"]
+        )
+        mock_ping_ollama.assert_not_called()
 
 
 async def test_openapi_schema_generated(client: AsyncClient) -> None:
@@ -44,4 +47,22 @@ async def test_openapi_schema_generated(client: AsyncClient) -> None:
     assert resp.status_code == 200
     schema = resp.json()
     assert schema["info"]["title"] == "SecurGraph RAG"
-    assert "/health" in schema["paths"]
+    assert "/api/v1/health" in schema["paths"]
+    assert "/health" not in schema["paths"]
+
+
+async def test_liveness_performs_no_dependency_or_llm_probe(client: AsyncClient) -> None:
+    from unittest.mock import patch
+
+    with (
+        patch("securgraph.api.routes.health.ping_postgres") as postgres,
+        patch("securgraph.api.routes.health.ping_qdrant") as qdrant,
+        patch("securgraph.api.routes.health.ping_neo4j") as neo4j,
+        patch("securgraph.api.routes.health.ping_ollama") as provider,
+        patch("securgraph.api.routes.health.ping_openfga") as openfga,
+    ):
+        response = await client.get("/health/live")
+
+    assert response.status_code == 200
+    for probe in (postgres, qdrant, neo4j, provider, openfga):
+        probe.assert_not_called()

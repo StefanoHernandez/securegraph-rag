@@ -154,6 +154,8 @@ async def create_ingestion_job(
     trace_id: str,
     tenant_id: TenantId,
     document_id: str | None = None,
+    requested_by: str | None = None,
+    owner_id: str | None = None,
     status: str = "running",
 ) -> None:
     stmt = select(IngestionJobRow).where(IngestionJobRow.job_id == job_id)
@@ -164,14 +166,20 @@ async def create_ingestion_job(
         existing.tenant_id = tenant_id
         if document_id is not None:
             existing.document_id = document_id
+        existing.requested_by = requested_by
+        existing.owner_id = owner_id
         existing.status = status
+        existing.current_step = status
     else:
         row = IngestionJobRow(
             job_id=job_id,
             trace_id=trace_id,
             tenant_id=tenant_id,
             document_id=document_id,
+            requested_by=requested_by,
+            owner_id=owner_id,
             status=status,
+            current_step=status,
             started_at=utcnow(),
         )
         session.add(row)
@@ -248,6 +256,7 @@ async def write_policy_decisions(session: AsyncSession, decisions: list[PolicyDe
             policy_engine=d.policy_engine,
             evaluated_at=d.evaluated_at,
             tamper_hash=None,
+            chain_sequence=None,
         )
         for d in decisions
     ]

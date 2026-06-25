@@ -12,16 +12,15 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from securgraph.api.routes.auth import require_user
+from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.config import get_settings
-from securgraph.indexing.db import AuthUserRow
 
 router = APIRouter(tags=["config"])
 
 
 @router.get("/config", summary="Active non-sensitive runtime configuration")
 async def get_active_config(
-    _user: AuthUserRow | None = Depends(require_user),
+    _user: AuthenticatedPrincipal | None = Depends(require_user),
 ) -> dict[str, Any]:
     """Return the active model/provider/store configuration (no secrets)."""
     s = get_settings()

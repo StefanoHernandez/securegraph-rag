@@ -7,7 +7,6 @@ from langgraph.graph import END, START, StateGraph
 
 from securgraph.adapters.llm import get_llm_adapter, get_llm_adapter_for
 from securgraph.api.dependencies import AsyncSessionLocal
-from securgraph.config import get_settings
 from securgraph.domain import (
     Answer,
     Claim,
@@ -19,6 +18,7 @@ from securgraph.domain import (
 from securgraph.domain.consensus import calculate_consensus
 from securgraph.logging import get_logger
 from securgraph.observability import get_tracer
+from securgraph.runtime_overrides import get_effective_settings
 
 _LOG = get_logger(__name__)
 
@@ -149,6 +149,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             lexical = await qdrant.search_lexical(subject.tenant_id, q, limit=limit, trace_id=trace)
 
             from securgraph.indexing.fusion import fuse_rankings
+
             fused = fuse_rankings(dense, lexical, limit=limit)
 
             # ReBAC fail-closed BEFORE evidence reaches synthesis: filter the
@@ -161,21 +162,21 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             if fga is not None and fused:
                 chunk_ids = [ev.object_id for ev in fused if getattr(ev, "object_id", None)]
                 authorized_ids, decisions = await fga.filter_chunk_ids(
-                    subject=subject, chunk_ids=chunk_ids, trace_id=trace,
+                    subject=subject,
+                    chunk_ids=chunk_ids,
+                    trace_id=trace,
                 )
                 filtered = [ev for ev in fused if ev.object_id in authorized_ids]
                 denied_count = len(fused) - len(filtered)
                 fused = filtered
 
-                # Persist policy decisions for audit lineage. Best-effort: a
-                # failed audit write must not break the query — fail-closed
-                # already happened at the FGA layer.
-                try:
-                    from securgraph.indexing.postgres_writer import write_policy_decisions
-                    async with AsyncSessionLocal() as session:
-                        await write_policy_decisions(session, decisions)
-                except Exception as exc:  # pragma: no cover - audit-best-effort
-                    _LOG.warning("vector_policy_decisions_persist_failed", error=str(exc))
+                # Audit persistence is part of the authorization decision. If
+                # it cannot be committed, abort before evidence reaches synthesis.
+                from securgraph.indexing.postgres_writer import write_policy_decisions
+
+                async with AsyncSessionLocal() as session:
+                    await write_policy_decisions(session, decisions)
+                    await session.commit()
 
             span.set_attribute("securgraph.dense_count", len(dense))
             span.set_attribute("securgraph.lexical_count", len(lexical))
@@ -219,6 +220,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             driver = getattr(graph, "driver", None)
             if driver is None:
                 from securgraph.adapters.neo4j import get_neo4j_driver
+
                 driver = get_neo4j_driver()
             seeds = await _extract_seeds_from_catalog(
                 driver=driver,
@@ -231,8 +233,9 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     subject=state["subject"],
                     seed_entities=seeds,
                     trace_id=state["trace_id"],
-                    max_depth=state["options"].get("max_graph_depth", 2)
+                    max_depth=state["options"].get("max_graph_depth", 2),
                 )
+                await session.commit()
 
             span.set_attribute("securgraph.seeds_count", len(seeds))
             span.set_attribute("securgraph.paths_count", len(paths))
@@ -245,15 +248,22 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             return {"vector_draft": ""}
         tracer = get_tracer()
         with tracer.start_as_current_span("vector_draft"):
-            adapter = get_llm_adapter()
-            settings = get_settings()
+            adapter = get_llm_adapter(tenant_id=state["subject"].tenant_id)
+            settings = get_effective_settings(state["subject"].tenant_id)
             context_text = _bounded_context(
                 list(state["vector_context"]), settings.query_token_budget
             )
-            prompt = f"Answer using vector sources only:\nContext: {context_text}\nQuery: {state['query']}"
+            prompt = (
+                "Answer using vector sources only:\n"
+                f"Context: {context_text}\nQuery: {state['query']}"
+            )
 
             content = await adapter.chat(
-                system="You are a secure factual RAG assistant. Output a concise answer based ONLY on the context. If no context matches or is provided, state that there is no available information.",
+                system=(
+                    "You are a secure factual RAG assistant. Output a concise answer "
+                    "based ONLY on the context. If no context matches or is provided, "
+                    "state that there is no available information."
+                ),
                 user=prompt,
                 think=settings.llm_thinking,
                 keep_alive=300,
@@ -267,15 +277,22 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             return {"graph_draft": ""}
         tracer = get_tracer()
         with tracer.start_as_current_span("graph_draft"):
-            adapter = get_llm_adapter()
-            settings = get_settings()
+            adapter = get_llm_adapter(tenant_id=state["subject"].tenant_id)
+            settings = get_effective_settings(state["subject"].tenant_id)
             context_text = _bounded_context(
                 list(state["graph_context"]), settings.query_token_budget
             )
-            prompt = f"Answer using graph sources only:\nContext: {context_text}\nQuery: {state['query']}"
+            prompt = (
+                "Answer using graph sources only:\n"
+                f"Context: {context_text}\nQuery: {state['query']}"
+            )
 
             content = await adapter.chat(
-                system="You are a secure factual RAG assistant. Output a concise answer based ONLY on the context. If no context matches or is provided, state that there is no available information.",
+                system=(
+                    "You are a secure factual RAG assistant. Output a concise answer "
+                    "based ONLY on the context. If no context matches or is provided, "
+                    "state that there is no available information."
+                ),
                 user=prompt,
                 think=settings.llm_thinking,
                 keep_alive=300,
@@ -285,30 +302,36 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
     async def vector_claim_extraction_node(state: QueryState) -> dict[str, Any]:
         if state["options"].get("query_type") == "global" or not state["vector_draft"]:
             return {"vector_claims": []}
-        decomp = await get_llm_adapter().extract_claims(state["vector_draft"])
+        decomp = await get_llm_adapter(
+            tenant_id=state["subject"].tenant_id
+        ).extract_claims(state["vector_draft"])
         claims = [
             Claim(
                 claim_id=c.claim_id,
                 text=c.text,
                 supporting_evidence_ids=tuple(),
                 nli_label=None,
-                verifier_status=VerifierStatus.NOT_CHECKED
-            ) for c in decomp.claims
+                verifier_status=VerifierStatus.NOT_CHECKED,
+            )
+            for c in decomp.claims
         ]
         return {"vector_claims": claims}
 
     async def graph_claim_extraction_node(state: QueryState) -> dict[str, Any]:
         if state["options"].get("query_type") == "global" or not state["graph_draft"]:
             return {"graph_claims": []}
-        decomp = await get_llm_adapter().extract_claims(state["graph_draft"])
+        decomp = await get_llm_adapter(
+            tenant_id=state["subject"].tenant_id
+        ).extract_claims(state["graph_draft"])
         claims = [
             Claim(
                 claim_id=c.claim_id,
                 text=c.text,
                 supporting_evidence_ids=tuple(),
                 nli_label=None,
-                verifier_status=VerifierStatus.NOT_CHECKED
-            ) for c in decomp.claims
+                verifier_status=VerifierStatus.NOT_CHECKED,
+            )
+            for c in decomp.claims
         ]
         return {"graph_claims": claims}
 
@@ -321,7 +344,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             g_claims = list(state["graph_claims"])
 
             # Run live NLI judgments bidirectionally
-            nli_adapter = get_llm_adapter_for("judge")
+            nli_adapter = get_llm_adapter_for("judge", tenant_id=state["subject"].tenant_id)
             updated_v_claims = []
             for c in v_claims:
                 res = await nli_adapter.judge_nli(c.text, state["graph_draft"] or "")
@@ -330,7 +353,9 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                         update={
                             "nli_label": NLILabel(res.label),
                             "nli_confidence": res.confidence,
-                            "verifier_status": VerifierStatus.SUPPORTED if res.label == "entailment" else VerifierStatus.UNSUPPORTED,
+                            "verifier_status": VerifierStatus.SUPPORTED
+                            if res.label == "entailment"
+                            else VerifierStatus.UNSUPPORTED,
                         }
                     )
                 )
@@ -343,7 +368,9 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                         update={
                             "nli_label": NLILabel(res.label),
                             "nli_confidence": res.confidence,
-                            "verifier_status": VerifierStatus.SUPPORTED if res.label == "entailment" else VerifierStatus.UNSUPPORTED,
+                            "verifier_status": VerifierStatus.SUPPORTED
+                            if res.label == "entailment"
+                            else VerifierStatus.UNSUPPORTED,
                         }
                     )
                 )
@@ -351,10 +378,14 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             # Extract entity sets from claims text (longer words to avoid stop words)
             vector_entities = set()
             for c in updated_v_claims:
-                vector_entities.update([w.lower().strip(",.?!") for w in c.text.split() if len(w) > 4])
+                vector_entities.update(
+                    [w.lower().strip(",.?!") for w in c.text.split() if len(w) > 4]
+                )
             graph_entities = set()
             for c in updated_g_claims:
-                graph_entities.update([w.lower().strip(",.?!") for w in c.text.split() if len(w) > 4])
+                graph_entities.update(
+                    [w.lower().strip(",.?!") for w in c.text.split() if len(w) > 4]
+                )
 
             report = calculate_consensus(
                 trace_id=state["trace_id"],
@@ -362,11 +393,11 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                 graph_claims=tuple(updated_g_claims),
                 vector_entities=vector_entities,
                 graph_entities=graph_entities,
-                threshold=state["options"].get("consensus_threshold", 0.7)
+                threshold=state["options"].get("consensus_threshold", 0.7),
             )
 
             # Check if self-healing is enabled and if there are graph contradictions
-            settings = get_settings()
+            settings = get_effective_settings(state["subject"].tenant_id)
             if settings.feature_self_healing_enabled:
                 for c in updated_g_claims:
                     if c.nli_label == NLILabel.CONTRADICTION:
@@ -378,6 +409,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                         driver = getattr(graph, "driver", None)
                         if driver is None:
                             from securgraph.adapters.neo4j import get_neo4j_driver
+
                             driver = get_neo4j_driver()
 
                         from securgraph.ingestion.self_healing import resolve_graph_contradiction
@@ -397,23 +429,32 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
 
             span.set_attribute("securgraph.agreement_score", report.agreement_score)
             span.set_attribute("securgraph.high_trust", report.high_trust)
-            return {"consensus_report": report, "vector_claims": updated_v_claims, "graph_claims": updated_g_claims}
+            return {
+                "consensus_report": report,
+                "vector_claims": updated_v_claims,
+                "graph_claims": updated_g_claims,
+            }
 
     async def synthesis_node(state: QueryState) -> dict[str, Any]:
         tracer = get_tracer()
         with tracer.start_as_current_span("synthesis"):
-            adapter = get_llm_adapter()
-            settings = get_settings()
+            adapter = get_llm_adapter(tenant_id=state["subject"].tenant_id)
+            settings = get_effective_settings(state["subject"].tenant_id)
 
             if state["options"].get("query_type") == "global":
                 final_prompt = (
-                    f"You are a global synthesis agent. Synthesize a comprehensive, high-level, structured answer "
-                    f"answering the query based on the following Hierarchical Graph Community Summaries:\n"
+                    "You are a global synthesis agent. Synthesize a comprehensive, "
+                    "high-level, structured answer answering the query based on the "
+                    "following Hierarchical Graph Community Summaries:\n"
                     f"{state['graph_draft']}\n\n"
                     f"Query: {state['query']}"
                 )
                 content = await adapter.chat(
-                    system="You are a global synthesis agent. Produce a comprehensive, secure, structured answer summarizing the community summaries. Do not extrapolate outside the context.",
+                    system=(
+                        "You are a global synthesis agent. Produce a comprehensive, "
+                        "secure, structured answer summarizing the community summaries. "
+                        "Do not extrapolate outside the context."
+                    ),
                     user=final_prompt,
                     think=settings.llm_thinking,
                     keep_alive=300,
@@ -424,10 +465,17 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                 f"Synthesize a final unified secure response based on two draft reviews:\n"
                 f"Vector Draft: {state['vector_draft']}\n"
                 f"Graph Draft: {state['graph_draft']}\n"
-                f"Agreement Score: {state['consensus_report'].agreement_score if state['consensus_report'] else 0.0}"
+                "Agreement Score: "
+                f"{state['consensus_report'].agreement_score if state['consensus_report'] else 0.0}"
             )
             content = await adapter.chat(
-                system="You are a synthesis agent. Produce a secure, unified answer grounded strictly in both drafts. Do not extrapolate, only summarize agreement areas. If there is no agreement and the score is below the threshold, warn that agreement could not be reached and synthesize a cautious minimal response.",
+                system=(
+                    "You are a synthesis agent. Produce a secure, unified answer grounded "
+                    "strictly in both drafts. Do not extrapolate, only summarize agreement "
+                    "areas. If there is no agreement and the score is below the threshold, "
+                    "warn that agreement could not be reached and synthesize a cautious "
+                    "minimal response."
+                ),
                 user=final_prompt,
                 think=settings.llm_thinking,
                 keep_alive=300,

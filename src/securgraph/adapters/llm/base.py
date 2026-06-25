@@ -45,9 +45,10 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
-from securgraph.config import Settings, get_settings
+from securgraph.config import Settings
 from securgraph.domain.graph import ExtractedGraphSlice
 from securgraph.logging import get_logger
+from securgraph.runtime_overrides import get_effective_settings
 
 _LOG = get_logger(__name__)
 
@@ -101,7 +102,7 @@ CLAIM_DECOMPOSITION_SYSTEM_PROMPT = (
     "Output strictly in JSON matching this schema:\n"
     "{\n"
     '  "claims": [\n'
-    '    {\n'
+    "    {\n"
     '      "claim_id": "c0",\n'
     '      "text": "The factual claim statement.",\n'
     '      "entities": ["entity1", "entity2"]\n'
@@ -253,9 +254,7 @@ def _resolve_provider_id(role: LLMRole, settings: Settings) -> str:
     else:
         pid = settings.llm_provider
     if pid not in _PROVIDER_MODULES:
-        raise ValueError(
-            f"Unknown LLM provider {pid!r}. Supported: {sorted(_PROVIDER_MODULES)}"
-        )
+        raise ValueError(f"Unknown LLM provider {pid!r}. Supported: {sorted(_PROVIDER_MODULES)}")
     return pid
 
 
@@ -271,27 +270,27 @@ def _instantiate(provider_id: str, role: LLMRole, settings: Settings) -> LLMAdap
 # Cached per (provider_id, role) so repeated calls reuse the same instance.
 # The cache key includes both because a deployment may mix providers per
 # role (e.g. ollama for extract, openai for judge).
-@lru_cache(maxsize=8)
-def _cached_adapter(provider_id: str, role: LLMRole) -> LLMAdapter:
+@lru_cache(maxsize=32)
+def _cached_adapter(provider_id: str, role: LLMRole, tenant_id: str | None) -> LLMAdapter:
     # Re-read settings at build time so test config overrides take effect.
-    return _instantiate(provider_id, role, get_settings())
+    return _instantiate(provider_id, role, get_effective_settings(tenant_id))
 
 
-def get_llm_adapter(role: LLMRole = "generation") -> LLMAdapter:
+def get_llm_adapter(role: LLMRole = "generation", tenant_id: str | None = None) -> LLMAdapter:
     """Return the cached LLMAdapter for the given role.
 
     Resolution order for the provider id:
         1. role-specific setting (``llm_provider_extract`` / ``_judge``)
         2. default ``llm_provider``
     """
-    settings = get_settings()
+    settings = get_effective_settings(tenant_id)
     pid = _resolve_provider_id(role, settings)
-    return _cached_adapter(pid, role)
+    return _cached_adapter(pid, role, tenant_id)
 
 
-def get_llm_adapter_for(role: LLMRole) -> LLMAdapter:
+def get_llm_adapter_for(role: LLMRole, tenant_id: str | None = None) -> LLMAdapter:
     """Alias of :func:`get_llm_adapter` for readability at call sites."""
-    return get_llm_adapter(role)
+    return get_llm_adapter(role, tenant_id=tenant_id)
 
 
 def reset_llm_adapter_cache() -> None:

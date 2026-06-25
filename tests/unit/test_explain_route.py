@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 
 from securgraph.api.dependencies import get_db_session
+from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.indexing.db import PolicyDecisionRow, QueryTraceRow, RetrievalEvidenceRow
 
 pytestmark = pytest.mark.unit
@@ -177,3 +178,62 @@ async def test_explain_route_forbidden_tenant_bypass(
     # Requesting a different tenant scope (tenant_b instead of trace's mrd)
     resp = await client.get("/explain/test-trace-123?tenant_id=tenant_b&user_id=user:stefano")
     assert resp.status_code == 403
+
+
+async def test_explain_rejects_same_tenant_non_owner(
+    fastapi_app: FastAPI,
+    client: AsyncClient,
+    mock_query_trace: QueryTraceRow,
+) -> None:
+    principal = AuthenticatedPrincipal(
+        user_id="bob",
+        username="bob",
+        tenant_id="mrd",
+        role="viewer",
+        is_super_admin=False,
+        must_change_password=False,
+        session_id="ses-2",
+    )
+    fastapi_app.dependency_overrides[require_user] = lambda: principal
+    mock_session = AsyncMock()
+    mock_session.get.return_value = mock_query_trace
+
+    async def mock_db_session() -> AsyncIterator[AsyncMock]:
+        yield mock_session
+
+    fastapi_app.dependency_overrides[get_db_session] = mock_db_session
+    response = await client.get("/explain/test-trace-123?tenant_id=mrd&user_id=user:bob")
+    assert response.status_code == 403
+
+
+async def test_explain_redacts_evidence_without_policy_decision(
+    fastapi_app: FastAPI,
+    client: AsyncClient,
+    mock_query_trace: QueryTraceRow,
+    mock_retrieval_evidence: list[RetrievalEvidenceRow],
+) -> None:
+    principal = AuthenticatedPrincipal(
+        user_id="stefano",
+        username="stefano",
+        tenant_id="mrd",
+        role="viewer",
+        is_super_admin=False,
+        must_change_password=False,
+        session_id="ses-1",
+    )
+    fastapi_app.dependency_overrides[require_user] = lambda: principal
+    mock_session = AsyncMock()
+    mock_session.get.return_value = mock_query_trace
+    evidence_result = MagicMock()
+    evidence_result.scalars.return_value.all.return_value = mock_retrieval_evidence
+    decision_result = MagicMock()
+    decision_result.scalars.return_value.all.return_value = []
+    mock_session.execute.side_effect = [evidence_result, decision_result]
+
+    async def mock_db_session() -> AsyncIterator[AsyncMock]:
+        yield mock_session
+
+    fastapi_app.dependency_overrides[get_db_session] = mock_db_session
+    response = await client.get("/explain/test-trace-123?tenant_id=mrd")
+    assert response.status_code == 200
+    assert all(item["status"] == "redacted" for item in response.json()["evidence"])
