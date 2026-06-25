@@ -98,3 +98,6 @@ scratch/
 
 # Docker init scripts (local setup, not tracked)
 docker/postgres-init/
+
+# Mascot codex
+.codex-hatch-pet
