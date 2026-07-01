@@ -108,7 +108,12 @@ async def _seed_fga_group_memberships(
 async def _seed_fga_document_tuples(
     doc_ids: list[str], manifest: CorpusManifest
 ) -> None:
-    """Seed FGA tuples: owner + group_viewer + direct_viewer per document."""
+    """Seed FGA group_viewer and direct_viewer tuples per document.
+
+    Owner tuples are already written by the API during ingestion. We only
+    need to add group_viewer and direct_viewer tuples that the API does not
+    write automatically.
+    """
     from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
 
     fga = await _get_fga_client()
@@ -117,9 +122,7 @@ async def _seed_fga_document_tuples(
         if not document_id:
             continue
         target = f"document:{document_id}"
-        tuples.append(
-            ClientTuple(user=f"user:{document.owner}", relation="owner", object=target)
-        )
+        # Skip owner tuples — the API writes them during ingestion.
         tuples.extend(
             ClientTuple(
                 user=f"group:{group_id}#member",
@@ -134,11 +137,29 @@ async def _seed_fga_document_tuples(
             )
             for user_id in document.direct_viewers
         )
-    try:
-        await fga.write(ClientWriteRequest(writes=tuples))
-        print(f"  seeded {len(tuples)} document access tuples")
-    except Exception as e:
-        print(f"  fga document seed note: {e}")
+    if not tuples:
+        print("  (no group_viewer/direct_viewer tuples to seed)")
+        await fga.close()  # type: ignore[attr-defined]
+        return
+    # Write in small batches to avoid rejecting the entire batch for one duplicate.
+    batch_size = 10
+    written = 0
+    for i in range(0, len(tuples), batch_size):
+        batch = tuples[i : i + batch_size]
+        try:
+            await fga.write(ClientWriteRequest(writes=batch))
+            written += len(batch)
+        except Exception as e:
+            # Try individual tuples to skip duplicates.
+            for t in batch:
+                try:
+                    await fga.write(ClientWriteRequest(writes=[t]))
+                    written += 1
+                except Exception:
+                    pass
+            if "already exists" not in str(e):
+                print(f"  fga batch seed note: {e}")
+    print(f"  seeded {written} group_viewer/direct_viewer tuples")
     await fga.close()  # type: ignore[attr-defined]
 
 
@@ -227,30 +248,54 @@ async def _ensure_tenant(tenant_id: str) -> None:
 
 
 async def _ingest_documents(manifest: CorpusManifest) -> list[str]:
-    """Ingest all manifest documents and return their doc_ids."""
-    from securgraph.api.dependencies import AsyncSessionLocal
+    """Ingest all manifest documents via the HTTP API and return their doc_ids.
+
+    Uses the live API so that chunk->parent_document FGA tuples are written
+    by the API's own FGA client (direct ingest_document calls in a separate
+    process would skip FGA tuple writes).
+    """
+    import httpx
 
     doc_ids: list[str] = []
-    for document in manifest.documents:
-        async with AsyncSessionLocal() as session:
-            req = IngestionRequest(
-                tenant_id=manifest.tenant_id,
-                source_uri=document.path.relative_to(manifest.root).as_posix(),
-                owner_id=f"user:{document.owner}",
-                data=document.path.read_bytes(),
-                classification=Classification(document.classification),
-                policy_tags=document.groups,
-                direct_viewers=tuple(f"user:{v}" for v in document.direct_viewers),
-            )
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+        for document in manifest.documents:
+            files = {
+                "file": (
+                    document.path.name,
+                    document.path.read_bytes(),
+                    "application/octet-stream",
+                )
+            }
+            data = {
+                "tenant_id": manifest.tenant_id,
+                "owner_id": f"user:{document.owner}",
+                "document_type": "other",
+                "classification": document.classification,
+                "policy_tags": ",".join(document.groups),
+            }
             try:
-                result = await ingest_document(session, req)
-                await session.commit()
-                doc_ids.append(result.document_id)
-                print(f"  ingested {document.path.name} -> {result.document_id} ({result.status})")
+                resp = await client.post(
+                    "http://localhost:8000/api/v1/ingest",
+                    files=files,
+                    data=data,
+                )
+                body = resp.json() if resp.headers.get("content-type", "").startswith(
+                    "application/json"
+                ) else {}
+                doc_id = body.get("document_id", "")
+                status = body.get("status", "unknown")
+                if resp.status_code in (200, 201):
+                    doc_ids.append(doc_id)
+                    print(f"  ingested {document.path.name} -> {doc_id} ({status})")
+                else:
+                    doc_ids.append("")
+                    print(
+                        f"  ingest failed {document.path.name}: "
+                        f"HTTP {resp.status_code} {body.get('detail', '')}"
+                    )
             except Exception as e:
-                await session.rollback()
-                print(f"  ingest warning {document.path.name}: {e}")
                 doc_ids.append("")
+                print(f"  ingest error {document.path.name}: {e}")
     return doc_ids
 
 
