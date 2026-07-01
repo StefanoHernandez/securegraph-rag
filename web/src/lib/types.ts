@@ -113,6 +113,9 @@ export interface ExplainReport {
     entity_overlap: number | null;
     claim_nli_score: number | null;
   } | null;
+
+  // SGH-09: chain integrity from backend verification, never inferred client-side.
+  chain_intact: boolean | null;
 }
 
 export interface ServiceStatus {

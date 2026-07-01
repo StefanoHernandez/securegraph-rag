@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
+import { useTranslations } from "next-intl";
 import { QueryResponse } from "@/lib/types";
 import { TrustVerdict, EvidenceTag } from "@/components/forensic";
 import { cn } from "@/lib/utils";
@@ -12,7 +13,13 @@ interface AnswerCardProps {
   response: QueryResponse;
 }
 
-function Meter({ label, value }: { label: string; value: number | null | undefined }) {
+function Meter({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | null | undefined;
+}) {
   const pct = value == null ? 0 : Math.round(value * 100);
   return (
     <div className="space-y-1.5">
@@ -31,13 +38,20 @@ function Meter({ label, value }: { label: string; value: number | null | undefin
 
 export default function AnswerCard({ response }: AnswerCardProps) {
   const [showCitations, setShowCitations] = useState(false);
-  const { answer, confidence, channels, citations, trace_id, warnings } = response;
+  const t = useTranslations("answerCard");
+  const { answer, confidence, channels, citations, trace_id, warnings } =
+    response;
 
   const channelRows = [
-    { key: "vector", label: "vector lane", unit: "chunks", ch: channels.vector },
-    { key: "lexical", label: "lexical lane", unit: "terms", ch: channels.lexical },
-    { key: "graph", label: "graph lane", unit: "paths", ch: channels.graph },
-    { key: "community", label: "global lane", unit: "nodes", ch: channels.community },
+    { key: "vector", label: t("vectorLane"), unit: t("chunks"), ch: channels.vector },
+    { key: "lexical", label: t("lexicalLane"), unit: t("terms"), ch: channels.lexical },
+    { key: "graph", label: t("graphLane"), unit: t("paths"), ch: channels.graph },
+    {
+      key: "community",
+      label: t("globalLane"),
+      unit: t("nodes"),
+      ch: channels.community,
+    },
   ];
 
   return (
@@ -52,7 +66,7 @@ export default function AnswerCard({ response }: AnswerCardProps) {
           href={`/explain?trace_id=${trace_id}`}
           className="inline-flex items-center gap-1.5 font-mono text-[0.6875rem] uppercase tracking-wider text-bone-dim hover:text-signal-amber transition-colors"
         >
-          verify lineage · {trace_id.slice(0, 8)}
+          {t("verifyLineage")} · {trace_id.slice(0, 8)}
           <ArrowUpRight className="h-3.5 w-3.5" />
         </Link>
       </header>
@@ -94,15 +108,15 @@ export default function AnswerCard({ response }: AnswerCardProps) {
 
         {/* Consensus meters */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-5 border-t border-hairline pt-5">
-          <Meter label="consensus" value={confidence.agreement_score} />
-          <Meter label="entity overlap" value={confidence.entity_overlap} />
-          <Meter label="nli entailment" value={confidence.claim_nli_score} />
-          <Meter label="evidence cover" value={confidence.evidence_coverage} />
+          <Meter label={t("consensus")} value={confidence.agreement_score} />
+          <Meter label={t("entityOverlap")} value={confidence.entity_overlap} />
+          <Meter label={t("nliEntailment")} value={confidence.claim_nli_score} />
+          <Meter label={t("evidenceCover")} value={confidence.evidence_coverage} />
         </div>
 
         {/* Channels */}
         <div className="space-y-2">
-          <p className="mono-meta">retrieval channels</p>
+          <p className="mono-meta">{t("retrievalChannels")}</p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-hairline border border-hairline">
             {channelRows.map((r) => (
               <div key={r.key} className="bg-vault-raised px-3 py-2.5">
@@ -113,7 +127,7 @@ export default function AnswerCard({ response }: AnswerCardProps) {
                     r.ch ? "text-signal-amber" : "text-bone-dim"
                   )}
                 >
-                  {r.ch ? `${r.ch.evidence_count} ${r.unit}` : "inactive"}
+                  {r.ch ? `${r.ch.evidence_count} ${r.unit}` : t("inactive")}
                 </p>
               </div>
             ))}
@@ -127,7 +141,9 @@ export default function AnswerCard({ response }: AnswerCardProps) {
               onClick={() => setShowCitations(!showCitations)}
               className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-bone hover:bg-[rgba(232,230,223,0.03)] transition-colors"
             >
-              <span className="mono-meta">evidence cited · {citations.length}</span>
+              <span className="mono-meta">
+                {t("evidenceCited")} · {citations.length}
+              </span>
               {showCitations ? (
                 <ChevronUp className="h-4 w-4 text-bone-dim" />
               ) : (
@@ -148,10 +164,20 @@ export default function AnswerCard({ response }: AnswerCardProps) {
                       </span>
                     </div>
                     <div className="mono-meta flex flex-wrap gap-x-3 gap-y-1 normal-case">
-                      {c.document_id && <span>doc {c.document_id}</span>}
-                      {c.chunk_id && <span>chunk {c.chunk_id}</span>}
+                      {c.document_id && (
+                        <span>
+                          {t("doc")} {c.document_id}
+                        </span>
+                      )}
+                      {c.chunk_id && (
+                        <span>
+                          {t("chunk")} {c.chunk_id}
+                        </span>
+                      )}
                       {c.page_start != null && (
-                        <span>pp. {c.page_start}–{c.page_end}</span>
+                        <span>
+                          {t("pp")} {c.page_start}–{c.page_end}
+                        </span>
                       )}
                     </div>
                   </li>

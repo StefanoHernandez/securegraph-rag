@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
+import { useTranslations } from "next-intl";
 import { ExplainReport } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -32,6 +33,23 @@ function Meter({ label, value }: { label: string; value: number | null | undefin
 
 export function CustodyTimeline({ report }: { report: ExplainReport }) {
   const [showEvidence, setShowEvidence] = React.useState(false);
+  const t = useTranslations("custodyTimeline");
+
+  // SGH-09: integrity state comes from the backend, never inferred client-side.
+  // Default is "unverified" when no chain verification result is present.
+  const integrityStatus: "verified" | "tampered" | "unverified" =
+    report.chain_intact === true
+      ? "verified"
+      : report.chain_intact === false
+        ? "tampered"
+        : "unverified";
+  const integrityLabel = t(`integrity_${integrityStatus}`);
+  const integrityClass =
+    integrityStatus === "verified"
+      ? "stamp text-signal-amber"
+      : integrityStatus === "tampered"
+        ? "stamp text-seal-red"
+        : "mono-meta text-bone-dim";
 
   const operator =
     report.prov_agents.find((a) => a.id.includes("user"))?.label || "operator";
@@ -75,8 +93,12 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
           </p>
         </div>
         <div className="bg-vault-raised px-4 py-3">
-          <p className="mono-meta">integrity</p>
-          <p className="mt-1 stamp text-signal-amber">✓ INTACT</p>
+          <p className="mono-meta">{t("integrity")}</p>
+          <p className={cn("mt-1", integrityClass)}>
+            {integrityStatus === "verified" && "✓ "}
+            {integrityStatus === "tampered" && "▮ "}
+            {integrityLabel}
+          </p>
         </div>
       </div>
 
@@ -85,13 +107,13 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
         {/* ① Request */}
         <TimelineStage
           index={1}
-          title="request"
+          title={t("request")}
           headRight={
             <span className="mono-meta normal-case">{operator}</span>
           }
         >
           <div className="px-4 py-3">
-            <p className="mono-meta">query</p>
+            <p className="mono-meta">{t("query")}</p>
             <p className="mt-1.5 text-sm text-bone leading-relaxed">
               {report.query}
             </p>
@@ -101,14 +123,16 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
         {/* ② Retrieval */}
         <TimelineStage
           index={2}
-          title="retrieval · evidence gathered"
+          title={t("retrieval")}
           headRight={
             <span
               className={
                 redacted > 0 ? "stamp text-seal-red" : "stamp text-bone-dim"
               }
             >
-              {redacted > 0 ? `▮ ${redacted} REDACTED` : "NO REDACTIONS"}
+              {redacted > 0
+                ? `▮ ${redacted} ${t("redacted")}`
+                : t("noRedactions")}
             </span>
           }
         >
@@ -123,7 +147,7 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
                 </span>
               ))}
               {report.evidence.length === 0 && (
-                <span className="mono-meta">no evidence on record</span>
+                <span className="mono-meta">{t("noEvidence")}</span>
               )}
             </div>
             {report.evidence.length > 0 && (
@@ -131,7 +155,9 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
                 onClick={() => setShowEvidence((s) => !s)}
                 className="mono-meta hover:text-signal-amber transition-colors"
               >
-                {showEvidence ? "hide evidence ▾" : `inspect ${report.evidence.length} items ▸`}
+                {showEvidence
+                  ? t("hideEvidence")
+                  : t("inspectItems", { count: report.evidence.length })}
               </button>
             )}
           </div>
@@ -141,8 +167,14 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
               <table className="w-full text-left text-xs border-collapse min-w-[680px]">
                 <thead>
                   <tr className="border-b border-hairline text-bone-dim">
-                    {["evidence", "lane", "object id", "score", "policy", "grounding"].map(
-                      (h, i) => (
+                    {[
+                      t("colEvidence"),
+                      t("colLane"),
+                      t("colObjectId"),
+                      t("colScore"),
+                      t("colPolicy"),
+                      t("colGrounding"),
+                    ].map((h, i) => (
                         <th
                           key={i}
                           className="px-4 py-2.5 font-mono text-[0.625rem] uppercase tracking-wider font-medium"
@@ -175,7 +207,7 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
                         </td>
                         <td className="px-4 py-3">
                           <span className={isAllowed ? "stamp text-signal-amber" : "stamp text-seal-red"}>
-                            {isAllowed ? "✓ ALLOWED" : "▮ REDACTED"}
+                            {isAllowed ? `✓ ${t("allowed")}` : `▮ ${t("redacted")}`}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-bone leading-normal max-w-md">
@@ -185,7 +217,7 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
                             </RedactionBar>
                           ) : (
                             <RedactionBar authorized={false} reason="policy:deny">
-                              {ev.object_data || "redacted evidence withheld by ReBAC"}
+                              {ev.object_data || t("redactedWithheld")}
                             </RedactionBar>
                           )}
                         </td>
@@ -201,7 +233,7 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
         {/* ③ Consensus */}
         <TimelineStage
           index={3}
-          title="consensus · cross-retriever verdict"
+          title={t("consensus")}
           sealed={hasConsensus && !!c?.high_trust}
           headRight={
             hasConsensus ? (
@@ -210,20 +242,19 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
                 score={c?.agreement_score ?? undefined}
               />
             ) : (
-              <span className="mono-meta">not recorded</span>
+              <span className="mono-meta">{t("notRecorded")}</span>
             )
           }
         >
           {hasConsensus ? (
             <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-3 gap-5">
-              <Meter label="agreement" value={c?.agreement_score} />
-              <Meter label="entity overlap" value={c?.entity_overlap} />
-              <Meter label="nli entailment" value={c?.claim_nli_score} />
+              <Meter label={t("agreement")} value={c?.agreement_score} />
+              <Meter label={t("entityOverlap")} value={c?.entity_overlap} />
+              <Meter label={t("nliEntailment")} value={c?.claim_nli_score} />
             </div>
           ) : (
             <p className="px-4 py-3 text-xs text-bone-dim leading-relaxed">
-              Consensus was not recorded for this trace (created before consensus
-              auditing was enabled). Re-run the query to capture the verdict.
+              {t("consensusNotRecorded")}
             </p>
           )}
         </TimelineStage>
@@ -231,7 +262,7 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
         {/* ④ Synthesis */}
         <TimelineStage
           index={4}
-          title="synthesis · sealed answer"
+          title={t("synthesis")}
           isLast
           sealed
           headRight={
@@ -242,12 +273,22 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
         >
           <div className="px-4 py-4 space-y-4">
             <div className="prose prose-invert prose-sm max-w-none text-bone/90 leading-relaxed">
-              <ReactMarkdown>{report.answer || "_No answer recorded._"}</ReactMarkdown>
+              <ReactMarkdown>{report.answer || t("noAnswer")}</ReactMarkdown>
             </div>
             <div className="flex items-center gap-3 border-t border-hairline pt-3">
-              <span className="mono-meta">custody seal</span>
+              <span className="mono-meta">{t("custodySeal")}</span>
               <TamperChain count={report.evidence.length + 1} status="intact" />
-              <span className="stamp text-signal-amber">✓ SEALED</span>
+              <span
+                className={cn(
+                  integrityStatus === "verified"
+                    ? "stamp text-signal-amber"
+                    : integrityStatus === "tampered"
+                      ? "stamp text-seal-red"
+                      : "mono-meta text-bone-dim"
+                )}
+              >
+                {integrityStatus === "verified" ? `✓ ${t("sealed")}` : t(`integrity_${integrityStatus}`)}
+              </span>
             </div>
           </div>
         </TimelineStage>
