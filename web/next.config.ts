@@ -1,7 +1,9 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 
 const nextConfig: NextConfig = {
+  outputFileTracingRoot: path.join(process.cwd(), "."),
   async rewrites() {
     return [
       {
