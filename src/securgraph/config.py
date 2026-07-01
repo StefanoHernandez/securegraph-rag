@@ -180,6 +180,10 @@ class Settings(BaseSettings):
     )
     audit_anchor_s3_bucket: str = ""
     audit_anchor_s3_prefix: str = "securegraph/audit-anchors"
+    audit_anchor_s3_endpoint: str = ""
+    audit_anchor_s3_region: str = "us-east-1"
+    audit_anchor_s3_access_key: str = ""
+    audit_anchor_s3_secret_key: SecretStr = SecretStr("")
     audit_anchor_retention_days: int = Field(default=365, ge=1, le=36500)
     audit_anchor_interval_seconds: int = Field(default=3600, ge=60, le=86400)
     audit_anchor_event_threshold: int = Field(default=10000, ge=1, le=10_000_000)

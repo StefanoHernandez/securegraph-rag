@@ -91,6 +91,7 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
     "types-PyYAML",
+    "boto3>=1.35",
 ]
 # NOTE: ragas-based evaluation lives in its own isolated project under eval/
 # (see eval/pyproject.toml). It pulls the full langchain stack, which conflicts

@@ -72,12 +72,20 @@ class S3ObjectLockAnchorStorage:
         bucket: str,
         prefix: str = "securegraph/audit-anchors",
         retention_days: int = 365,
+        endpoint: str = "",
+        region: str = "us-east-1",
+        access_key: str = "",
+        secret_key: str = "",
     ) -> None:
         if not bucket:
             raise RuntimeError("S3 Object Lock bucket is required for audit anchoring.")
         self.bucket = bucket
         self.prefix = prefix.strip("/")
         self.retention_days = retention_days
+        self.endpoint = endpoint
+        self.region = region
+        self.access_key = access_key
+        self.secret_key = secret_key
 
     async def write_anchor(self, payload: dict[str, object]) -> AnchorStorageResult:
         try:
@@ -89,7 +97,13 @@ class S3ObjectLockAnchorStorage:
         merkle_root = str(payload["merkle_root"])
         key = f"{self.prefix}/{tenant_id}/{merkle_root}.json"
         body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        client = boto3.client("s3")
+        client_kwargs: dict[str, object] = {"region_name": self.region}
+        if self.endpoint:
+            client_kwargs["endpoint_url"] = self.endpoint
+        if self.access_key and self.secret_key:
+            client_kwargs["aws_access_key_id"] = self.access_key
+            client_kwargs["aws_secret_access_key"] = self.secret_key
+        client = boto3.client("s3", **client_kwargs)
         retain_until = datetime.now(UTC) + timedelta(days=self.retention_days)
         response = await asyncio.to_thread(
             client.put_object,
@@ -128,6 +142,10 @@ def default_anchor_storage() -> AnchorStorage:
             bucket=settings.audit_anchor_s3_bucket,
             prefix=settings.audit_anchor_s3_prefix,
             retention_days=settings.audit_anchor_retention_days,
+            endpoint=settings.audit_anchor_s3_endpoint,
+            region=settings.audit_anchor_s3_region,
+            access_key=settings.audit_anchor_s3_access_key,
+            secret_key=settings.audit_anchor_s3_secret_key.get_secret_value(),
         )
     return LocalAnchorStorage(environment=settings.env)
 
