@@ -61,8 +61,11 @@ async def query_pipeline(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token tenant does not match the requested tenant.",
         )
+    # SGH-01: effective user id is always derived from the authenticated
+    # principal. When auth is disabled (dev/test only), use a fixed anonymous
+    # subject so a caller cannot impersonate another user via the request body.
     effective_user_id = (
-        f"user:{current_user.user_id}" if current_user is not None else request.user_id
+        f"user:{current_user.user_id}" if current_user is not None else "user:anonymous"
     )
     trace_id = str(uuid.uuid4())
     start_time = time.perf_counter()
