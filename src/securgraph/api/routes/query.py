@@ -5,6 +5,7 @@ Allows querying the secure hybrid Graph-RAG system with unified consensus and Re
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from typing import Annotated, Any
@@ -64,9 +65,30 @@ async def query_pipeline(
     # SGH-01: effective user id is always derived from the authenticated
     # principal. When auth is disabled (dev/test only), use a fixed anonymous
     # subject so a caller cannot impersonate another user via the request body.
-    effective_user_id = (
-        f"user:{current_user.user_id}" if current_user is not None else "user:anonymous"
+    #
+    # Eval authorization simulation: when SECURGRAPH_EVAL_IDENTITY_MODE=true
+    # AND auth is disabled AND env is dev/test, allow the caller-provided
+    # user_id as the FGA subject. This is NOT impersonation (no mutations are
+    # performed as that user) — it is a read-only authorization simulation
+    # for ReBAC evaluation. The flag must never be set in production.
+    settings = get_settings()
+    eval_identity = (
+        settings.env.lower() in {"dev", "test"}
+        and not current_user
+        and os.environ.get("SECURGRAPH_EVAL_IDENTITY_MODE", "").lower()
+        in {"1", "true", "yes"}
     )
+    if eval_identity:
+        logger.warning(
+            "eval_identity_simulation_active",
+            tenant_id=request.tenant_id,
+            simulated_user_id=request.user_id,
+        )
+        effective_user_id = request.user_id
+    else:
+        effective_user_id = (
+            f"user:{current_user.user_id}" if current_user is not None else "user:anonymous"
+        )
     trace_id = str(uuid.uuid4())
     start_time = time.perf_counter()
     tracer = get_tracer()
@@ -85,7 +107,6 @@ async def query_pipeline(
         # 1. Build the initial trace row — do NOT insert yet.
         # It will be inserted after the workflow completes so the hash is computed
         # on the final, complete row (answer + latency_ms + completed_at populated).
-        settings = get_settings()
         # started_at is set explicitly here (not via server_default) so the
         # value is present in the Python object when chain_query_trace hashes
         # the row. Otherwise the writer hashes started_at=None while the

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import networkx as nx
@@ -13,6 +14,7 @@ from securgraph.adapters.llm import get_llm_adapter, robust_json_loads
 from securgraph.adapters.llm.base import LLMAdapter
 from securgraph.community.policy_class import (
     AccessLabel,
+    ClassEdge,
     partition_edges_by_class,
     policy_class_key,
 )
@@ -22,6 +24,19 @@ from securgraph.runtime_overrides import get_effective_settings
 _LOG = get_logger(__name__)
 
 
+def _edges_to_class_edges(edges: list[dict[str, Any]]) -> list[ClassEdge]:
+    """Convert raw edge dicts to ClassEdge without policy partitioning (ablation)."""
+    return [
+        ClassEdge(
+            source=edge["source"],
+            target=edge["target"],
+            type=edge["type"],
+            confidence=float(edge.get("confidence", 0.5)),
+        )
+        for edge in edges
+    ]
+
+
 async def generate_hierarchical_communities(
     driver: AsyncDriver,
     tenant_id: str,
@@ -29,8 +44,21 @@ async def generate_hierarchical_communities(
 ) -> dict[str, int]:
     """Partition the tenant graph into policy-equivalence-classes, run Louvain
     per class, summarize, and write class-tagged Community nodes. If ``fga`` is
-    provided, emit OpenFGA authorization tuples (Task 6 wires this)."""
+    provided, emit OpenFGA authorization tuples (Task 6 wires this).
+
+    C3 ablation: set ``SECURGRAPH_C3_ABLATION_DISABLE_PARTITION=true`` to skip
+    policy-equivalence-class partitioning and run Louvain on the whole tenant
+    graph as a single bucket. Used only for the C3 paper ablation study.
+    """
     _LOG.info("generating_communities_started", tenant_id=tenant_id)
+
+    c3_ablation = os.environ.get("SECURGRAPH_C3_ABLATION_DISABLE_PARTITION", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if c3_ablation:
+        _LOG.warning("c3_ablation_disable_partition_active", tenant_id=tenant_id)
 
     # 1. Fetch chunk access labels
     async with driver.session() as session:
@@ -64,7 +92,13 @@ async def generate_hierarchical_communities(
         _LOG.info("generating_communities_no_edges", tenant_id=tenant_id)
         return {"classes": 0, "communities": 0}
 
-    buckets = partition_edges_by_class(edges, chunk_labels)
+    if c3_ablation:
+        # Ablation: skip policy partitioning, treat all edges as one bucket.
+        from securgraph.community.policy_class import UNLABELED_CLASS_KEY
+
+        buckets = {UNLABELED_CLASS_KEY: _edges_to_class_edges(edges)}
+    else:
+        buckets = partition_edges_by_class(edges, chunk_labels)
 
     # 2. Clear existing communities for the tenant
     async with driver.session() as session:

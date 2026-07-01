@@ -1,0 +1,315 @@
+"""Seed the MRD corpus into a live stack for QA scoring.
+
+Creates the tenant, seeds FGA group memberships + document access tuples,
+ingests all manifest documents, and optionally recomputes communities.
+
+Run after `make up` + `alembic upgrade head` + API started with:
+    SECURGRAPH_EVAL_IDENTITY_MODE=true SECURGRAPH_AUTH_ENABLED=false
+
+Usage:
+    .venv/bin/python eval/mrd_seed_live.py [--corpus corpus/mrd_v1] [--recompute-communities]
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from securgraph.corpus.manifest import CorpusManifest, load_corpus_manifest  # noqa: E402
+from securgraph.domain import Classification  # noqa: E402
+from securgraph.ingestion.service import IngestionRequest, ingest_document  # noqa: E402
+
+
+def _load_principals(root: Path) -> tuple[list[dict], list[str]]:
+    """Load users and groups from principals.yaml."""
+    import yaml
+
+    data = yaml.safe_load((root / "principals.yaml").read_text())
+    users = data.get("users", [])
+    groups = [g["id"] for g in data.get("groups", [])]
+    return users, groups
+
+
+async def _get_fga_client():
+    """Bootstrap an OpenFGA client for seeding tuples.
+
+    Auto-discovers the store if not configured in .env (the API does the same
+    on startup, but this script runs in a separate process).
+    """
+    from openfga_sdk import ClientConfiguration, OpenFgaClient
+    from openfga_sdk.models import CreateStoreRequest
+
+    from securgraph.config import get_settings
+
+    settings = get_settings()
+    store_id = settings.openfga_store_id or None
+    model_id = settings.openfga_authorization_model_id or None
+
+    if not store_id:
+        # Auto-discover or create the store, mirroring API startup behavior.
+        config = ClientConfiguration(api_url=settings.openfga_api_url)
+        temp_client = OpenFgaClient(config)
+        try:
+            stores = await temp_client.list_stores()
+            existing = next(
+                (s for s in stores.stores if s.name == "securgraph"), None
+            )
+            if existing:
+                store_id = existing.id
+                print(f"  found existing OpenFGA store: {store_id}")
+            else:
+                resp = await temp_client.create_store(CreateStoreRequest(name="securgraph"))
+                store_id = resp.id
+                print(f"  created OpenFGA store: {store_id}")
+        finally:
+            await temp_client.close()
+
+    config = ClientConfiguration(
+        api_url=settings.openfga_api_url,
+        store_id=store_id,
+        authorization_model_id=model_id,
+    )
+    return OpenFgaClient(config)
+
+
+async def _seed_fga_group_memberships(
+    users: list[dict], groups: list[str], tenant_id: str
+) -> None:
+    """Seed FGA tuples: user → member → group for each user's groups."""
+    from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
+
+    fga = await _get_fga_client()
+    tuples: list[ClientTuple] = []
+    for user in users:
+        user_id = user["id"]
+        for group_id in user.get("groups", []):
+            tuples.append(
+                ClientTuple(
+                    user=f"user:{user_id}",
+                    relation="member",
+                    object=f"group:{group_id}",
+                )
+            )
+    try:
+        await fga.write(ClientWriteRequest(writes=tuples))
+        print(f"  seeded {len(tuples)} group membership tuples")
+    except Exception as e:
+        print(f"  fga group seed note: {e}")
+    await fga.close()  # type: ignore[attr-defined]
+
+
+async def _seed_fga_document_tuples(
+    doc_ids: list[str], manifest: CorpusManifest
+) -> None:
+    """Seed FGA tuples: owner + group_viewer + direct_viewer per document."""
+    from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
+
+    fga = await _get_fga_client()
+    tuples: list[ClientTuple] = []
+    for document_id, document in zip(doc_ids, manifest.documents, strict=True):
+        if not document_id:
+            continue
+        target = f"document:{document_id}"
+        tuples.append(
+            ClientTuple(user=f"user:{document.owner}", relation="owner", object=target)
+        )
+        tuples.extend(
+            ClientTuple(
+                user=f"group:{group_id}#member",
+                relation="group_viewer",
+                object=target,
+            )
+            for group_id in document.groups
+        )
+        tuples.extend(
+            ClientTuple(
+                user=f"user:{user_id}", relation="direct_viewer", object=target
+            )
+            for user_id in document.direct_viewers
+        )
+    try:
+        await fga.write(ClientWriteRequest(writes=tuples))
+        print(f"  seeded {len(tuples)} document access tuples")
+    except Exception as e:
+        print(f"  fga document seed note: {e}")
+    await fga.close()  # type: ignore[attr-defined]
+
+
+async def _ensure_tenant(tenant_id: str) -> None:
+    """Create the tenant in PostgreSQL if it does not exist."""
+    from uuid import uuid4
+
+    from sqlalchemy import select
+
+    from securgraph.api.dependencies import AsyncSessionLocal
+    from securgraph.indexing.db import GroupRow, TenantRow
+
+    async with AsyncSessionLocal() as session:
+        existing = await session.get(TenantRow, tenant_id)
+        if existing is not None:
+            print(f"  tenant {tenant_id} already exists")
+            # Ensure business + project groups exist.
+            result = await session.execute(
+                select(GroupRow).where(GroupRow.tenant_id == tenant_id)
+            )
+            existing_slugs = {g.slug for g in result.scalars().all()}
+            needed = [
+                ("direction", "Direction", "functional"),
+                ("administration", "Administration", "functional"),
+                ("senior-management", "Senior Management", "functional"),
+                ("project-managers", "Project Managers", "functional"),
+                ("senior-technicians", "Senior Technicians", "functional"),
+                ("junior-technicians", "Junior Technicians", "functional"),
+                ("consultants", "Consultants", "functional"),
+                ("external-collaborators", "External Collaborators", "functional"),
+                ("project-aurora", "Project Aurora", "project"),
+                ("project-borealis", "Project Borealis", "project"),
+            ]
+            for slug, display_name, kind in needed:
+                if slug not in existing_slugs:
+                    session.add(
+                        GroupRow(
+                            id=f"grp_{uuid4().hex}",
+                            tenant_id=tenant_id,
+                            slug=slug,
+                            display_name=display_name,
+                            kind=kind,
+                            is_active=True,
+                        )
+                    )
+            await session.commit()
+            return
+
+        # Create tenant first, commit, then add groups (FK constraint).
+        session.add(
+            TenantRow(
+                id=tenant_id,
+                display_name="MRD Lab",
+                status="active",
+                tenant_admin_settings_enabled=False,
+            )
+        )
+        await session.commit()
+        print(f"  created tenant {tenant_id}")
+
+        all_groups = [
+            ("direction", "Direction", "functional"),
+            ("administration", "Administration", "functional"),
+            ("senior-management", "Senior Management", "functional"),
+            ("project-managers", "Project Managers", "functional"),
+            ("senior-technicians", "Senior Technicians", "functional"),
+            ("junior-technicians", "Junior Technicians", "functional"),
+            ("consultants", "Consultants", "functional"),
+            ("external-collaborators", "External Collaborators", "functional"),
+            ("project-aurora", "Project Aurora", "project"),
+            ("project-borealis", "Project Borealis", "project"),
+        ]
+        for slug, display_name, kind in all_groups:
+            session.add(
+                GroupRow(
+                    id=f"grp_{uuid4().hex}",
+                    tenant_id=tenant_id,
+                    slug=slug,
+                    display_name=display_name,
+                    kind=kind,
+                    is_active=True,
+                )
+            )
+        await session.commit()
+        print(f"  created {len(all_groups)} groups for tenant {tenant_id}")
+
+
+async def _ingest_documents(manifest: CorpusManifest) -> list[str]:
+    """Ingest all manifest documents and return their doc_ids."""
+    from securgraph.api.dependencies import AsyncSessionLocal
+
+    doc_ids: list[str] = []
+    for document in manifest.documents:
+        async with AsyncSessionLocal() as session:
+            req = IngestionRequest(
+                tenant_id=manifest.tenant_id,
+                source_uri=document.path.relative_to(manifest.root).as_posix(),
+                owner_id=f"user:{document.owner}",
+                data=document.path.read_bytes(),
+                classification=Classification(document.classification),
+                policy_tags=document.groups,
+                direct_viewers=tuple(f"user:{v}" for v in document.direct_viewers),
+            )
+            try:
+                result = await ingest_document(session, req)
+                await session.commit()
+                doc_ids.append(result.document_id)
+                print(f"  ingested {document.path.name} -> {result.document_id} ({result.status})")
+            except Exception as e:
+                await session.rollback()
+                print(f"  ingest warning {document.path.name}: {e}")
+                doc_ids.append("")
+    return doc_ids
+
+
+async def _recompute_communities(tenant_id: str) -> None:
+    """Run community recompute for the tenant."""
+    from securgraph.adapters.community_generator import generate_hierarchical_communities
+    from securgraph.adapters.neo4j import get_neo4j_driver
+    from securgraph.api.dependencies import _fga_client  # type: ignore[attr-defined]
+
+    driver = get_neo4j_driver()
+    result = await generate_hierarchical_communities(
+        driver, tenant_id=tenant_id, fga=_fga_client
+    )
+    print(f"  community recompute: {result}")
+
+
+async def main() -> None:
+    parser = argparse.ArgumentParser(prog="mrd-seed-live")
+    parser.add_argument("--corpus", type=Path, default=REPO_ROOT / "corpus" / "mrd_v1")
+    parser.add_argument("--recompute-communities", action="store_true")
+    args = parser.parse_args()
+
+    manifest = load_corpus_manifest(args.corpus)
+    users, groups = _load_principals(args.corpus)
+    tenant_id = manifest.tenant_id
+
+    print(
+        f"Seeding MRD corpus: tenant={tenant_id}, "
+        f"{len(users)} users, {len(groups)} groups, "
+        f"{len(manifest.documents)} docs"
+    )
+
+    print("1. Ensuring tenant exists...")
+    await _ensure_tenant(tenant_id)
+
+    print("2. Seeding FGA group memberships...")
+    await _seed_fga_group_memberships(users, groups, tenant_id)
+
+    print("3. Ingesting documents...")
+    doc_ids = await _ingest_documents(manifest)
+
+    print("4. Seeding FGA document access tuples...")
+    await _seed_fga_document_tuples(doc_ids, manifest)
+
+    if args.recompute_communities:
+        print("5. Recomputing communities...")
+        await _recompute_communities(tenant_id)
+
+    valid_docs = sum(1 for d in doc_ids if d)
+    print(f"\nSeed complete: {valid_docs}/{len(manifest.documents)} documents ingested.")
+    if valid_docs < len(manifest.documents):
+        print("WARNING: some documents failed to ingest. Check logs above.")
+    print("Ready for live scoring with:")
+    print(
+        f"  .venv/bin/python eval/mrd_qa_smoke.py "
+        f"--live-query-url http://localhost:8000/api/v1/query "
+        f"--tenant-id {tenant_id}"
+    )
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

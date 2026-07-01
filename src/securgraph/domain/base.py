@@ -40,11 +40,17 @@ class Classification(StrEnum):
 
     PUBLIC = "public"
     INTERNAL = "internal"
+    CONFIDENTIAL = "confidential"
     RESTRICTED = "restricted"
 
     @property
     def rank(self) -> int:
-        return {Classification.PUBLIC: 0, Classification.INTERNAL: 1, Classification.RESTRICTED: 2}[
+        return {
+            Classification.PUBLIC: 0,
+            Classification.INTERNAL: 1,
+            Classification.CONFIDENTIAL: 2,
+            Classification.RESTRICTED: 3,
+        }[
             self
         ]
 
