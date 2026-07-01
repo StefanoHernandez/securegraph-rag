@@ -23,8 +23,6 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from securgraph.corpus.manifest import CorpusManifest, load_corpus_manifest  # noqa: E402
-from securgraph.domain import Classification  # noqa: E402
-from securgraph.ingestion.service import IngestionRequest, ingest_document  # noqa: E402
 
 
 def _load_principals(root: Path) -> tuple[list[dict], list[str]]:
@@ -155,7 +153,7 @@ async def _seed_fga_document_tuples(
                 try:
                     await fga.write(ClientWriteRequest(writes=[t]))
                     written += 1
-                except Exception:
+                except Exception:  # noqa: S110 - duplicate tuple, skip
                     pass
             if "already exists" not in str(e):
                 print(f"  fga batch seed note: {e}")
