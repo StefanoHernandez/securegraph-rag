@@ -276,3 +276,78 @@ async def test_tenant_admin_skips_due_ledger_anchor_when_not_due(
     assert body["kind"] == "ledger.anchor_due"
     assert body["status"] == "completed"
     assert body["result"] == {"anchored": False, "reason": "not_due"}
+
+
+async def test_tenant_admin_cancels_running_operation_job(
+    fastapi_app: FastAPI, client: AsyncClient, operations_session: AsyncMock
+) -> None:
+    fastapi_app.dependency_overrides[require_user] = lambda: principal()
+    job = OperationJobRow(
+        id="op-cancel-1",
+        tenant_id="mrd",
+        kind="community.recompute",
+        status="running",
+        parameters={},
+        progress=30,
+        result={},
+        requested_by="admin",
+        idempotency_key="mrd:community.recompute:cancel-1",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    operations_session.get = AsyncMock(return_value=job)
+
+    response = await client.post("/tenants/mrd/operation-jobs/op-cancel-1/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+    assert job.status == "cancelled"
+    assert job.completed_at is not None
+
+
+async def test_cancel_rejects_already_terminal_job(
+    fastapi_app: FastAPI, client: AsyncClient, operations_session: AsyncMock
+) -> None:
+    fastapi_app.dependency_overrides[require_user] = lambda: principal()
+    job = OperationJobRow(
+        id="op-done-1",
+        tenant_id="mrd",
+        kind="ledger.verify",
+        status="completed",
+        parameters={},
+        progress=100,
+        result={"is_intact": True},
+        requested_by="admin",
+        idempotency_key="mrd:ledger.verify:done-1",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    operations_session.get = AsyncMock(return_value=job)
+
+    response = await client.post("/tenants/mrd/operation-jobs/op-done-1/cancel")
+
+    assert response.status_code == 409
+
+
+async def test_cancel_rejects_wrong_tenant(
+    fastapi_app: FastAPI, client: AsyncClient, operations_session: AsyncMock
+) -> None:
+    fastapi_app.dependency_overrides[require_user] = lambda: principal()
+    job = OperationJobRow(
+        id="op-other-1",
+        tenant_id="other-tenant",
+        kind="ledger.verify",
+        status="running",
+        parameters={},
+        progress=10,
+        result={},
+        requested_by="admin",
+        idempotency_key="other:ledger.verify:1",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    operations_session.get = AsyncMock(return_value=job)
+
+    response = await client.post("/tenants/mrd/operation-jobs/op-other-1/cancel")
+
+    assert response.status_code == 403

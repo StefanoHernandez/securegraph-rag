@@ -661,3 +661,46 @@ async def reconcile_stale_ingestion_jobs(
             metadata={"reason": "worker_heartbeat_expired"},
         )
     return ReconcileResult(tenant_id=tenant_id, reconciled_job_ids=[row.job_id for row in rows])
+
+
+@router.post(
+    "/tenants/{tenant_id}/operation-jobs/{job_id}/cancel",
+    response_model=OperationJobSummary,
+    status_code=status.HTTP_200_OK,
+)
+async def cancel_operation_job(
+    tenant_id: str,
+    job_id: str,
+    principal: AuthenticatedPrincipal | None = Depends(require_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> OperationJobSummary:
+    """Cancel a running or queued operation job.
+
+    Only jobs that have not reached a terminal state (completed/failed/cancelled)
+    can be cancelled. The job status is set to ``cancelled`` and ``completed_at``
+    is recorded. The underlying async work (if still running) is not forcefully
+    killed — it should check the job status and exit gracefully.
+    """
+    _ensure_tenant_admin(principal, tenant_id)
+    job = await session.get(OperationJobRow, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Operation job not found.")
+    if job.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Job does not belong to this tenant.")
+    if job.status in {"completed", "failed", "cancelled"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is already in terminal state: {job.status}.",
+        )
+    job.status = "cancelled"
+    job.completed_at = datetime.now(UTC)
+    _audit(
+        session,
+        principal,
+        tenant_id=tenant_id,
+        action="operation.cancel",
+        job_id=job_id,
+        metadata={"previous_status": job.status},
+    )
+    await session.commit()
+    return _operation_summary(job)
