@@ -285,7 +285,16 @@ def get_llm_adapter(role: LLMRole = "generation", tenant_id: str | None = None) 
     """
     settings = get_effective_settings(tenant_id)
     pid = _resolve_provider_id(role, settings)
-    return _cached_adapter(pid, role, tenant_id)
+    try:
+        return _cached_adapter(pid, role, tenant_id)
+    except RuntimeError:
+        if (
+            role in {"extract", "judge"}
+            and pid != settings.llm_provider
+            and getattr(settings, "fallback_policy", "block") == "default_provider"
+        ):
+            return _cached_adapter(settings.llm_provider, role, tenant_id)
+        raise
 
 
 def get_llm_adapter_for(role: LLMRole, tenant_id: str | None = None) -> LLMAdapter:

@@ -1,0 +1,287 @@
+- id: mrd-01
+  identity: mrd.junior-tech
+  question: What does Aurora deliver?
+  expected: Aurora delivers secure document intelligence for internal operations.
+  source_documents: [08_aurora_charter.md]
+  outcome: allow
+- id: mrd-02
+  identity: mrd.junior-tech
+  question: What controls does the private architecture require?
+  forbidden_sources: [15_private_architecture.md]
+  outcome: deny
+- id: mrd-03
+  identity: mrd.senior-tech
+  question: Who may change the Aurora private architecture?
+  expected: Only Aurora senior technicians may change the design.
+  source_documents: [15_private_architecture.md]
+  outcome: allow
+- id: mrd-04
+  identity: mrd.external
+  question: What is the Borealis consulting assignment end date?
+  expected: 30 September 2026.
+  source_documents: [07_consulting_assignment.md]
+  outcome: allow
+- id: mrd-05
+  identity: mrd.external
+  question: What happened in the Aurora staging incident?
+  forbidden_sources: [17_incident_report.md]
+  outcome: deny
+- id: mrd-06
+  identity: mrd.admin
+  question: What is the total Aurora expense amount?
+  expected: EUR 486.20.
+  source_documents: [13_expense_report.md]
+  outcome: allow
+- id: mrd-07
+  identity: mrd.pm
+  question: Who validates travel receipts?
+  expected: Administration validates receipts.
+  source_documents: [13_expense_report.md]
+  outcome: allow
+- id: mrd-08
+  identity: mrd.consultant
+  question: May Borealis consultants access production credentials?
+  expected: No. Production credentials are excluded.
+  source_documents: [06_consulting_request.md]
+  outcome: allow
+- id: mrd-09
+  identity: mrd.consultant
+  question: What are Northwind commercial renewal terms?
+  forbidden_sources: [04_commercial_contract.md]
+  outcome: deny
+- id: mrd-10
+  identity: mrd.director
+  question: What does public classification mean?
+  expected: Authenticated tenant users only, not the public Internet.
+  source_documents: [02_classification_policy.md]
+  outcome: allow
+- id: mrd-11
+  identity: mrd.senior-tech
+  question: Which action is open from Aurora weekly minutes?
+  expected: Review the Object Lock adapter.
+  source_documents: [16_project_minutes.md]
+  outcome: allow
+- id: mrd-12
+  identity: mrd.junior-tech
+  question: Who reviews Object Lock adapter work?
+  forbidden_sources: [16_project_minutes.md]
+  outcome: deny
+- id: mrd-13
+  identity: mrd.pm
+  question: Who owns Aurora delivery reporting?
+  expected: The Project Manager.
+  source_documents: [09_aurora_plan.md]
+  outcome: allow
+- id: mrd-14
+  identity: mrd.admin
+  question: What storage is requested for audit archives?
+  expected: Encrypted persistent storage.
+  source_documents: [11_purchase_request.md]
+  outcome: allow
+- id: mrd-15
+  identity: mrd.external
+  question: What must happen before Borealis publication?
+  expected: Direction approval is required.
+  source_documents: [05_research_agreement.md]
+  outcome: allow
+- id: mrd-16
+  identity: mrd.superadmin
+  question: How do tenant users receive access?
+  expected: Tenant users receive least-privilege access through functional and project groups.
+  source_documents: [01_access_policy.md]
+  outcome: allow
+- id: mrd-17
+  identity: mrd.external
+  question: What does the access policy say about restricted records?
+  forbidden_sources: [01_access_policy.md]
+  outcome: deny
+- id: mrd-18
+  identity: mrd.director
+  question: What checks do prompts require?
+  expected: Prompts require classification checks, token caps, audit logging, and an explicit fallback policy.
+  source_documents: [03_ai_cloud_policy.md]
+  outcome: allow
+- id: mrd-19
+  identity: mrd.consultant
+  question: Where do provider keys remain?
+  forbidden_sources: [03_ai_cloud_policy.md]
+  outcome: deny
+- id: mrd-20
+  identity: mrd.admin
+  question: Which material is restricted?
+  expected: Restricted material includes incidents, credentials, architecture, and sensitive personnel data.
+  source_documents: [02_classification_policy.md]
+  outcome: allow
+- id: mrd-21
+  identity: mrd.pm
+  question: Who approves Northwind amendments?
+  expected: Direction, Administration, and project management approve amendments.
+  source_documents: [04_commercial_contract.md]
+  outcome: allow
+- id: mrd-22
+  identity: mrd.junior-tech
+  question: What are Northwind pricing and renewal dates?
+  forbidden_sources: [04_commercial_contract.md]
+  outcome: deny
+- id: mrd-23
+  identity: mrd.consultant
+  question: What data may Borealis research use?
+  expected: Borealis research may use pseudonymized operational data.
+  source_documents: [05_research_agreement.md]
+  outcome: allow
+- id: mrd-24
+  identity: mrd.external
+  question: What do external collaborators require for Borealis?
+  expected: External collaborators require a documented direct grant.
+  source_documents: [05_research_agreement.md]
+  outcome: allow
+- id: mrd-25
+  identity: mrd.director
+  question: Who approves Borealis publication?
+  expected: Publication requires Direction approval.
+  source_documents: [05_research_agreement.md]
+  outcome: allow
+- id: mrd-26
+  identity: mrd.consultant
+  question: What specialist review is requested for Borealis?
+  expected: Request specialist review of forecasting assumptions.
+  source_documents: [06_consulting_request.md]
+  outcome: allow
+- id: mrd-27
+  identity: mrd.external
+  question: Who owns consulting acceptance?
+  expected: Project Manager owns acceptance.
+  source_documents: [06_consulting_request.md]
+  outcome: allow
+- id: mrd-28
+  identity: mrd.admin
+  question: What is the Borealis consulting assignment scope?
+  forbidden_sources: [07_consulting_assignment.md]
+  outcome: deny
+- id: mrd-29
+  identity: mrd.pm
+  question: Is onward sharing permitted in the consulting assignment?
+  expected: No onward sharing or production-system access is permitted.
+  source_documents: [07_consulting_assignment.md]
+  outcome: allow
+- id: mrd-30
+  identity: mrd.pm
+  question: What does the Project Manager coordinate in Aurora?
+  expected: Project Manager coordinates scope, schedule, risks, and access reviews.
+  source_documents: [08_aurora_charter.md]
+  outcome: allow
+- id: mrd-31
+  identity: mrd.senior-tech
+  question: What is Aurora Milestone A?
+  expected: "Milestone A: ingestion controls."
+  source_documents: [09_aurora_plan.md]
+  outcome: allow
+- id: mrd-32
+  identity: mrd.pm
+  question: What is Aurora Milestone B?
+  expected: "Milestone B: retrieval authorization."
+  source_documents: [09_aurora_plan.md]
+  outcome: allow
+- id: mrd-33
+  identity: mrd.admin
+  question: How many Aurora timesheet hours were recorded?
+  expected: Senior technician recorded 72 hours.
+  source_documents: [10_timesheet.md]
+  outcome: allow
+- id: mrd-34
+  identity: mrd.senior-tech
+  question: How many hours went to policy tests?
+  expected: policy tests 24.
+  source_documents: [10_timesheet.md]
+  outcome: allow
+- id: mrd-35
+  identity: mrd.external
+  question: How were Aurora timesheet hours split?
+  forbidden_sources: [10_timesheet.md]
+  outcome: deny
+- id: mrd-36
+  identity: mrd.admin
+  question: Who is the Aurora storage budget owner?
+  expected: "Budget owner: Project Manager."
+  source_documents: [11_purchase_request.md]
+  outcome: allow
+- id: mrd-37
+  identity: mrd.pm
+  question: What does Administration validate for the storage purchase?
+  expected: Administration validates supplier and purchase order.
+  source_documents: [11_purchase_request.md]
+  outcome: allow
+- id: mrd-38
+  identity: mrd.consultant
+  question: What storage is requested for Aurora audit archives?
+  forbidden_sources: [11_purchase_request.md]
+  outcome: deny
+- id: mrd-39
+  identity: mrd.admin
+  question: Who authorizes the Aurora travel itinerary?
+  expected: Administration authorizes itinerary and cost centre.
+  source_documents: [12_travel_request.md]
+  outcome: allow
+- id: mrd-40
+  identity: mrd.senior-tech
+  question: What is the Aurora travel request for?
+  expected: Senior technician requests travel for an approved architecture review.
+  source_documents: [12_travel_request.md]
+  outcome: allow
+- id: mrd-41
+  identity: mrd.external
+  question: Which cost centre is used for Aurora travel?
+  forbidden_sources: [12_travel_request.md]
+  outcome: deny
+- id: mrd-42
+  identity: mrd.pm
+  question: Why is the Project Manager reviewing the expense report?
+  expected: Project Manager is direct reviewer for delivery relevance.
+  source_documents: [13_expense_report.md]
+  outcome: allow
+- id: mrd-43
+  identity: mrd.consultant
+  question: What is the Aurora expense total?
+  forbidden_sources: [13_expense_report.md]
+  outcome: deny
+- id: mrd-44
+  identity: mrd.junior-tech
+  question: What should not be in source control?
+  expected: No credentials belong in source control.
+  source_documents: [14_repository_readme.md]
+  outcome: allow
+- id: mrd-45
+  identity: mrd.external
+  question: What do repository contributors follow?
+  expected: Contributors follow secure coding, code review, and project access policy.
+  source_documents: [14_repository_readme.md]
+  outcome: allow
+- id: mrd-46
+  identity: mrd.director
+  question: Did the Aurora staging incident exfiltrate data?
+  expected: No data exfiltration occurred.
+  source_documents: [17_incident_report.md]
+  outcome: allow
+- id: mrd-47
+  identity: mrd.senior-tech
+  question: When was the Aurora staging access attempt blocked?
+  expected: On 18 June 2026 an unauthorized access attempt against Aurora staging was blocked.
+  source_documents: [17_incident_report.md]
+  outcome: allow
+- id: mrd-48
+  identity: mrd.admin
+  question: Who reviews incident containment and evidence?
+  forbidden_sources: [17_incident_report.md]
+  outcome: deny
+- id: mrd-49
+  identity: mrd.director
+  question: Do external collaborators receive implicit access?
+  expected: External collaborators never receive implicit access.
+  source_documents: [01_access_policy.md]
+  outcome: allow
+- id: mrd-50
+  identity: mrd.pm
+  question: What is the default requirement for fallback behavior?
+  expected: Prompts require classification checks, token caps, audit logging, and an explicit fallback policy.
+  source_documents: [03_ai_cloud_policy.md]
+  outcome: allow

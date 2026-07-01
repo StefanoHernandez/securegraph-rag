@@ -147,6 +147,37 @@ def test_tenant_runtime_provider_override_does_not_leak(monkeypatch):
     assert isinstance(adapter, OllamaLLMAdapter)
 
 
+def test_tenant_fallback_policy_defaults_to_block(monkeypatch):
+    """Role-provider failures stay fail-closed unless fallback is explicit."""
+    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    from securgraph.config import get_settings
+
+    get_settings.cache_clear()
+    reset_llm_adapter_cache()
+    set_runtime_override("mrd-lab", "llm_provider_judge", "openai")
+    set_runtime_override("mrd-lab", "fallback_policy", "block")
+
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY is not set"):
+        get_llm_adapter_for("judge", tenant_id="mrd-lab")
+
+
+def test_tenant_fallback_policy_can_use_default_provider(monkeypatch):
+    """Explicit fallback_policy=default_provider falls back from role provider."""
+    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    from securgraph.config import get_settings
+
+    get_settings.cache_clear()
+    reset_llm_adapter_cache()
+    set_runtime_override("mrd-lab", "llm_provider_judge", "openai")
+    set_runtime_override("mrd-lab", "fallback_policy", "default_provider")
+
+    adapter = get_llm_adapter_for("judge", tenant_id="mrd-lab")
+
+    assert isinstance(adapter, OllamaLLMAdapter)
+
+
 def test_unknown_provider_raises_value_error(monkeypatch):
     """An unsupported provider id is rejected with a clear error.
 

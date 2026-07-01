@@ -2,13 +2,17 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { NextIntlClientProvider } from "next-intl";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
 import { authApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
+import itMessages from "../../../messages/it.json";
 
-export default function LoginPage() {
+export function LoginContent() {
+  const t = useTranslations("loginPage");
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -35,7 +39,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) {
-      setError("Please fill in all fields.");
+      setError(t("fillFields"));
       return;
     }
 
@@ -53,7 +57,7 @@ export default function LoginPage() {
       router.push("/");
     } catch (err: unknown) {
       setError(
-        getErrorMessage(err, "Invalid username or password. Please try again.")
+        getErrorMessage(err, t("invalid"))
       );
     } finally {
       setLoading(false);
@@ -64,7 +68,7 @@ export default function LoginPage() {
     <div className="flex-1 flex items-center justify-center min-h-screen px-4 relative z-10">
       <Panel
         classification="restricted"
-        label="secure access terminal"
+        label={t("panel")}
         headRight={<ClassificationStamp level="restricted" />}
         className="w-full max-w-md declassify"
       >
@@ -72,7 +76,7 @@ export default function LoginPage() {
           <p className="font-display text-2xl font-bold tracking-[0.18em] text-bone select-none">
             SECURE<span className="text-signal-amber">GRAPH</span>
           </p>
-          <p className="mono-meta mt-2">verifiable rag · access control</p>
+          <p className="mono-meta mt-2">{t("eyebrow")}</p>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -88,12 +92,12 @@ export default function LoginPage() {
 
             <div className="space-y-1.5">
               <label className="mono-meta block" htmlFor="username">
-                operator id
+                {t("username")}
               </label>
               <Input
                 id="username"
                 type="text"
-                placeholder="admin, analyst, or viewer"
+                placeholder={t("usernamePlaceholder")}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="bg-vault-raised border-hairline text-bone text-sm focus-visible:border-signal-amber h-10"
@@ -104,7 +108,7 @@ export default function LoginPage() {
 
             <div className="space-y-1.5">
               <label className="mono-meta block" htmlFor="password">
-                passphrase
+                {t("password")}
               </label>
               <Input
                 id="password"
@@ -125,19 +129,26 @@ export default function LoginPage() {
               {loading ? (
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
               ) : (
-                "Authenticate Session"
+                t("submit")
               )}
             </Button>
           </div>
 
           <div className="px-6 pb-6 pt-1 border-t border-hairline">
             <p className="mono-meta normal-case leading-relaxed">
-              demo credentials · admin/admin123 · analyst/analyst123 ·
-              viewer/viewer123
+              {t("demo")}
             </p>
           </div>
         </form>
       </Panel>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <NextIntlClientProvider locale="it" messages={itMessages}>
+      <LoginContent />
+    </NextIntlClientProvider>
   );
 }

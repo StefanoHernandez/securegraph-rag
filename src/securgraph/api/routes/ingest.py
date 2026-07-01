@@ -11,6 +11,7 @@ from typing import Annotated
 
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, get_redis_pool
@@ -18,11 +19,17 @@ from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.config import get_settings
 from securgraph.domain import Classification, DocumentType
 from securgraph.domain.base import SGModel
-from securgraph.indexing.db import AuthUserRow, IngestionJobRow, TenantMembershipRow
-from securgraph.indexing.postgres_writer import create_ingestion_job
+from securgraph.indexing.db import (
+    AccessTemplateRow,
+    AuthUserRow,
+    IngestionJobRow,
+    TenantMembershipRow,
+)
+from securgraph.indexing.postgres_writer import create_ingestion_job, store_ingestion_source
 from securgraph.ingestion.metadata import derive_document_id
 from securgraph.ingestion.metadata import source_hash as compute_source_hash
 from securgraph.ingestion.service import IngestionRequest, ingest_document
+from securgraph.security.secrets import SecretEncryptionError, encrypt_bytes
 
 router = APIRouter(tags=["ingestion"])
 
@@ -48,6 +55,65 @@ class IngestionJobStatusResponse(SGModel):
     started_at: datetime
     completed_at: datetime | None
     error: str | None
+
+
+def _merge_unique(existing: tuple[str, ...], additions: list[str]) -> tuple[str, ...]:
+    merged: list[str] = list(existing)
+    seen = set(merged)
+    for item in additions:
+        value = item.strip()
+        if value and value not in seen:
+            merged.append(value)
+            seen.add(value)
+    return tuple(merged)
+
+
+async def _apply_access_template(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    document_type: DocumentType,
+    uploader_owner: str,
+    classification: Classification,
+    policy_tags: tuple[str, ...],
+) -> tuple[str, Classification, tuple[str, ...], tuple[str, ...]]:
+    result = await session.execute(
+        select(AccessTemplateRow).where(
+            AccessTemplateRow.tenant_id == tenant_id,
+            AccessTemplateRow.document_type == document_type.value,
+            AccessTemplateRow.is_active.is_(True),
+        )
+    )
+    template = result.scalar_one_or_none()
+    if template is None:
+        return uploader_owner, classification, policy_tags, ()
+
+    effective_owner = uploader_owner
+    if template.owner_rule == "tenant_admin":
+        admin_result = await session.execute(
+            select(TenantMembershipRow)
+            .where(
+                TenantMembershipRow.tenant_id == tenant_id,
+                TenantMembershipRow.role == "tenant_admin",
+                TenantMembershipRow.is_active.is_(True),
+            )
+            .order_by(TenantMembershipRow.user_id)
+            .limit(1)
+        )
+        tenant_admin = admin_result.scalar_one_or_none()
+        if tenant_admin is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Access template requires a tenant_admin owner, but none is active.",
+            )
+        effective_owner = f"user:{tenant_admin.user_id}"
+
+    return (
+        effective_owner,
+        Classification(template.default_classification),
+        _merge_unique(policy_tags, template.allowed_group_ids),
+        tuple(template.direct_viewer_ids),
+    )
 
 
 @router.post(
@@ -131,6 +197,14 @@ async def ingest_file(
         )
 
     tags = tuple(t.strip() for t in policy_tags.split(",") if t.strip())
+    effective_owner, classification, tags, direct_viewers = await _apply_access_template(
+        session,
+        tenant_id=tenant_id,
+        document_type=document_type,
+        uploader_owner=effective_owner,
+        classification=classification,
+        policy_tags=tags,
+    )
 
     if settings.feature_workers_enabled:
         response.status_code = status.HTTP_202_ACCEPTED
@@ -152,6 +226,27 @@ async def ingest_file(
             owner_id=effective_owner.removeprefix("user:"),
             status="queued",
         )
+        try:
+            await store_ingestion_source(
+                session,
+                job_id=job_id,
+                source_uri=f"file://{file.filename}",
+                encrypted_data=encrypt_bytes(
+                    data,
+                    associated_data=f"tenant:{tenant_id}:ingest:{job_id}",
+                ),
+                document_type=document_type.value,
+                classification=classification.value,
+                policy_tags=tags,
+                direct_viewers=direct_viewers,
+                title_override=title_override,
+                source_format=None,
+            )
+        except SecretEncryptionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Encrypted source storage requires SECURGRAPH_MASTER_KEY.",
+            ) from exc
         await session.commit()
 
         # Serialize request parameters for arq
@@ -163,6 +258,7 @@ async def ingest_file(
             "document_type": document_type.value,
             "classification": classification.value,
             "policy_tags": list(tags),
+            "direct_viewers": list(direct_viewers),
             "title_override": title_override,
             "source_format": None,
         }
@@ -186,6 +282,7 @@ async def ingest_file(
         document_type=document_type,
         classification=classification,
         policy_tags=tags,
+        direct_viewers=direct_viewers,
         title_override=title_override,
     )
 

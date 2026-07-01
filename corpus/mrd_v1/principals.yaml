@@ -1,0 +1,36 @@
+users:
+  - id: mrd.superadmin
+    role: super_admin
+    groups: [direction]
+  - id: mrd.director
+    role: tenant_admin
+    groups: [direction, senior-management]
+  - id: mrd.admin
+    role: analyst
+    groups: [administration]
+  - id: mrd.pm
+    role: analyst
+    groups: [project-aurora, project-borealis, project-managers]
+  - id: mrd.senior-tech
+    role: analyst
+    groups: [senior-technicians, project-aurora]
+  - id: mrd.junior-tech
+    role: viewer
+    groups: [junior-technicians, project-aurora]
+  - id: mrd.consultant
+    role: viewer
+    groups: [consultants, project-borealis]
+  - id: mrd.external
+    role: viewer
+    groups: [external-collaborators, project-borealis]
+groups:
+  - id: direction
+  - id: administration
+  - id: senior-management
+  - id: project-managers
+  - id: senior-technicians
+  - id: junior-technicians
+  - id: consultants
+  - id: external-collaborators
+  - id: project-aurora
+  - id: project-borealis

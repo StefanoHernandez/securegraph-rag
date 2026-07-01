@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { KeyRound, LogOut, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +11,7 @@ import { ActiveSession, SessionUser } from "@/lib/types";
 import { getErrorMessage } from "@/lib/errors";
 
 export default function ProfilePage() {
+  const t = useTranslations("profilePage");
   const [user, setUser] = useState<SessionUser | null>(null);
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -29,9 +31,9 @@ export default function ProfilePage() {
       setSessions(activeSessions);
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Unable to load profile."));
+      setError(getErrorMessage(err, t("loadError")));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadProfile(), 0);
@@ -43,7 +45,7 @@ export default function ProfilePage() {
     setMessage(null);
     setError(null);
     if (newPassword !== confirmPassword) {
-      setError("New password confirmation does not match.");
+      setError(t("confirmationMismatch"));
       return;
     }
     setSavingPassword(true);
@@ -52,10 +54,10 @@ export default function ProfilePage() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setMessage("Password updated.");
+      setMessage(t("passwordUpdated"));
       await loadProfile();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Password was not updated."));
+      setError(getErrorMessage(err, t("passwordFailed")));
     } finally {
       setSavingPassword(false);
     }
@@ -67,7 +69,7 @@ export default function ProfilePage() {
       await authApi.revokeSession(sessionId);
       setSessions((items) => items.filter((item) => item.id !== sessionId));
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Session was not revoked."));
+      setError(getErrorMessage(err, t("sessionFailed")));
     }
   };
 
@@ -75,53 +77,53 @@ export default function ProfilePage() {
     <div className="max-w-6xl mx-auto space-y-6 pb-10">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-hairline">
         <div>
-          <p className="mono-meta">operator account</p>
+          <p className="mono-meta">{t("eyebrow")}</p>
           <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
-            Profile
+            {t("title")}
           </h1>
         </div>
         {user && (
           <div className="font-mono text-xs text-bone-dim border border-hairline px-3 py-2">
-            {user.role} <span className="text-bone">{user.tenant_id ?? "global"}</span>
+            {user.role} <span className="text-bone">{user.tenant_id ?? t("global")}</span>
           </div>
         )}
       </header>
 
       {error && (
-        <Panel classification="restricted" label="profile error">
+        <Panel classification="restricted" label={t("profileError")}>
           <p className="px-5 py-4 font-mono text-xs text-seal-red">{error}</p>
         </Panel>
       )}
       {message && (
-        <Panel classification="internal" label="profile notice">
+        <Panel classification="internal" label={t("profileNotice")}>
           <p className="px-5 py-4 font-mono text-xs text-signal-amber">{message}</p>
         </Panel>
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1fr] gap-6">
-        <Panel classification="internal" label="identity">
+        <Panel classification="internal" label={t("identity")}>
           {user ? (
             <div className="px-5 py-5 space-y-5">
               <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs">
                 <div>
-                  <dt className="mono-meta normal-case">display name</dt>
+                  <dt className="mono-meta normal-case">{t("displayName")}</dt>
                   <dd className="mt-1 text-bone">{user.display_name}</dd>
                 </div>
                 <div>
-                  <dt className="mono-meta normal-case">username</dt>
+                  <dt className="mono-meta normal-case">{t("username")}</dt>
                   <dd className="mt-1 text-bone">{user.username}</dd>
                 </div>
                 <div>
-                  <dt className="mono-meta normal-case">email</dt>
+                  <dt className="mono-meta normal-case">{t("email")}</dt>
                   <dd className="mt-1 text-bone">{user.email ?? "—"}</dd>
                 </div>
                 <div>
-                  <dt className="mono-meta normal-case">user id</dt>
+                  <dt className="mono-meta normal-case">{t("userId")}</dt>
                   <dd className="mt-1 text-bone truncate">{user.id}</dd>
                 </div>
               </dl>
               <div className="border-t border-hairline pt-4">
-                <p className="mono-meta mb-3">tenant memberships</p>
+                <p className="mono-meta mb-3">{t("tenantMemberships")}</p>
                 <div className="space-y-2">
                   {user.memberships.map((membership) => (
                     <div
@@ -136,14 +138,14 @@ export default function ProfilePage() {
               </div>
             </div>
           ) : (
-            <p className="px-5 py-8 text-sm text-bone-dim">Loading profile.</p>
+            <p className="px-5 py-8 text-sm text-bone-dim">{t("loadingProfile")}</p>
           )}
         </Panel>
 
-        <Panel classification="confidential" label="password">
+        <Panel classification="confidential" label={t("password")}>
           <form onSubmit={changePassword} className="px-5 py-5 space-y-4">
             <label className="space-y-1.5 block">
-              <span className="mono-meta block">current password</span>
+              <span className="mono-meta block">{t("currentPassword")}</span>
               <Input
                 type="password"
                 value={currentPassword}
@@ -153,7 +155,7 @@ export default function ProfilePage() {
             </label>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label className="space-y-1.5 block">
-                <span className="mono-meta block">new password</span>
+                <span className="mono-meta block">{t("newPassword")}</span>
                 <Input
                   type="password"
                   value={newPassword}
@@ -162,7 +164,7 @@ export default function ProfilePage() {
                 />
               </label>
               <label className="space-y-1.5 block">
-                <span className="mono-meta block">confirm password</span>
+                <span className="mono-meta block">{t("confirmPassword")}</span>
                 <Input
                   type="password"
                   value={confirmPassword}
@@ -177,16 +179,16 @@ export default function ProfilePage() {
               className="gap-2"
             >
               <KeyRound className="h-4 w-4" />
-              Change password
+              {t("changePassword")}
             </Button>
           </form>
         </Panel>
       </div>
 
-      <Panel label="active sessions">
+      <Panel label={t("activeSessions")}>
         <div className="divide-y divide-hairline">
           {sessions.length === 0 ? (
-            <p className="px-5 py-8 text-sm text-bone-dim">No active sessions.</p>
+            <p className="px-5 py-8 text-sm text-bone-dim">{t("noActiveSessions")}</p>
           ) : (
             sessions.map((session) => (
               <div
@@ -203,10 +205,10 @@ export default function ProfilePage() {
                     <p className="font-mono text-xs text-bone truncate">{session.id}</p>
                   </div>
                   <p className="font-mono text-xs text-bone-dim truncate">
-                    {session.user_agent ?? "unknown client"}
+                    {session.user_agent ?? t("unknownClient")}
                   </p>
                   <p className="font-mono text-[0.6875rem] text-bone-dim">
-                    last seen {new Date(session.last_seen_at).toLocaleString()}
+                    {t("lastSeen", { date: new Date(session.last_seen_at).toLocaleString() })}
                   </p>
                 </div>
                 <Button
@@ -217,7 +219,7 @@ export default function ProfilePage() {
                   className="gap-2"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  Revoke
+                  {t("revoke")}
                 </Button>
               </div>
             ))

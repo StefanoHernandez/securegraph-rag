@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslations } from "next-intl";
 import {
   UploadCloud,
   FileText,
@@ -78,6 +79,7 @@ function loadStoredIdentity(): { tenantId: string; ownerId: string } {
 }
 
 export default function IngestPage() {
+  const t = useTranslations("ingestPage");
   const [initialIdentity] = useState(loadStoredIdentity);
   const [file, setFile] = useState<File | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -184,7 +186,7 @@ export default function IngestPage() {
     // Limit to 50MB
     const limit = 50 * 1024 * 1024;
     if (selectedFile.size > limit) {
-      setErrorMessage("Errore: Il file supera la dimensione massima consentita di 50MB.");
+      setErrorMessage(t("sizeError"));
       setFile(null);
       return;
     }
@@ -204,7 +206,7 @@ export default function IngestPage() {
   const handleIngest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) {
-      setErrorMessage("Per favore seleziona un file da caricare.");
+      setErrorMessage(t("fileRequired"));
       return;
     }
 
@@ -241,13 +243,13 @@ export default function IngestPage() {
       };
 
       saveJobsToStorage([newJob, ...jobs]);
-      setSuccessMessage(`File caricato con successo! Job ID: ${result.job_id}. Il file è in fase di indicizzazione.`);
+      setSuccessMessage(t("uploadSuccess", { jobId: result.job_id }));
       setFile(null);
       setTitleOverride("");
       setPolicyTags("");
     } catch (err: unknown) {
       setErrorMessage(
-        getErrorMessage(err, "Upload fallito. Verifica la connessione al server.")
+        getErrorMessage(err, t("uploadError"))
       );
     } finally {
       setLoading(false);
@@ -262,36 +264,33 @@ export default function IngestPage() {
   const statusStamp = (status: string) => {
     switch (status) {
       case "completed":
-        return <span className="stamp text-signal-amber">✓ COMPLETED</span>;
+        return <span className="stamp text-signal-amber">{t("completed")}</span>;
       case "failed":
-        return <span className="stamp text-seal-red">FAILED</span>;
+        return <span className="stamp text-seal-red">{t("failed")}</span>;
       case "running":
         return (
           <span className="stamp text-bone-dim">
-            <RefreshCw className="h-3 w-3 animate-spin" /> RUNNING
+            <RefreshCw className="h-3 w-3 animate-spin" /> {t("running")}
           </span>
         );
       default:
-        return <span className="stamp text-bone-dim">QUEUED</span>;
+        return <span className="stamp text-bone-dim">{t("queued")}</span>;
     }
   };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-10">
-      {/* Header */}
       <header className="pb-4 border-b border-hairline">
-        <p className="mono-meta">section 02 · evidence intake</p>
+        <p className="mono-meta">{t("eyebrow")}</p>
         <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
-          Evidence Intake
+          {t("title")}
         </h1>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
-        {/* Left: Upload + metadata form (3 columns) */}
         <div className="lg:col-span-3">
-          <Panel label="document intake · vector store + neo4j">
+          <Panel label={t("panel")}>
             <form onSubmit={handleIngest} className="px-5 py-5 space-y-6">
-              {/* Intake dropzone */}
               <div
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
@@ -308,7 +307,7 @@ export default function IngestPage() {
                   ref={fileInputRef}
                   type="file"
                   onChange={handleFileChange}
-                  accept=".txt,.pdf,.md,.csv,.json"
+                  accept=".txt,.md,.markdown,.pdf,.docx,.xlsx"
                   className="hidden"
                 />
 
@@ -340,17 +339,16 @@ export default function IngestPage() {
                     />
                     <div className="space-y-1">
                       <p className="mono-meta normal-case text-bone">
-                        drop evidence here · or click to browse
+                        {t("drop")}
                       </p>
                       <p className="mono-meta normal-case">
-                        pdf · txt · md · csv · json — max 50mb
+                        {t("formats")}
                       </p>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Feedback messages */}
               {errorMessage && (
                 <div className="border border-seal-red/40 bg-vault-sunk px-3 py-2.5">
                   <p className="font-mono text-xs text-seal-red">⚠ {errorMessage}</p>
@@ -362,11 +360,9 @@ export default function IngestPage() {
                 </div>
               )}
 
-              {/* Metadata form fields */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Document Type */}
                 <div className="space-y-1.5">
-                  <label className="mono-meta block">document type</label>
+                  <label className="mono-meta block">{t("documentType")}</label>
                   <select
                     value={documentType}
                     onChange={(e) => setDocumentType(e.target.value)}
@@ -378,10 +374,9 @@ export default function IngestPage() {
                   </select>
                 </div>
 
-                {/* Classification Level */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <label className="mono-meta block">classification</label>
+                    <label className="mono-meta block">{t("classification")}</label>
                     <ClassificationStamp level={classification} />
                   </div>
                   <select
@@ -395,10 +390,9 @@ export default function IngestPage() {
                   </select>
                 </div>
 
-                {/* Owner ID */}
                 <div className="space-y-1.5">
                   <label className="mono-meta flex items-center gap-1">
-                    <User className="h-3 w-3" /> owner id (fga)
+                    <User className="h-3 w-3" /> {t("ownerId")}
                   </label>
                   <Input
                     value={ownerId}
@@ -409,10 +403,9 @@ export default function IngestPage() {
                   />
                 </div>
 
-                {/* Tenant ID */}
                 <div className="space-y-1.5">
                   <label className="mono-meta flex items-center gap-1">
-                    <Database className="h-3 w-3" /> tenant id
+                    <Database className="h-3 w-3" /> {t("tenantId")}
                   </label>
                   <Input
                     value={tenantId}
@@ -423,9 +416,8 @@ export default function IngestPage() {
                   />
                 </div>
 
-                {/* Title Override (Optional) */}
                 <div className="space-y-1.5">
-                  <label className="mono-meta block">title override (optional)</label>
+                  <label className="mono-meta block">{t("titleOverride")}</label>
                   <Input
                     value={titleOverride}
                     onChange={(e) => setTitleOverride(e.target.value)}
@@ -434,10 +426,9 @@ export default function IngestPage() {
                   />
                 </div>
 
-                {/* Policy Tags */}
                 <div className="space-y-1.5">
                   <label className="mono-meta flex items-center gap-1">
-                    <Tag className="h-3 w-3" /> policy tags (rebac)
+                    <Tag className="h-3 w-3" /> {t("policyTags")}
                   </label>
                   <Input
                     value={policyTags}
@@ -448,25 +439,23 @@ export default function IngestPage() {
                 </div>
               </div>
 
-              {/* Submit */}
               <Button type="submit" disabled={loading || !file} className="w-full gap-2">
                 {loading ? (
                   <>
                     <RefreshCw className="h-4 w-4 animate-spin" />
-                    <span>Initializing ingest pipeline…</span>
+                    <span>{t("submitting")}</span>
                   </>
                 ) : (
-                  <span>Submit to intake</span>
+                  <span>{t("submit")}</span>
                 )}
               </Button>
             </form>
           </Panel>
         </div>
 
-        {/* Right: Job monitor ledger (2 columns) */}
         <div className="lg:col-span-2">
           <Panel
-            label="intake ledger · job monitor"
+            label={t("ledger")}
             headRight={
               jobs.length > 0 ? (
                 <Button
@@ -474,10 +463,10 @@ export default function IngestPage() {
                   size="sm"
                   onClick={clearJobsList}
                   className="gap-1.5 text-bone-dim hover:text-seal-red"
-                  title="Clear job logs history"
+                  title={t("clearTitle")}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  clear
+                  {t("clear")}
                 </Button>
               ) : undefined
             }
@@ -485,13 +474,12 @@ export default function IngestPage() {
             {jobs.length === 0 ? (
               <div className="px-5 py-12 text-center flex flex-col items-center gap-3">
                 <Clock className="h-6 w-6 text-bone-dim" />
-                <span className="mono-meta">no intake jobs on record</span>
+                <span className="mono-meta">{t("empty")}</span>
               </div>
             ) : (
               <ul className="divide-y divide-hairline max-h-[580px] overflow-y-auto custom-scrollbar">
                 {jobs.map((job) => (
                   <li key={job.job_id} className="px-5 py-4 space-y-3">
-                    {/* Filename + status */}
                     <div className="flex justify-between items-start gap-4">
                       <div className="min-w-0">
                         <p className="text-sm text-bone truncate" title={job.filename}>
@@ -504,7 +492,6 @@ export default function IngestPage() {
                       {statusStamp(job.status)}
                     </div>
 
-                    {/* Metadata row */}
                     <div className="flex flex-wrap items-center gap-3 font-mono text-[0.625rem]">
                       <span className="text-bone-dim uppercase tracking-wider">
                         {job.document_type}
@@ -515,14 +502,13 @@ export default function IngestPage() {
                       </span>
                     </div>
 
-                    {/* Detail block */}
                     <div className="bg-vault-sunk border border-hairline px-2.5 py-2 space-y-1 font-mono text-[0.625rem] text-bone-dim">
                       <div className="flex justify-between gap-3">
-                        <span>job id</span>
+                        <span>{t("jobId")}</span>
                         <span className="text-bone truncate max-w-40">{job.job_id}</span>
                       </div>
                       <div className="flex justify-between gap-3">
-                        <span>doc id</span>
+                        <span>{t("docId")}</span>
                         <span className="text-bone truncate max-w-40" title={job.document_id}>
                           {job.document_id}
                         </span>

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from securgraph.adapters.embeddings import get_embedding_adapter
 from securgraph.adapters.neo4j import get_neo4j_driver
+from securgraph.api.dependencies import set_tenant_rls_context
 from securgraph.config import get_settings
 from securgraph.domain import Classification, DocumentType
 from securgraph.indexing.postgres_writer import update_ingestion_job
@@ -67,11 +68,17 @@ async def async_ingest_task(
     # 1. Update job to running state in a separate short-lived transaction
     async with session_maker() as session:
         try:
+            await set_tenant_rls_context(
+                session,
+                tenant_id=request_dict["tenant_id"],
+                is_super_admin=False,
+            )
             print("!!! [WORKER] updating status to running... !!!")
             await update_ingestion_job(
                 session,
                 job_id=job_id,
                 status="running",
+                increment_attempt=True,
             )
             await session.commit()
             print("!!! [WORKER] status updated and committed successfully !!!")
@@ -82,6 +89,11 @@ async def async_ingest_task(
     # 2. Reconstruct IngestionRequest and execute the ingestion pipeline
     async with session_maker() as session:
         try:
+            await set_tenant_rls_context(
+                session,
+                tenant_id=request_dict["tenant_id"],
+                is_super_admin=False,
+            )
             print("!!! [WORKER] reconstructing IngestionRequest... !!!")
             request = IngestionRequest(
                 tenant_id=request_dict["tenant_id"],
@@ -91,6 +103,7 @@ async def async_ingest_task(
                 document_type=DocumentType(request_dict["document_type"]),
                 classification=Classification(request_dict["classification"]),
                 policy_tags=tuple(request_dict["policy_tags"]),
+                direct_viewers=tuple(request_dict.get("direct_viewers", ())),
                 title_override=request_dict.get("title_override"),
                 source_format=request_dict.get("source_format"),
             )
@@ -127,6 +140,11 @@ async def async_ingest_task(
             _LOG.exception("worker_ingestion_failed", job_id=job_id, error=str(e))
             # Mark the job as failed in Postgres
             async with session_maker() as fail_session:
+                await set_tenant_rls_context(
+                    fail_session,
+                    tenant_id=request_dict["tenant_id"],
+                    is_super_admin=False,
+                )
                 await update_ingestion_job(
                     fail_session,
                     job_id=job_id,

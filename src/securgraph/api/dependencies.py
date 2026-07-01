@@ -13,6 +13,7 @@ from arq.connections import ArqRedis, RedisSettings, create_pool
 from fastapi import Depends
 from openfga_sdk import ClientConfiguration, OpenFgaClient
 from openfga_sdk.models import CreateStoreRequest, TypeDefinition, WriteAuthorizationModelRequest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from securgraph.config import Settings, get_settings
@@ -48,6 +49,22 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def set_tenant_rls_context(
+    session: AsyncSession, *, tenant_id: str | None, is_super_admin: bool
+) -> None:
+    """Bind PostgreSQL RLS settings to current transaction after authentication."""
+    await session.execute(
+        text(
+            "SELECT set_config('app.tenant_id', :tenant_id, true), "
+            "set_config('app.is_super_admin', :is_super_admin, true)"
+        ),
+        {
+            "tenant_id": tenant_id or "",
+            "is_super_admin": "true" if is_super_admin else "false",
+        },
+    )
 
 
 async def bootstrap_openfga(app_settings: Settings) -> None:

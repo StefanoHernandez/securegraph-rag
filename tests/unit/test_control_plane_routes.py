@@ -12,6 +12,7 @@ from httpx import AsyncClient
 from securgraph.api.dependencies import get_db_session
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_super_admin, require_user
 from securgraph.indexing.db import (
+    AccessTemplateRow,
     AdminAuditEventRow,
     AuthUserRow,
     GroupMembershipRow,
@@ -126,6 +127,67 @@ async def test_tenant_admin_creates_forced_reset_user_in_own_tenant(
     assert users[0].must_change_password is True
 
 
+async def test_tenant_admin_searches_existing_users(
+    fastapi_app: FastAPI, client: AsyncClient, control_session: AsyncMock
+) -> None:
+    fastapi_app.dependency_overrides[require_user] = lambda: tenant_admin()
+    user = AuthUserRow(
+        id="usr-existing",
+        username="senior.one",
+        display_name="Senior One",
+        email="senior@example.invalid",
+        is_active=True,
+        must_change_password=False,
+        token_version=1,
+    )
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = [user]
+    control_session.execute.return_value = result
+
+    response = await client.get("/users/search?q=senior")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": "usr-existing",
+            "username": "senior.one",
+            "display_name": "Senior One",
+            "email": "senior@example.invalid",
+            "is_active": True,
+        }
+    ]
+
+
+async def test_tenant_admin_attaches_existing_user_to_tenant(
+    fastapi_app: FastAPI, client: AsyncClient, control_session: AsyncMock
+) -> None:
+    fastapi_app.dependency_overrides[require_user] = lambda: tenant_admin()
+    user = AuthUserRow(
+        id="usr-existing",
+        username="senior.one",
+        display_name="Senior One",
+        email="senior@example.invalid",
+        is_active=True,
+        must_change_password=False,
+        token_version=1,
+    )
+    control_session.get.side_effect = [user, None]
+
+    response = await client.post(
+        "/tenants/mrd/users/usr-existing/membership",
+        json={"role": "analyst"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "usr-existing"
+    assert response.json()["role"] == "analyst"
+    added = [call.args[0] for call in control_session.add.call_args_list]
+    memberships = [row for row in added if isinstance(row, TenantMembershipRow)]
+    assert memberships[0].tenant_id == "mrd"
+    assert memberships[0].user_id == "usr-existing"
+    assert memberships[0].role == "analyst"
+
+
 async def test_tenant_admin_cannot_manage_another_tenant(
     fastapi_app: FastAPI, client: AsyncClient
 ) -> None:
@@ -201,3 +263,71 @@ async def test_tenant_admin_removes_group_member(
 
     assert response.status_code == 204
     control_session.delete.assert_awaited_once_with(group_membership)
+
+
+async def test_tenant_admin_updates_group(
+    fastapi_app: FastAPI, client: AsyncClient, control_session: AsyncMock
+) -> None:
+    fastapi_app.dependency_overrides[require_user] = lambda: tenant_admin()
+    group = GroupRow(
+        id="grp-1",
+        tenant_id="mrd",
+        slug="project-alpha",
+        display_name="Project Alpha",
+        kind="project",
+        description="Initial",
+        is_active=True,
+    )
+    control_session.get.return_value = group
+
+    response = await client.patch(
+        "/tenants/mrd/groups/grp-1",
+        json={"display_name": "Project Alpha Core", "description": "Core team", "is_active": False},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["display_name"] == "Project Alpha Core"
+    assert body["description"] == "Core team"
+    assert body["is_active"] is False
+    assert group.display_name == "Project Alpha Core"
+    assert group.description == "Core team"
+    assert group.is_active is False
+
+
+async def test_tenant_admin_updates_access_template_and_increments_version(
+    fastapi_app: FastAPI, client: AsyncClient, control_session: AsyncMock
+) -> None:
+    fastapi_app.dependency_overrides[require_user] = lambda: tenant_admin()
+    template = AccessTemplateRow(
+        id="tpl-1",
+        tenant_id="mrd",
+        document_type="contract",
+        display_name="Contracts",
+        default_classification="confidential",
+        owner_rule="uploader",
+        allowed_group_ids=["grp-old"],
+        direct_viewer_ids=[],
+        is_active=True,
+        version=2,
+    )
+    control_session.get.return_value = template
+
+    response = await client.patch(
+        "/tenants/mrd/access-templates/tpl-1",
+        json={
+            "display_name": "Contracts v2",
+            "default_classification": "restricted",
+            "allowed_group_ids": ["grp-new"],
+            "is_active": False,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["display_name"] == "Contracts v2"
+    assert body["default_classification"] == "restricted"
+    assert body["allowed_group_ids"] == ["grp-new"]
+    assert body["is_active"] is False
+    assert body["version"] == 3
+    assert template.version == 3

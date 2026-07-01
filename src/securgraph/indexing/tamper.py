@@ -263,6 +263,100 @@ async def chain_policy_decisions(
         head.sequence = r["chain_sequence"]
 
 
+async def backfill_unsealed_chains(session: AsyncSession, tenant_id: str) -> dict[str, int]:
+    """Seal an entirely unsealed tenant ledger without overwriting an existing chain.
+
+    A partial chain may indicate tampering or a failed migration, so it is
+    deliberately rejected instead of mixing legacy and newly generated hashes.
+    """
+    table_specs: list[tuple[type[Base], str, str, str, str, Any]] = [
+        (
+            QueryTraceRow,
+            "query_traces",
+            "genesis_trace",
+            "trace_id",
+            "started_at",
+            lambda row: {
+                "trace_id": row.trace_id,
+                "tenant_id": row.tenant_id,
+                "user_id": row.user_id,
+                "query": row.query,
+                "answer": row.answer,
+                "started_at": row.started_at,
+                "completed_at": row.completed_at,
+                "latency_ms": row.latency_ms,
+            },
+        ),
+        (
+            RetrievalEvidenceRow,
+            "retrieval_evidence",
+            "genesis_evidence",
+            "evidence_id",
+            "evidence_id",
+            lambda row: {
+                "evidence_id": row.evidence_id,
+                "trace_id": row.trace_id,
+                "tenant_id": row.tenant_id,
+                "object_id": row.object_id,
+                "retriever_id": row.retriever_id,
+                "original_rank": row.original_rank,
+                "original_score": row.original_score,
+                "included_in_prompt": row.included_in_prompt,
+            },
+        ),
+        (
+            PolicyDecisionRow,
+            "policy_decisions",
+            "genesis_decision",
+            "decision_id",
+            "evaluated_at",
+            lambda row: {
+                "decision_id": row.decision_id,
+                "trace_id": row.trace_id,
+                "tenant_id": row.tenant_id,
+                "user_id": row.user_id,
+                "object_type": row.object_type,
+                "object_id": row.object_id,
+                "action": row.action,
+                "decision": row.decision,
+                "reason_code": row.reason_code,
+                "policy_engine": row.policy_engine,
+                "evaluated_at": row.evaluated_at,
+            },
+        ),
+    ]
+    loaded: list[tuple[tuple[type[Base], str, str, str, str, Any], list[Any]]] = []
+    for spec in table_specs:
+        table, _, _, primary_key, order_field, _ = spec
+        result = await session.execute(
+            select(table)
+            .where(table.tenant_id == tenant_id)  # type: ignore[attr-defined]
+            .order_by(getattr(table, order_field).asc(), getattr(table, primary_key).asc())
+        )
+        rows: list[Any] = list(result.scalars().all())
+        if any(row.tamper_hash is not None for row in rows):
+            raise ValueError("Backfill requires every ledger row to be unsealed.")
+        loaded.append((spec, rows))
+
+    counts: dict[str, int] = {}
+    for (_, chain_name, genesis, _, _, row_data), rows in loaded:
+        if not rows:
+            counts[chain_name] = 0
+            continue
+        head = await _lock_chain_head(session, tenant_id, chain_name, genesis)
+        if head.sequence != 0 or head.last_hash != genesis:
+            raise ValueError("Backfill requires a pristine chain head.")
+        previous_hash = genesis
+        for sequence, row in enumerate(rows, start=1):
+            row.chain_sequence = sequence
+            row.tamper_hash = compute_payload_hmac(row_data(row), previous_hash)
+            previous_hash = row.tamper_hash
+        head.sequence = len(rows)
+        head.last_hash = previous_hash
+        counts[chain_name] = len(rows)
+    return counts
+
+
 # ---------------------------------------------------------------------------
 # Chain verification
 # ---------------------------------------------------------------------------

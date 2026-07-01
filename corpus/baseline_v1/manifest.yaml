@@ -1,0 +1,27 @@
+tenant_id: mrd
+documents:
+  - path: documents/01_internal_policy.txt
+    owner: stefano
+    classification: internal
+    groups:
+      - orion7-engineering
+  - path: documents/02_service_contract.txt
+    owner: stefano
+    classification: confidential
+    groups:
+      - orion7-engineering
+  - path: documents/03_security_manual.txt
+    owner: stefano
+    classification: restricted
+    groups:
+      - orion7-engineering
+  - path: documents/04_meeting_minutes.txt
+    owner: stefano
+    classification: internal
+    groups:
+      - orion7-engineering
+  - path: documents/05_regulation_excerpt.txt
+    owner: stefano
+    classification: public
+    groups:
+      - orion7-engineering

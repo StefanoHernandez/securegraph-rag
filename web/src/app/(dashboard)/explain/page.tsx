@@ -2,6 +2,7 @@
 
 import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { HelpCircle, ShieldAlert, ArrowLeft, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,7 @@ import { ExplainReport } from "@/lib/types";
 import { getErrorMessage } from "@/lib/errors";
 
 function ExplainContent() {
+  const t = useTranslations("explainPage");
   const searchParams = useSearchParams();
   const router = useRouter();
   const traceIdParam = searchParams.get("trace_id");
@@ -41,14 +43,14 @@ function ExplainContent() {
       setError(
         getErrorMessage(
           err,
-          "Could not retrieve the explainability report. Check the trace id is correct."
+          t("loadError")
         )
       );
       setReport(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!traceIdParam) return;
@@ -73,14 +75,14 @@ function ExplainContent() {
             size="icon"
             onClick={() => router.back()}
             className="h-8 w-8 text-bone-dim hover:text-bone"
-            aria-label="Back"
+            aria-label={t("back")}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <p className="mono-meta">section 03 · provenance</p>
+            <p className="mono-meta">{t("eyebrow")}</p>
             <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
-              Chain of Custody
+              {t("title")}
             </h1>
           </div>
         </div>
@@ -94,41 +96,40 @@ function ExplainContent() {
             <Input
               value={traceId}
               onChange={(e) => setTraceId(e.target.value)}
-              placeholder="Trace ID (UUID)…"
+              placeholder={t("placeholder")}
               className="pl-9 bg-vault-raised border-hairline text-bone text-xs font-mono h-9 focus-visible:border-signal-amber"
               autoComplete="off"
             />
           </div>
           <Button type="submit" size="sm" className="h-9">
-            Audit
+            {t("audit")}
           </Button>
         </form>
       </header>
 
       {!traceIdParam ? (
-        <Panel label="provenance audit · awaiting trace" className="max-w-xl mx-auto">
+        <Panel label={t("awaiting")} className="max-w-xl mx-auto">
           <div className="px-6 py-16 text-center space-y-4">
             <div className="mx-auto h-12 w-12 border border-hairline bg-vault-sunk flex items-center justify-center text-bone-dim">
               <HelpCircle className="h-6 w-6" />
             </div>
             <h2 className="font-display text-lg font-bold text-bone">
-              No trace selected
+              {t("noneTitle")}
             </h2>
             <p className="text-xs text-bone-dim max-w-md mx-auto leading-relaxed">
-              Enter a trace UUID in the search bar, or click “verify lineage” on
-              any chat answer to open its full chain of custody.
+              {t("noneCopy")}
             </p>
           </div>
         </Panel>
       ) : loading ? (
         <div className="h-[50vh] flex flex-col items-center justify-center text-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-signal-amber border-t-transparent" />
-          <p className="mono-meta">reconstructing chain of custody…</p>
+          <p className="mono-meta">{t("loading")}</p>
         </div>
       ) : error ? (
         <Panel
           classification="restricted"
-          label="audit verification error"
+          label={t("error")}
           className="max-w-xl mx-auto"
         >
           <div className="px-8 py-8 text-center space-y-4">
@@ -136,11 +137,11 @@ function ExplainContent() {
               <ShieldAlert className="h-6 w-6" />
             </div>
             <h2 className="font-display text-lg font-bold text-bone">
-              Audit verification error
+              {t("error")}
             </h2>
             <p className="text-xs text-bone-dim leading-relaxed font-mono">{error}</p>
             <Button variant="outline" size="sm" onClick={() => router.push("/chat")}>
-              Back to query console
+              {t("backToChat")}
             </Button>
           </div>
         </Panel>
@@ -152,12 +153,13 @@ function ExplainContent() {
 }
 
 export default function ExplainPage() {
+  const t = useTranslations("explainPage");
   return (
     <Suspense
       fallback={
         <div className="h-[50vh] flex flex-col items-center justify-center text-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-signal-amber border-t-transparent" />
-          <p className="mono-meta">loading provenance module…</p>
+          <p className="mono-meta">{t("fallback")}</p>
         </div>
       }
     >

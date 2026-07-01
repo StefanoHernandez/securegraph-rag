@@ -2,11 +2,13 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { NextIntlClientProvider } from "next-intl";
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
 import { authApi } from "@/lib/api";
+import itMessages from "../../../messages/it.json";
 
-export default function DashboardLayout({
+export function DashboardContent({
   children,
 }: {
   children: React.ReactNode;
@@ -60,5 +62,17 @@ export default function DashboardLayout({
         </main>
       </div>
     </div>
+  );
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <NextIntlClientProvider locale="it" messages={itMessages}>
+      <DashboardContent>{children}</DashboardContent>
+    </NextIntlClientProvider>
   );
 }

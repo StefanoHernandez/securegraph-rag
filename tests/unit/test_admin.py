@@ -18,6 +18,7 @@ from securgraph.api.dependencies import get_db_session, get_openfga_client
 from securgraph.api.routes.auth import (
     AuthenticatedPrincipal,
     require_admin,
+    require_super_admin,
     require_user,
 )
 from securgraph.config import get_settings
@@ -43,6 +44,18 @@ def _tenant_admin() -> AuthenticatedPrincipal:
         is_super_admin=False,
         must_change_password=False,
         session_id="ses-admin",
+    )
+
+
+def _super_admin() -> AuthenticatedPrincipal:
+    return AuthenticatedPrincipal(
+        user_id="root",
+        username="root",
+        tenant_id=None,
+        role="super_admin",
+        is_super_admin=True,
+        must_change_password=False,
+        session_id="ses-root",
     )
 
 
@@ -113,6 +126,29 @@ async def test_tenant_admin_cannot_read_other_tenant_audit(
     fastapi_app.dependency_overrides[require_admin] = _tenant_admin
     response = await client.get("/admin/audit/traces?tenant_id=OTHER")
     assert response.status_code == 403
+
+
+@patch(
+    "securgraph.api.routes.admin.backfill_unsealed_chains",
+    create=True,
+    new_callable=AsyncMock,
+)
+async def test_superadmin_backfills_only_unsealed_audit_chains(
+    mock_backfill: MagicMock, fastapi_app: FastAPI, client: AsyncClient
+) -> None:
+    """Ledger resealing is explicit and restricted to the global administrator."""
+    fastapi_app.dependency_overrides[require_super_admin] = _super_admin
+    mock_backfill.return_value = {
+        "query_traces": 2,
+        "retrieval_evidence": 3,
+        "policy_decisions": 1,
+    }
+
+    response = await client.post("/admin/audit/backfill-chain", json={"tenant_id": "MRD"})
+
+    assert response.status_code == 200
+    assert response.json()["backfilled"] == mock_backfill.return_value
+    mock_backfill.assert_awaited_once()
 
 
 @patch("securgraph.api.routes.admin.verify_table_chain")

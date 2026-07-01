@@ -25,6 +25,7 @@ from securgraph.api.routes import control_plane as control_plane_routes
 from securgraph.api.routes import explain as explain_routes
 from securgraph.api.routes import health as health_routes
 from securgraph.api.routes import ingest as ingest_routes
+from securgraph.api.routes import operations as operations_routes
 from securgraph.api.routes import query as query_routes
 from securgraph.api.routes import settings as settings_routes
 from securgraph.config import get_settings
@@ -113,6 +114,7 @@ def create_app() -> FastAPI:
     routers = (
         health_routes.router,
         ingest_routes.router,
+        operations_routes.router,
         query_routes.router,
         explain_routes.router,
         auth_routes.router,

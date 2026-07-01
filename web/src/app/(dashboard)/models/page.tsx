@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/forensic";
@@ -19,6 +20,7 @@ const PROVIDERS: Array<ProviderName | "all"> = [
 ];
 
 export default function ModelsPage() {
+  const t = useTranslations("modelsPage");
   const { tenantId, loadingTenants } = useTenantSelection();
   const [models, setModels] = useState<ModelCatalogEntry[]>([]);
   const [providerFilter, setProviderFilter] = useState<ProviderName | "all">("all");
@@ -35,11 +37,11 @@ export default function ModelsPage() {
       setModels(await settingsApi.listModels(tenantId));
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Unable to load model catalog."));
+      setError(getErrorMessage(err, t("loadError")));
     } finally {
       setLoading(false);
     }
-  }, [loadingTenants, tenantId]);
+  }, [loadingTenants, tenantId, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadModels(), 0);
@@ -58,9 +60,9 @@ export default function ModelsPage() {
     <div className="max-w-6xl mx-auto space-y-6 pb-10">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-hairline">
         <div>
-          <p className="mono-meta">section 09 · provider model catalog</p>
+          <p className="mono-meta">{t("eyebrow")}</p>
           <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
-            Models
+            {t("title")}
           </h1>
         </div>
         <div className="flex items-center gap-3">
@@ -73,7 +75,7 @@ export default function ModelsPage() {
           >
             {PROVIDERS.map((item) => (
               <option key={item} value={item}>
-                {item}
+                {item === "all" ? t("all") : item}
               </option>
             ))}
           </select>
@@ -84,32 +86,32 @@ export default function ModelsPage() {
             className="gap-2"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            Refresh
+            {t("refresh")}
           </Button>
         </div>
       </header>
 
       {error && (
-        <Panel classification="restricted" label="model catalog error">
+        <Panel classification="restricted" label={t("error")}>
           <p className="px-5 py-4 font-mono text-xs text-seal-red">{error}</p>
         </Panel>
       )}
 
-      <Panel label="catalog entries">
+      <Panel label={t("catalogEntries")}>
         {visibleModels.length === 0 ? (
           <div className="px-5 py-8 text-sm text-bone-dim">
-            {loading ? "Loading model catalog." : "No models recorded for this tenant."}
+            {loading ? t("loading") : t("empty")}
           </div>
         ) : (
           <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-left">
               <thead className="border-b border-hairline">
                 <tr className="mono-meta">
-                  <th className="px-4 py-2 font-normal">provider</th>
-                  <th className="px-4 py-2 font-normal">model</th>
-                  <th className="px-4 py-2 font-normal">capabilities</th>
-                  <th className="px-4 py-2 font-normal">status</th>
-                  <th className="px-4 py-2 font-normal">discovered</th>
+                  <th className="px-4 py-2 font-normal">{t("provider")}</th>
+                  <th className="px-4 py-2 font-normal">{t("model")}</th>
+                  <th className="px-4 py-2 font-normal">{t("capabilities")}</th>
+                  <th className="px-4 py-2 font-normal">{t("status")}</th>
+                  <th className="px-4 py-2 font-normal">{t("discovered")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline">

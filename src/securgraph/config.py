@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     llm_provider: Literal["ollama", "openai", "google", "mistral", "anthropic"] = "ollama"
     llm_provider_extract: str = ""
     llm_provider_judge: str = ""
+    fallback_policy: Literal["block", "default_provider"] = "block"
 
     # Cloud provider API keys. Read by the corresponding adapter lazily; if a
     # provider is not configured the key stays empty and that adapter is never
@@ -177,6 +178,11 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         validation_alias="AUDIT_HMAC_KEY",
     )
+    audit_anchor_s3_bucket: str = ""
+    audit_anchor_s3_prefix: str = "securegraph/audit-anchors"
+    audit_anchor_retention_days: int = Field(default=365, ge=1, le=36500)
+    audit_anchor_interval_seconds: int = Field(default=3600, ge=60, le=86400)
+    audit_anchor_event_threshold: int = Field(default=10000, ge=1, le=10_000_000)
 
 
 @lru_cache(maxsize=1)

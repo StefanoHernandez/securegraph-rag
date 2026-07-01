@@ -1,0 +1,10 @@
+tenant_id: mrd
+users:
+  - id: stefano
+    display_name: Stefano Demo
+    groups:
+      - orion7-engineering
+groups:
+  - id: orion7-engineering
+    name: Orion-7 Engineering
+    type: project

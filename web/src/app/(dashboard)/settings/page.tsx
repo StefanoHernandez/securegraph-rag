@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { CheckCircle2, KeyRound, Save, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ const RUNTIME_KEYS = [
 ] as const;
 
 export default function SettingsPage() {
+  const t = useTranslations("settingsPage");
   const { tenantId, loadingTenants } = useTenantSelection();
   const [providers, setProviders] = useState<ProviderCredentialStatus[]>([]);
   const [provider, setProvider] = useState<ProviderName>("openai");
@@ -53,9 +55,9 @@ export default function SettingsPage() {
       setProviders(await settingsApi.listProviders(tenantId));
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Unable to load provider settings."));
+      setError(getErrorMessage(err, t("loadError")));
     }
-  }, [tenantId]);
+  }, [tenantId, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadProviders(), 0);
@@ -68,7 +70,7 @@ export default function SettingsPage() {
     setError(null);
     try {
       if (!tenantId) {
-        throw new Error("No tenant selected.");
+        throw new Error(t("noTenant"));
       }
       const result = await settingsApi.saveProviderCredential(
         tenantId,
@@ -82,7 +84,7 @@ export default function SettingsPage() {
       ]);
       setApiKey("");
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Provider verification failed."));
+      setError(getErrorMessage(err, t("providerFailed")));
     } finally {
       setSavingProvider(false);
     }
@@ -96,14 +98,14 @@ export default function SettingsPage() {
       const numericValue =
         runtimeKey === "hard_token_cap" ? Number(runtimeValue) : runtimeValue;
       if (!tenantId) {
-        throw new Error("No tenant selected.");
+        throw new Error(t("noTenant"));
       }
       const result = await settingsApi.saveRuntimeSetting(tenantId, runtimeKey, {
         value: numericValue,
       });
       setRuntimeResult(result);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Runtime setting was not saved."));
+      setError(getErrorMessage(err, t("runtimeFailed")));
     } finally {
       setSavingRuntime(false);
     }
@@ -113,28 +115,31 @@ export default function SettingsPage() {
     <div className="max-w-6xl mx-auto space-y-6 pb-10">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-hairline">
         <div>
-          <p className="mono-meta">section 08 · tenant control plane</p>
+          <p className="mono-meta">{t("eyebrow")}</p>
           <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
-            Settings
+            {t("title")}
           </h1>
         </div>
         <div className="font-mono text-xs text-bone-dim border border-hairline px-3 py-2">
-          tenant <span className="text-bone">{loadingTenants ? "loading" : tenantId ?? "none"}</span>
+          {t("tenant")}{" "}
+          <span className="text-bone">
+            {loadingTenants ? t("loading") : tenantId ?? t("none")}
+          </span>
         </div>
       </header>
 
       {error && (
-        <Panel classification="restricted" label="settings error">
+        <Panel classification="restricted" label={t("settingsError")}>
           <p className="px-5 py-4 font-mono text-xs text-seal-red">{error}</p>
         </Panel>
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_0.9fr] gap-6">
-        <Panel classification="confidential" label="provider credentials">
+        <Panel classification="confidential" label={t("providerCredentials")}>
           <form onSubmit={saveProvider} className="px-5 py-5 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label className="space-y-1.5">
-                <span className="mono-meta block">provider</span>
+                <span className="mono-meta block">{t("provider")}</span>
                 <select
                   value={provider}
                   onChange={(event) => setProvider(event.target.value as ProviderName)}
@@ -148,17 +153,17 @@ export default function SettingsPage() {
                 </select>
               </label>
               <label className="space-y-1.5">
-                <span className="mono-meta block">base url</span>
+                <span className="mono-meta block">{t("baseUrl")}</span>
                 <Input
                   value={baseUrl}
                   onChange={(event) => setBaseUrl(event.target.value)}
-                  placeholder="provider default"
+                  placeholder={t("providerDefault")}
                   className="bg-vault-raised border-hairline text-bone font-mono text-xs h-10"
                 />
               </label>
             </div>
             <label className="space-y-1.5 block">
-              <span className="mono-meta block">api key</span>
+              <span className="mono-meta block">{t("apiKey")}</span>
               <Input
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
@@ -173,15 +178,15 @@ export default function SettingsPage() {
               ) : (
                 <KeyRound className="h-4 w-4" />
               )}
-              Verify and save
+              {t("verifyAndSave")}
             </Button>
           </form>
         </Panel>
 
-        <Panel classification="internal" label="runtime setting">
+        <Panel classification="internal" label={t("runtimeSetting")}>
           <form onSubmit={saveRuntime} className="px-5 py-5 space-y-4">
             <label className="space-y-1.5 block">
-              <span className="mono-meta block">key</span>
+              <span className="mono-meta block">{t("key")}</span>
               <select
                 value={runtimeKey}
                 onChange={(event) =>
@@ -197,7 +202,7 @@ export default function SettingsPage() {
               </select>
             </label>
             <label className="space-y-1.5 block">
-              <span className="mono-meta block">value</span>
+              <span className="mono-meta block">{t("value")}</span>
               <Input
                 value={runtimeValue}
                 onChange={(event) => setRuntimeValue(event.target.value)}
@@ -206,19 +211,19 @@ export default function SettingsPage() {
             </label>
             <Button type="submit" disabled={savingRuntime || !tenantId} className="gap-2">
               <Save className="h-4 w-4" />
-              Save setting
+              {t("saveSetting")}
             </Button>
             {runtimeResult && (
               <div className="border border-hairline bg-vault-sunk px-3 py-2 font-mono text-xs text-bone-dim">
                 v{runtimeResult.version} ·{" "}
-                {runtimeResult.restart_required ? "restart required" : "runtime safe"}
+                {runtimeResult.restart_required ? t("restartRequired") : t("runtimeSafe")}
               </div>
             )}
           </form>
         </Panel>
       </div>
 
-      <Panel label="configured providers">
+      <Panel label={t("configuredProviders")}>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-px bg-hairline">
           {PROVIDERS.map((item) => {
             const row = configured.get(item);
@@ -234,15 +239,15 @@ export default function SettingsPage() {
                 </div>
                 <dl className="space-y-2 font-mono text-xs">
                   <div className="flex justify-between gap-3">
-                    <dt className="text-bone-dim">status</dt>
-                    <dd className="text-bone">{row?.status ?? "not_configured"}</dd>
+                    <dt className="text-bone-dim">{t("status")}</dt>
+                    <dd className="text-bone">{row?.status ?? t("notConfigured")}</dd>
                   </div>
                   <div className="flex justify-between gap-3">
-                    <dt className="text-bone-dim">fingerprint</dt>
+                    <dt className="text-bone-dim">{t("fingerprint")}</dt>
                     <dd className="text-bone truncate">{row?.fingerprint ?? "—"}</dd>
                   </div>
                   <div className="flex justify-between gap-3">
-                    <dt className="text-bone-dim">models</dt>
+                    <dt className="text-bone-dim">{t("models")}</dt>
                     <dd className="text-bone tabular-nums">
                       {row?.models_discovered ?? "—"}
                     </dd>

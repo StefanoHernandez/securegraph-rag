@@ -2,7 +2,9 @@
 
 import React from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import { localizePath, stripLocale } from "@/lib/i18n";
 import { Menu, LogOut, Settings, User, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClassificationStamp } from "@/components/forensic";
@@ -22,30 +24,38 @@ interface TopBarProps {
   setSidebarCollapsed: () => void;
 }
 
-const TITLES: Record<string, { eyebrow: string; title: string }> = {
-  "/": { eyebrow: "section 00", title: "Operator Briefing" },
-  "/chat": { eyebrow: "section 01", title: "Query Console" },
-  "/ingest": { eyebrow: "section 02", title: "Evidence Intake" },
-  "/explain": { eyebrow: "section 03", title: "Provenance" },
-  "/permissions": { eyebrow: "section 04", title: "Clearance Control" },
-  "/graph": { eyebrow: "section 05", title: "Knowledge Graph" },
-  "/audit": { eyebrow: "section 06", title: "Chain of Custody" },
-  "/health": { eyebrow: "section 07", title: "System Health" },
-  "/settings": { eyebrow: "section 08", title: "Settings" },
-  "/models": { eyebrow: "section 09", title: "Model Catalog" },
-  "/profile": { eyebrow: "operator", title: "Profile" },
+const TITLES: Record<string, { eyebrow: string; titleKey: string }> = {
+  "/": { eyebrow: "section 00", titleKey: "briefing" },
+  "/chat": { eyebrow: "section 01", titleKey: "query" },
+  "/ingest": { eyebrow: "section 02", titleKey: "intake" },
+  "/explain": { eyebrow: "section 03", titleKey: "provenance" },
+  "/permissions": { eyebrow: "section 04", titleKey: "clearance" },
+  "/graph": { eyebrow: "section 05", titleKey: "graph" },
+  "/audit": { eyebrow: "section 06", titleKey: "custodyLedger" },
+  "/health": { eyebrow: "section 07", titleKey: "health" },
+  "/settings": { eyebrow: "section 08", titleKey: "settings" },
+  "/models": { eyebrow: "section 09", titleKey: "models" },
+  "/users": { eyebrow: "section 10", titleKey: "users" },
+  "/tenants": { eyebrow: "section 11", titleKey: "tenants" },
+  "/groups": { eyebrow: "section 12", titleKey: "groups" },
+  "/access-templates": { eyebrow: "section 13", titleKey: "accessTemplates" },
+  "/operations": { eyebrow: "section 14", titleKey: "operations" },
+  "/profile": { eyebrow: "operator", titleKey: "profile" },
 };
 
 export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
+  const topbar = useTranslations("topbar");
+  const shell = useTranslations("shell");
   const pathname = usePathname();
+  const activePath = stripLocale(pathname);
   const router = useRouter();
   const { tenants, tenantId, loadingTenants, selectTenant } = useTenantSelection();
 
   const meta =
-    TITLES[pathname ?? "/"] ??
-    (pathname?.startsWith("/explain")
-      ? { eyebrow: "section 03", title: "Provenance Detail" }
-      : { eyebrow: "secure", title: "SecureGraph" });
+    TITLES[activePath] ??
+    (activePath.startsWith("/explain")
+      ? { eyebrow: "section 03", titleKey: "provenanceDetail" }
+      : { eyebrow: "secure", titleKey: "fallback" });
 
   const handleTenantChange = (selected: string) => {
     selectTenant(selected);
@@ -55,7 +65,7 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
   const handleLogout = async () => {
     await authApi.logout().catch(() => undefined);
     localStorage.removeItem("securgraph_user");
-    router.push("/login");
+    router.push(localizePath("/login", pathname));
   };
 
   return (
@@ -66,14 +76,14 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
           size="icon"
           onClick={setSidebarCollapsed}
           className="md:hidden text-bone-dim"
-          aria-label="Toggle navigation"
+          aria-label={shell("toggleNavigation")}
         >
           <Menu className="h-5 w-5" />
         </Button>
         <div className="flex flex-col leading-tight">
           <span className="mono-meta">{meta.eyebrow}</span>
           <span className="font-display text-sm font-semibold tracking-wide text-bone">
-            {meta.title}
+            {topbar(meta.titleKey)}
           </span>
         </div>
       </div>
@@ -92,8 +102,8 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
                 className="gap-2 h-8 font-mono text-[0.6875rem] uppercase tracking-wider"
                 disabled={loadingTenants || tenants.length === 0}
               >
-                <span className="text-bone-dim">tenant</span>
-                <span className="text-bone">{tenantId ?? "none"}</span>
+                <span className="text-bone-dim">{shell("tenant")}</span>
+                <span className="text-bone">{tenantId ?? shell("none")}</span>
                 <ChevronDown className="h-3 w-3 text-bone-dim" />
               </Button>
             }
@@ -101,7 +111,7 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
           <DropdownMenuContent className="w-52">
             <DropdownMenuGroup>
               <DropdownMenuLabel className="mono-meta">
-                switch tenant
+                {shell("switchTenant")}
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
@@ -128,7 +138,7 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
                 variant="outline"
                 size="icon"
                 className="h-8 w-8"
-                aria-label="Operator menu"
+                aria-label={shell("operatorMenu")}
               >
                 <User className="h-4 w-4" />
               </Button>
@@ -139,24 +149,26 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col gap-1">
                   <p className="text-sm text-bone">Stefano Hernandez</p>
-                  <p className="mono-meta">operator · clearance restricted</p>
+                  <p className="mono-meta">
+                    {shell("operator")} · {shell("clearanceRestricted")}
+                  </p>
                 </div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-xs cursor-pointer gap-2"
-              onClick={() => router.push("/profile")}
+              onClick={() => router.push(localizePath("/profile", pathname))}
             >
               <User className="h-3.5 w-3.5 text-bone-dim" />
-              Profile
+              {shell("profile")}
             </DropdownMenuItem>
             <DropdownMenuItem
               className="text-xs cursor-pointer gap-2"
-              onClick={() => router.push("/settings")}
+              onClick={() => router.push(localizePath("/settings", pathname))}
             >
               <Settings className="h-3.5 w-3.5 text-bone-dim" />
-              Settings
+              {shell("settings")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -164,7 +176,7 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
               onClick={handleLogout}
             >
               <LogOut className="h-3.5 w-3.5" />
-              Log out
+              {shell("logout")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

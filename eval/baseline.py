@@ -48,6 +48,8 @@ from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
 from securgraph.api.dependencies import AsyncSessionLocal, bootstrap_openfga
 from securgraph.api.main import create_app
 from securgraph.config import get_settings
+from securgraph.corpus.manifest import CorpusManifest, load_corpus_manifest
+from securgraph.domain import Classification
 from securgraph.ingestion.service import IngestionRequest, ingest_document
 
 try:
@@ -135,14 +137,25 @@ class OllamaThinkOff(LLM):
 
 
 MODES = ("vector", "lexical", "graph", "hybrid", "global")
-CORPUS_PATH = Path(__file__).parent.parent / "corpus" / "baseline_v1" / "qa_pairs.yaml"
-CORPUS_DOCS_DIR = Path(__file__).parent.parent / "corpus" / "baseline_v1" / "documents"
+CORPUS_ROOT = Path(
+    os.environ.get(
+        "SECURGRAPH_CORPUS_PATH",
+        Path(__file__).parent.parent / "corpus" / "baseline_v1",
+    )
+)
+CORPUS_PATH = CORPUS_ROOT / "qa_pairs.yaml"
 RESULTS_DIR = Path(__file__).parent / "results"
-TENANT_ID = "mrd"
-USER_ID = "user:stefano"
+DEFAULT_USER_ID = "stefano"
 
 
-async def _run_mode(client: AsyncClient, mode: str, qa_pairs: list[dict]) -> list[dict]:
+async def _run_mode(
+    client: AsyncClient,
+    mode: str,
+    qa_pairs: list[dict],
+    *,
+    tenant_id: str,
+    default_user_id: str,
+) -> list[dict]:
     rows: list[dict] = []
     # "global" mode exercises C3 (policy-partitioned communities + global RAG).
     # It routes through the community summaries path by setting query_type=global
@@ -154,9 +167,12 @@ async def _run_mode(client: AsyncClient, mode: str, qa_pairs: list[dict]) -> lis
         retrieval_mode = mode
         query_type = "standard"
     for idx, item in enumerate(qa_pairs, start=1):
+        identity = item.get("identity", default_user_id)
+        if not isinstance(identity, str) or not identity:
+            identity = default_user_id
         payload = {
-            "tenant_id": "mrd",
-            "user_id": "user:stefano",
+            "tenant_id": tenant_id,
+            "user_id": f"user:{identity}",
             "query": item["question"],
             "options": {
                 "retrieval_mode": retrieval_mode,
@@ -321,40 +337,50 @@ def _write_outputs(summary: pd.DataFrame) -> tuple[Path, Path]:
     return csv_path, md_path
 
 
-async def _ingest_corpus(session_maker) -> list[str]:
-    """Ingest every .txt under corpus/baseline_v1/documents/, return doc_ids."""
+async def _ingest_corpus(session_maker, manifest: CorpusManifest) -> list[str]:
+    """Ingest manifest-declared documents using their real corpus access labels."""
     doc_ids: list[str] = []
-    for path in sorted(CORPUS_DOCS_DIR.glob("*.txt")):
+    for document in manifest.documents:
         async with session_maker() as session:
             req = IngestionRequest(
-                tenant_id=TENANT_ID,
-                source_uri=path.name,
-                owner_id=USER_ID,
-                data=path.read_bytes(),
-                policy_tags=("dev",),
+                tenant_id=manifest.tenant_id,
+                source_uri=document.path.relative_to(manifest.root).as_posix(),
+                owner_id=f"user:{document.owner}",
+                data=document.path.read_bytes(),
+                classification=Classification(document.classification),
+                policy_tags=document.groups,
+                direct_viewers=tuple(f"user:{viewer}" for viewer in document.direct_viewers),
             )
             try:
                 result = await ingest_document(session, req)
                 await session.commit()
                 doc_ids.append(result.document_id)
-                print(f"  ingested {path.name} -> {result.document_id} ({result.status})")
+                print(f"  ingested {document.path.name} -> {result.document_id} ({result.status})")
             except Exception as e:
                 await session.rollback()
-                print(f"  ingest warning {path.name}: {e}")
+                print(f"  ingest warning {document.path.name}: {e}")
     return doc_ids
 
 
-async def _seed_fga_owner_tuples(doc_ids: list[str]) -> None:
-    """Grant USER_ID as owner of each ingested document. Idempotent."""
+async def _seed_fga_owner_tuples(doc_ids: list[str], manifest: CorpusManifest) -> None:
+    """Seed manifest owners, group viewers, and direct viewers for each document."""
     from securgraph.api.dependencies import _fga_client  # type: ignore[attr-defined]
 
     if _fga_client is None:
         print("  (no fga client; skipping tuple seed — queries will fail-closed)")
         return
-    tuples = [
-        ClientTuple(user=USER_ID, relation="owner", object=f"document:{did}")
-        for did in doc_ids
-    ]
+    tuples: list[ClientTuple] = []
+    for document_id, document in zip(doc_ids, manifest.documents, strict=True):
+        target = f"document:{document_id}"
+        tuples.append(ClientTuple(user=f"user:{document.owner}", relation="owner", object=target))
+        tuples.extend(
+            ClientTuple(user=f"group:{group_id}#member", relation="group_viewer", object=target)
+            for group_id in document.groups
+        )
+        tuples.extend(
+            ClientTuple(user=f"user:{user_id}", relation="direct_viewer", object=target)
+            for user_id in document.direct_viewers
+        )
     try:
         await _fga_client.write(ClientWriteRequest(writes=tuples))
         print(f"  seeded {len(tuples)} document:owner tuples")
@@ -381,8 +407,10 @@ async def main() -> None:
     if not CORPUS_PATH.exists():
         print(f"Missing corpus: {CORPUS_PATH}")
         sys.exit(2)
-    if not CORPUS_DOCS_DIR.exists():
-        print(f"Missing docs dir: {CORPUS_DOCS_DIR}")
+    try:
+        manifest = load_corpus_manifest(CORPUS_ROOT)
+    except Exception as exc:
+        print(f"Invalid corpus manifest: {exc}")
         sys.exit(2)
     qa_pairs = yaml.safe_load(CORPUS_PATH.read_text(encoding="utf-8"))
     print(f"Loaded {len(qa_pairs)} QA pairs from {CORPUS_PATH}")
@@ -414,11 +442,11 @@ async def main() -> None:
             await client.get("/health", timeout=30.0)
 
         print("--- Ingesting corpus ---")
-        doc_ids = await _ingest_corpus(AsyncSessionLocal)
+        doc_ids = await _ingest_corpus(AsyncSessionLocal, manifest)
         print(f"Ingested {len(doc_ids)} documents")
 
         print("--- Seeding FGA owner tuples ---")
-        await _seed_fga_owner_tuples(doc_ids)
+        await _seed_fga_owner_tuples(doc_ids, manifest)
 
         print("--- Generating hierarchical communities (C3) ---")
         try:
@@ -430,7 +458,7 @@ async def main() -> None:
 
             await generate_hierarchical_communities(
                 driver=get_neo4j_driver(),
-                tenant_id=TENANT_ID,
+                tenant_id=manifest.tenant_id,
                 fga=_fga_client,
             )
             print("  communities generated")
@@ -440,7 +468,15 @@ async def main() -> None:
         all_rows: list[dict] = []
         for mode in MODES:
             print(f"--- Running mode: {mode} ---")
-            all_rows.extend(await _run_mode(client, mode, qa_pairs))
+            all_rows.extend(
+                await _run_mode(
+                    client,
+                    mode,
+                    qa_pairs,
+                    tenant_id=manifest.tenant_id,
+                    default_user_id=DEFAULT_USER_ID,
+                )
+            )
 
     print("--- Computing RAGAS metrics ---")
     summary = _ragas_evaluate(all_rows)

@@ -9,6 +9,20 @@ import {
   ProviderCredentialStatus,
   ProviderName,
   RuntimeSetting,
+  AccessTemplate,
+  Classification,
+  GroupKind,
+  TenantDetail,
+  TenantGroup,
+  TenantRole,
+  TenantUser,
+  TenantUserCreateResponse,
+  TemporaryPasswordResponse,
+  UserSearchResult,
+  OperationIngestionJob,
+  OperationIngestionJobList,
+  OperationJob,
+  OperationJobList,
 } from "./types";
 
 const API_PREFIX = "/api/v1";
@@ -93,6 +107,20 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  patch: <T>(path: string, body: unknown, options?: RequestInit) =>
+    request<T>(path, {
+      ...options,
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+      body: JSON.stringify(body),
+    }),
+
+  delete: <T>(path: string, options?: RequestInit) =>
+    request<T>(path, { ...options, method: "DELETE" }),
+
   postMultipart: <T>(path: string, formData: FormData, options?: RequestInit) =>
     request<T>(path, {
       ...options,
@@ -140,6 +168,153 @@ export const tenantApi = {
   listTenants: () => api.get<TenantSummary[]>("/tenants"),
 };
 
+export const controlPlaneApi = {
+  listTenants: () => api.get<TenantDetail[]>("/tenants"),
+
+  createTenant: (id: string, displayName: string) =>
+    api.post<TenantDetail>("/tenants", {
+      id,
+      display_name: displayName,
+    }),
+
+  updateTenant: (
+    tenantId: string,
+    body: {
+      display_name?: string;
+      status?: "active" | "suspended" | "archived";
+      tenant_admin_settings_enabled?: boolean;
+    }
+  ) => api.patch<TenantDetail>(`/tenants/${encodeURIComponent(tenantId)}`, body),
+
+  listUsers: (tenantId: string) =>
+    api.get<TenantUser[]>(`/tenants/${encodeURIComponent(tenantId)}/users`),
+
+  searchUsers: (query: string) =>
+    api.get<UserSearchResult[]>(`/users/search?q=${encodeURIComponent(query)}`),
+
+  createUser: (
+    tenantId: string,
+    body: {
+      username: string;
+      display_name: string;
+      email?: string | null;
+      role: TenantRole;
+    }
+  ) =>
+    api.post<TenantUserCreateResponse>(
+      `/tenants/${encodeURIComponent(tenantId)}/users`,
+      body
+    ),
+
+  updateUserMembership: (
+    tenantId: string,
+    userId: string,
+    body: { role?: TenantRole; is_active?: boolean }
+  ) =>
+    api.patch<TenantUser>(
+      `/tenants/${encodeURIComponent(tenantId)}/users/${encodeURIComponent(userId)}`,
+      body
+    ),
+
+  resetPassword: (tenantId: string, userId: string) =>
+    api.post<TemporaryPasswordResponse>(
+      `/tenants/${encodeURIComponent(tenantId)}/users/${encodeURIComponent(userId)}/reset-password`,
+      {}
+    ),
+
+  attachExistingUser: (tenantId: string, userId: string, role: TenantRole) =>
+    api.post<TenantUser>(
+      `/tenants/${encodeURIComponent(tenantId)}/users/${encodeURIComponent(userId)}/membership`,
+      { role }
+    ),
+
+  listGroups: (tenantId: string) =>
+    api.get<TenantGroup[]>(`/tenants/${encodeURIComponent(tenantId)}/groups`),
+
+  createGroup: (
+    tenantId: string,
+    body: {
+      slug: string;
+      display_name: string;
+      kind: GroupKind;
+      description?: string | null;
+    }
+  ) =>
+    api.post<TenantGroup>(
+      `/tenants/${encodeURIComponent(tenantId)}/groups`,
+      body
+    ),
+
+  updateGroup: (
+    tenantId: string,
+    groupId: string,
+    body: {
+      display_name?: string;
+      kind?: GroupKind;
+      description?: string | null;
+      is_active?: boolean;
+    }
+  ) =>
+    api.patch<TenantGroup>(
+      `/tenants/${encodeURIComponent(tenantId)}/groups/${encodeURIComponent(groupId)}`,
+      body
+    ),
+
+  listGroupMembers: (tenantId: string, groupId: string) =>
+    api.get<TenantUser[]>(
+      `/tenants/${encodeURIComponent(tenantId)}/groups/${encodeURIComponent(groupId)}/members`
+    ),
+
+  addGroupMember: (tenantId: string, groupId: string, userId: string) =>
+    api.put<void>(
+      `/tenants/${encodeURIComponent(tenantId)}/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
+      {}
+    ),
+
+  removeGroupMember: (tenantId: string, groupId: string, userId: string) =>
+    api.delete<void>(
+      `/tenants/${encodeURIComponent(tenantId)}/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`
+    ),
+
+  listAccessTemplates: (tenantId: string) =>
+    api.get<AccessTemplate[]>(
+      `/tenants/${encodeURIComponent(tenantId)}/access-templates`
+    ),
+
+  createAccessTemplate: (
+    tenantId: string,
+    body: {
+      document_type: string;
+      display_name: string;
+      default_classification: Classification;
+      owner_rule: "uploader" | "tenant_admin";
+      allowed_group_ids: string[];
+      direct_viewer_ids: string[];
+    }
+  ) =>
+    api.post<AccessTemplate>(
+      `/tenants/${encodeURIComponent(tenantId)}/access-templates`,
+      body
+    ),
+
+  updateAccessTemplate: (
+    tenantId: string,
+    templateId: string,
+    body: {
+      display_name?: string;
+      default_classification?: Classification;
+      owner_rule?: "uploader" | "tenant_admin";
+      allowed_group_ids?: string[];
+      direct_viewer_ids?: string[];
+      is_active?: boolean;
+    }
+  ) =>
+    api.patch<AccessTemplate>(
+      `/tenants/${encodeURIComponent(tenantId)}/access-templates/${encodeURIComponent(templateId)}`,
+      body
+    ),
+};
+
 export const ingestApi = {
   uploadFile: (formData: FormData) =>
     api.postMultipart<{ job_id: string; document_id: string; trace_id: string; status: string; chunks_created: number }>("/ingest", formData),
@@ -152,6 +327,63 @@ export const ingestApi = {
       status: "queued" | "running" | "completed" | "failed";
       error?: string | null;
     }>(`/ingest/status/${jobId}`),
+};
+
+export const operationsApi = {
+  listIngestionJobs: (tenantId: string) =>
+    api.get<OperationIngestionJobList>(
+      `/tenants/${encodeURIComponent(tenantId)}/ingest-jobs`
+    ),
+
+  retryIngestionJob: (tenantId: string, jobId: string) =>
+    api.post<OperationIngestionJob>(
+      `/tenants/${encodeURIComponent(tenantId)}/ingest-jobs/${encodeURIComponent(jobId)}/retry`,
+      {}
+    ),
+
+  reconcileIngestionJobs: (tenantId: string) =>
+    api.post<{ tenant_id: string; reconciled_job_ids: string[] }>(
+      `/tenants/${encodeURIComponent(tenantId)}/ingest-jobs/reconcile`,
+      {}
+    ),
+
+  listOperationJobs: (tenantId: string) =>
+    api.get<OperationJobList>(
+      `/tenants/${encodeURIComponent(tenantId)}/operation-jobs`
+    ),
+
+  verifyLedger: (tenantId: string) =>
+    api.post<OperationJob>(
+      `/tenants/${encodeURIComponent(tenantId)}/operation-jobs/ledger-verify`,
+      {}
+    ),
+
+  anchorLedger: (tenantId: string) =>
+    api.post<OperationJob>(
+      `/tenants/${encodeURIComponent(tenantId)}/operation-jobs/ledger-anchor`,
+      {}
+    ),
+
+  anchorLedgerIfDue: (tenantId: string) =>
+    api.post<OperationJob>(
+      `/tenants/${encodeURIComponent(tenantId)}/operation-jobs/ledger-anchor-due`,
+      {}
+    ),
+
+  recomputeCommunities: (tenantId: string) =>
+    api.post<OperationJob>(
+      `/tenants/${encodeURIComponent(tenantId)}/operation-jobs/community-recompute`,
+      {}
+    ),
+
+  runEvalBaseline: (
+    tenantId: string,
+    body: { corpus_path?: string; timeout_seconds?: number } = {}
+  ) =>
+    api.post<OperationJob>(
+      `/tenants/${encodeURIComponent(tenantId)}/operation-jobs/eval-baseline`,
+      body
+    ),
 };
 
 export const adminApi = {
@@ -188,6 +420,12 @@ export const adminApi = {
         }
       >;
     }>("/admin/audit/verify-chain", { tenant_id: tenantId }),
+
+  backfillAuditChain: (tenantId: string) =>
+    api.post<{ tenant_id: string; backfilled: Record<string, number> }>(
+      "/admin/audit/backfill-chain",
+      { tenant_id: tenantId }
+    ),
 
   listPermissions: () =>
     api.get<{

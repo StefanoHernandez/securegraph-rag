@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 from collections.abc import AsyncIterator
+from typing import Any
 
 import pytest
 from fastapi import FastAPI, status
@@ -15,12 +16,12 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from securgraph.api.dependencies import get_db_session
+from securgraph.api.dependencies import get_db_session, get_redis_pool
 from securgraph.domain import Classification, DocumentType, IngestionStatus
-from securgraph.indexing.db import ChunkRow, DocumentRow
+from securgraph.indexing.db import AccessTemplateRow, ChunkRow, DocumentRow
 from securgraph.ingestion.chunker import chunk_document
-from securgraph.ingestion.parsers import parse_bytes
-from securgraph.ingestion.service import IngestionRequest, ingest_document
+from securgraph.ingestion.parsers import detect_format, parse_bytes
+from securgraph.ingestion.service import IngestionRequest, IngestionResult, ingest_document
 
 
 @pytest.fixture
@@ -39,7 +40,6 @@ async def real_db_session() -> AsyncIterator[AsyncSession]:
 @pytest.fixture(autouse=True)
 def mock_graph_extraction_and_writing(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mock out Ollama graph extraction and Neo4j writing for ingestion tests."""
-    from typing import Any
     from unittest.mock import MagicMock
 
     import securgraph.adapters.embeddings as embeddings
@@ -83,6 +83,55 @@ def test_parser_robustness_markdown() -> None:
     assert parsed.sections[0].path[0] == "Document Title"
     assert parsed.sections[0].path[1] == "Section 1"
     assert "This is a paragraph" in parsed.sections[0].text
+
+
+def test_parser_xlsx_extracts_displayed_values_with_coordinates() -> None:
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Budget"
+    sheet["A1"] = "Department"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "Research"
+    sheet["B2"] = 1200
+    sheet["C2"] = "=B2*2"
+    stream = io.BytesIO()
+    workbook.save(stream)
+
+    parsed = parse_bytes(stream.getvalue(), "xlsx")
+
+    assert parsed.source_format == "xlsx"
+    assert parsed.page_count == 1
+    assert len(parsed.sections) == 1
+    assert parsed.sections[0].path == ("Sheet: Budget",)
+    assert "A1: Department" in parsed.sections[0].text
+    assert "B2: 1200" in parsed.sections[0].text
+    assert "=B2*2" not in parsed.sections[0].text
+
+
+def test_parser_blocks_legacy_and_macro_excel_formats() -> None:
+    with pytest.raises(ValueError, match="Unsupported Excel format"):
+        detect_format("file://legacy.xls")
+    with pytest.raises(ValueError, match="Unsupported Excel format"):
+        detect_format("file://macro.xlsm")
+
+
+def test_parser_xlsx_enforces_cell_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    from openpyxl import Workbook
+
+    import securgraph.ingestion.parsers as parsers
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet["A1"] = "one"
+    sheet["A2"] = "two"
+    stream = io.BytesIO()
+    workbook.save(stream)
+    monkeypatch.setattr(parsers, "XLSX_MAX_CELLS", 1)
+
+    with pytest.raises(ValueError, match="cell limit"):
+        parse_bytes(stream.getvalue(), "xlsx")
 
 
 def test_chunker_token_limit_and_invariants() -> None:
@@ -192,6 +241,77 @@ async def test_ingest_route_success(fastapi_app: FastAPI, client: AsyncClient) -
     assert body["status"] == "completed"
     assert body["chunks_created"] > 0
     assert body["document_id"] != ""
+
+
+@pytest.mark.asyncio
+async def test_ingest_route_applies_active_access_template(
+    fastapi_app: FastAPI,
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `/ingest` applies document-type access-template defaults."""
+    import securgraph.api.routes.ingest as ingest_route
+
+    captured: dict[str, IngestionRequest] = {}
+    template = AccessTemplateRow(
+        id="tpl-policy",
+        tenant_id="mrd",
+        document_type="policy",
+        display_name="Policy",
+        default_classification="restricted",
+        owner_rule="uploader",
+        allowed_group_ids=["group-direzione", "group-pm"],
+        direct_viewer_ids=["user:legal"],
+        is_active=True,
+    )
+
+    class FakeResult:
+        def scalar_one_or_none(self) -> AccessTemplateRow:
+            return template
+
+    class FakeSession:
+        async def execute(self, statement: object) -> FakeResult:
+            return FakeResult()
+
+    async def capture_ingest(
+        session: AsyncSession,
+        request: IngestionRequest,
+    ) -> IngestionResult:
+        captured["request"] = request
+        return IngestionResult(
+            job_id="ing_test",
+            trace_id="trace_test",
+            document_id="doc_test",
+            status=IngestionStatus.COMPLETED,
+            chunks_created=1,
+        )
+
+    async def test_db_session() -> AsyncIterator[FakeSession]:
+        yield FakeSession()
+
+    async def test_redis_pool() -> Any:
+        return object()
+
+    fastapi_app.dependency_overrides[get_db_session] = test_db_session
+    fastapi_app.dependency_overrides[get_redis_pool] = test_redis_pool
+    monkeypatch.setattr(ingest_route, "ingest_document", capture_ingest)
+
+    files = {"file": ("policy.md", io.BytesIO(b"# Policy\nAccess rules."), "text/markdown")}
+    data = {
+        "tenant_id": "mrd",
+        "owner_id": "user:stefano",
+        "document_type": "policy",
+        "classification": "internal",
+        "policy_tags": "manual-tag",
+    }
+
+    resp = await client.post("/ingest", files=files, data=data)
+
+    assert resp.status_code == status.HTTP_201_CREATED
+    request = captured["request"]
+    assert request.classification == Classification.RESTRICTED
+    assert request.policy_tags == ("manual-tag", "group-direzione", "group-pm")
+    assert request.direct_viewers == ("user:legal",)
 
 
 @pytest.mark.asyncio

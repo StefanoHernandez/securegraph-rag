@@ -27,6 +27,7 @@ from securgraph.indexing.db import (
     DocumentRow,
     IngestionJobRow,
     IngestionProvenanceRow,
+    IngestionSourceRow,
     PolicyDecisionRow,
 )
 from securgraph.indexing.tamper import chain_policy_decisions
@@ -193,11 +194,15 @@ async def update_ingestion_job(
     document_id: str | None = None,
     error: str | None = None,
     completed_at: datetime | None = None,
+    increment_attempt: bool = False,
 ) -> None:
     row = await session.get(IngestionJobRow, job_id)
     if row is None:
         return
     row.status = status
+    row.current_step = status
+    if increment_attempt:
+        row.attempt_count += 1
     if document_id is not None:
         row.document_id = document_id
     if error is not None:
@@ -206,6 +211,46 @@ async def update_ingestion_job(
         row.completed_at = completed_at
     elif status in {"completed", "failed", "already_ingested"}:
         row.completed_at = utcnow()
+
+
+async def store_ingestion_source(
+    session: AsyncSession,
+    *,
+    job_id: str,
+    source_uri: str,
+    encrypted_data: bytes,
+    document_type: str,
+    classification: str,
+    policy_tags: tuple[str, ...],
+    direct_viewers: tuple[str, ...],
+    title_override: str | None,
+    source_format: str | None,
+) -> None:
+    """Persist the encrypted source required for a durable worker retry."""
+    row = await session.get(IngestionSourceRow, job_id)
+    if row is None:
+        session.add(
+            IngestionSourceRow(
+                job_id=job_id,
+                source_uri=source_uri,
+                encrypted_data=encrypted_data,
+                document_type=document_type,
+                classification=classification,
+                policy_tags=list(policy_tags),
+                direct_viewers=list(direct_viewers),
+                title_override=title_override,
+                source_format=source_format,
+            )
+        )
+        return
+    row.source_uri = source_uri
+    row.encrypted_data = encrypted_data
+    row.document_type = document_type
+    row.classification = classification
+    row.policy_tags = list(policy_tags)
+    row.direct_viewers = list(direct_viewers)
+    row.title_override = title_override
+    row.source_format = source_format
 
 
 async def write_ingestion_provenance(session: AsyncSession, trace: IngestionTrace) -> None:
@@ -313,6 +358,7 @@ __all__ = [
     "fetch_chunks_by_ids",
     "fetch_ingestion_job",
     "find_existing_document",
+    "store_ingestion_source",
     "update_ingestion_job",
     "upsert_chunks",
     "upsert_document",

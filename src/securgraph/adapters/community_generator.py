@@ -26,7 +26,7 @@ async def generate_hierarchical_communities(
     driver: AsyncDriver,
     tenant_id: str,
     fga: Any | None = None,
-) -> None:
+) -> dict[str, int]:
     """Partition the tenant graph into policy-equivalence-classes, run Louvain
     per class, summarize, and write class-tagged Community nodes. If ``fga`` is
     provided, emit OpenFGA authorization tuples (Task 6 wires this)."""
@@ -62,7 +62,7 @@ async def generate_hierarchical_communities(
 
     if not edges:
         _LOG.info("generating_communities_no_edges", tenant_id=tenant_id)
-        return
+        return {"classes": 0, "communities": 0}
 
     buckets = partition_edges_by_class(edges, chunk_labels)
 
@@ -136,6 +136,7 @@ async def generate_hierarchical_communities(
 
     if fga is not None:
         await emit_community_authorization_tuples(fga, chunk_labels, buckets, written)
+    return {"classes": len(buckets), "communities": len(written)}
 
 
 async def _summarize_and_write_community(

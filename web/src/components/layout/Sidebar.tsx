@@ -3,7 +3,9 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import { localizePath, stripLocale } from "@/lib/i18n";
 import { useTenantSelection } from "@/lib/useTenantSelection";
 import {
   LayoutDashboard,
@@ -16,6 +18,11 @@ import {
   Network,
   Settings,
   Cpu,
+  Users,
+  Building2,
+  UsersRound,
+  ClipboardList,
+  Wrench,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -27,21 +34,30 @@ interface SidebarProps {
 
 // Dossier index — order follows the evidence lifecycle, not alphabetised nav.
 const navItems = [
-  { name: "Briefing", code: "00", href: "/", icon: LayoutDashboard },
-  { name: "Query", code: "01", href: "/chat", icon: MessageSquare },
-  { name: "Intake", code: "02", href: "/ingest", icon: UploadCloud },
-  { name: "Provenance", code: "03", href: "/explain", icon: GitBranch },
-  { name: "Clearance", code: "04", href: "/permissions", icon: ShieldAlert },
-  { name: "Graph", code: "05", href: "/graph", icon: Network },
-  { name: "Custody Ledger", code: "06", href: "/audit", icon: ScrollText },
-  { name: "Health", code: "07", href: "/health", icon: Activity },
-  { name: "Settings", code: "08", href: "/settings", icon: Settings },
-  { name: "Models", code: "09", href: "/models", icon: Cpu },
+  { labelKey: "briefing", code: "00", href: "/", icon: LayoutDashboard },
+  { labelKey: "query", code: "01", href: "/chat", icon: MessageSquare },
+  { labelKey: "intake", code: "02", href: "/ingest", icon: UploadCloud },
+  { labelKey: "provenance", code: "03", href: "/explain", icon: GitBranch },
+  { labelKey: "clearance", code: "04", href: "/permissions", icon: ShieldAlert },
+  { labelKey: "graph", code: "05", href: "/graph", icon: Network },
+  { labelKey: "custodyLedger", code: "06", href: "/audit", icon: ScrollText },
+  { labelKey: "health", code: "07", href: "/health", icon: Activity },
+  { labelKey: "settings", code: "08", href: "/settings", icon: Settings },
+  { labelKey: "models", code: "09", href: "/models", icon: Cpu },
+  { labelKey: "users", code: "10", href: "/users", icon: Users },
+  { labelKey: "tenants", code: "11", href: "/tenants", icon: Building2 },
+  { labelKey: "groups", code: "12", href: "/groups", icon: UsersRound },
+  { labelKey: "accessTemplates", code: "13", href: "/access-templates", icon: ClipboardList },
+  { labelKey: "operations", code: "14", href: "/operations", icon: Wrench },
 ];
 
 export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
+  const nav = useTranslations("navigation");
+  const shell = useTranslations("shell");
   const pathname = usePathname();
+  const activePath = stripLocale(pathname);
   const { tenantId } = useTenantSelection();
+  const homeHref = localizePath("/", pathname);
 
   return (
     <aside
@@ -53,7 +69,7 @@ export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
       {/* Brand */}
       <div className="h-16 flex items-center justify-between px-4 border-b border-hairline">
         {!collapsed ? (
-          <Link href="/" className="flex flex-col leading-none select-none">
+          <Link href={homeHref} className="flex flex-col leading-none select-none">
             <span className="font-display text-base font-bold tracking-[0.18em] text-bone">
               SECURE<span className="text-signal-amber">GRAPH</span>
             </span>
@@ -61,7 +77,7 @@ export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
           </Link>
         ) : (
           <Link
-            href="/"
+            href={homeHref}
             className="mx-auto font-display text-base font-bold text-signal-amber select-none"
           >
             S
@@ -69,7 +85,7 @@ export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? shell("expandSidebar") : shell("collapseSidebar")}
           className="hidden md:flex p-1 text-bone-dim hover:text-bone transition"
         >
           {collapsed ? (
@@ -83,11 +99,13 @@ export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
       {/* Nav */}
       <nav className="flex-1 py-3 overflow-y-auto custom-scrollbar">
         {navItems.map((item) => {
-          const isActive = pathname === item.href;
+          const href = localizePath(item.href, pathname);
+          const isActive = activePath === item.href;
+          const label = nav(item.labelKey);
           return (
             <Link
-              key={item.name}
-              href={item.href}
+              key={item.labelKey}
+              href={href}
               className={cn(
                 "group relative flex items-center gap-3 px-4 py-2.5 text-sm transition-colors",
                 isActive
@@ -105,7 +123,7 @@ export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
               <item.icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
               {!collapsed && (
                 <>
-                  <span className="flex-1">{item.name}</span>
+                  <span className="flex-1">{label}</span>
                   <span className="font-mono text-[0.625rem] text-bone-dim/70">
                     {item.code}
                   </span>
@@ -120,9 +138,11 @@ export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
       <div className="p-4 border-t border-hairline">
         {!collapsed ? (
           <div className="space-y-1.5">
-            <p className="mono-meta">operator</p>
+            <p className="mono-meta">{shell("operator")}</p>
             <p className="text-sm text-bone truncate">Stefano H.</p>
-            <p className="mono-meta">tenant · {tenantId ?? "none"}</p>
+            <p className="mono-meta">
+              {shell("tenant")} · {tenantId ?? shell("none")}
+            </p>
           </div>
         ) : (
           <div className="mx-auto h-7 w-7 border border-hairline flex items-center justify-center font-mono text-xs text-bone">

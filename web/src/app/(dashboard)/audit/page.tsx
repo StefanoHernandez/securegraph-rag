@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import {
   ChevronLeft,
   ChevronRight,
@@ -42,6 +43,7 @@ const TABLE_LABELS: Record<string, string> = {
 };
 
 export default function AuditPage() {
+  const t = useTranslations("auditPage");
   const { tenants, tenantId, loadingTenants, tenantError, selectTenant } =
     useTenantSelection();
   const [traces, setTraces] = useState<AuditTrace[]>([]);
@@ -51,6 +53,7 @@ export default function AuditPage() {
 
   const [loadingTraces, setLoadingTraces] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
   const [verifReport, setVerifReport] = useState<VerificationReport | null>(null);
   const [verifError, setVerifError] = useState<string | null>(null);
 
@@ -86,9 +89,25 @@ export default function AuditPage() {
       const report = await adminApi.verifyAuditChain(tenantId);
       setVerifReport(report);
     } catch (err: unknown) {
-      setVerifError(getErrorMessage(err, "Chain verification failed."));
+      setVerifError(getErrorMessage(err, t("chainError")));
     } finally {
       setVerifying(false);
+    }
+  };
+
+  const handleBackfillChain = async () => {
+    if (!tenantId || !window.confirm(t("backfillConfirm"))) {
+      return;
+    }
+    setBackfilling(true);
+    setVerifError(null);
+    try {
+      await adminApi.backfillAuditChain(tenantId);
+      await handleVerifyChain();
+    } catch (err: unknown) {
+      setVerifError(getErrorMessage(err, t("backfillError")));
+    } finally {
+      setBackfilling(false);
     }
   };
 
@@ -127,12 +146,11 @@ export default function AuditPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-10">
-      {/* Header */}
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-hairline">
         <div>
-          <p className="mono-meta">section 06 · tamper-evident</p>
+          <p className="mono-meta">{t("eyebrow")}</p>
           <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
-            Chain of Custody
+            {t("title")}
           </h1>
         </div>
         <div className="flex items-center gap-3">
@@ -145,7 +163,7 @@ export default function AuditPage() {
             disabled={loadingTenants || tenants.length === 0}
             className="bg-vault-raised border border-hairline px-2.5 py-1.5 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
           >
-            {!tenantId && <option value="">no tenant</option>}
+            {!tenantId && <option value="">{t("noTenant")}</option>}
             {tenants.map((tenant) => (
               <option key={tenant.id} value={tenant.id}>
                 {tenant.display_name}
@@ -160,43 +178,51 @@ export default function AuditPage() {
             className="gap-1.5"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loadingTraces ? "animate-spin" : ""}`} />
-            Refresh
+            {t("refresh")}
           </Button>
         </div>
       </header>
 
       {tenantError && (
-        <Panel classification="restricted" label="tenant directory error">
+        <Panel classification="restricted" label={t("tenantError")}>
           <p className="px-5 py-4 font-mono text-xs text-seal-red">{tenantError}</p>
         </Panel>
       )}
 
-      {/* Hero — interactive chain verification */}
       <Panel
         classification={chainStatus === "tampered" ? "restricted" : "internal"}
-        label="hmac custody chain · verify integrity"
+        label={t("chainPanel")}
         headRight={
-          <Button
-            size="sm"
-            onClick={handleVerifyChain}
-            disabled={verifying}
-            className="gap-1.5"
-          >
-            {verifying ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <KeyRound className="h-3.5 w-3.5" />
-            )}
-            {verifying ? "verifying…" : "verify chain"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleBackfillChain}
+              disabled={backfilling || verifying || !tenantId}
+              className="gap-1.5"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${backfilling ? "animate-spin" : ""}`} />
+              {t("backfill")}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleVerifyChain}
+              disabled={verifying || backfilling}
+              className="gap-1.5"
+            >
+              {verifying ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <KeyRound className="h-3.5 w-3.5" />
+              )}
+              {verifying ? t("verifying") : t("verify")}
+            </Button>
+          </div>
         }
       >
         <div className="px-5 py-6 space-y-5">
           <p className="text-sm text-bone-dim max-w-2xl leading-relaxed">
-            Each record carries an HMAC-SHA256 seal computed over its payload and
-            the previous link, keyed by a secret held only in server memory.
-            Verification re-derives every seal; a single altered byte breaks the
-            chain at that link.
+            {t("chainCopy")}
           </p>
 
           <TamperChain
@@ -238,7 +264,7 @@ export default function AuditPage() {
           {verifReport && !verifReport.is_intact && (
             <div className="border border-seal-red/40 bg-vault-sunk px-4 py-3 max-h-32 overflow-y-auto custom-scrollbar">
               <p className="mono-meta text-seal-red mb-1.5">
-                compromised records · {totalTampered}
+                {t("compromised", { count: totalTampered })}
               </p>
               <ul className="space-y-0.5 font-mono text-[0.625rem] text-bone-dim">
                 {Object.entries(verifReport.tables).flatMap(([name, t]) =>
@@ -254,17 +280,16 @@ export default function AuditPage() {
         </div>
       </Panel>
 
-      {/* Ledger */}
-      <Panel label={`query execution ledger · ${total} records`}>
+      <Panel label={t("ledger", { count: total })}>
         <div className="overflow-x-auto custom-scrollbar">
           {loadingTraces ? (
             <div className="py-20 flex flex-col items-center gap-2 text-bone-dim">
               <RefreshCw className="h-5 w-5 animate-spin text-signal-amber" />
-              <span className="mono-meta">loading ledger…</span>
+              <span className="mono-meta">{t("loading")}</span>
             </div>
           ) : traces.length === 0 ? (
             <div className="py-20 text-center mono-meta">
-              no records for tenant {tenantId ?? "—"}
+              {t("empty", { tenantId: tenantId ?? "—" })}
             </div>
           ) : (
             <table className="w-full text-left text-xs border-collapse min-w-[720px]">
@@ -311,7 +336,7 @@ export default function AuditPage() {
                         href={`/explain?trace_id=${trace.trace_id}`}
                         className="inline-flex items-center gap-0.5 font-mono text-[0.625rem] uppercase tracking-wider text-bone-dim hover:text-signal-amber transition-colors"
                       >
-                        trace <ChevronRight className="h-3.5 w-3.5" />
+                        {t("trace")} <ChevronRight className="h-3.5 w-3.5" />
                       </Link>
                     </td>
                   </tr>

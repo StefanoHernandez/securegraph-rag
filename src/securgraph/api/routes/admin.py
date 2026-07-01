@@ -25,7 +25,7 @@ from securgraph.indexing.db import (
     QueryTraceRow,
     RetrievalEvidenceRow,
 )
-from securgraph.indexing.tamper import verify_table_chain
+from securgraph.indexing.tamper import backfill_unsealed_chains, verify_table_chain
 
 logger = structlog.get_logger(__name__)
 
@@ -142,6 +142,23 @@ async def verify_audit_chain(
             },
         },
     }
+
+
+@router.post("/audit/backfill-chain")
+async def backfill_audit_chain(
+    body: dict[str, Any],
+    session: AsyncSession = Depends(get_db_session),
+    _admin: AuthenticatedPrincipal | None = Depends(require_super_admin),
+) -> dict[str, Any]:
+    """Seal legacy tenant audit rows only when no chain has previously existed."""
+    tenant_id = body.get("tenant_id")
+    if not isinstance(tenant_id, str) or not tenant_id:
+        raise HTTPException(status_code=400, detail="tenant_id is required in the request body.")
+    try:
+        backfilled = await backfill_unsealed_chains(session, tenant_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"tenant_id": tenant_id, "backfilled": backfilled}
 
 
 # ---------------------------------------------------------------------------

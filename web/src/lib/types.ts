@@ -140,6 +140,48 @@ export interface IngestionJob {
   updated_at: string;
 }
 
+export interface OperationIngestionJob {
+  job_id: string;
+  trace_id: string;
+  tenant_id: string;
+  document_id: string | null;
+  requested_by: string | null;
+  owner_id: string | null;
+  status: string;
+  current_step: string;
+  attempt_count: number;
+  started_at: string;
+  completed_at: string | null;
+  updated_at: string;
+  error: string | null;
+}
+
+export interface OperationIngestionJobList {
+  total: number;
+  jobs: OperationIngestionJob[];
+}
+
+export interface OperationJob {
+  id: string;
+  tenant_id: string | null;
+  kind: string;
+  status: string;
+  parameters: Record<string, unknown>;
+  progress: number;
+  result: Record<string, unknown>;
+  error: string | null;
+  requested_by: string;
+  idempotency_key: string;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface OperationJobList {
+  total: number;
+  jobs: OperationJob[];
+}
+
 export interface SessionMembership {
   tenant_id: string;
   role: string;
@@ -166,6 +208,69 @@ export interface TenantSummary {
   display_name: string;
   status: string;
   tenant_admin_settings_enabled: boolean;
+}
+
+export type TenantRole = "super_admin" | "tenant_admin" | "analyst" | "viewer";
+export type TenantStatus = "active" | "suspended" | "archived";
+export type GroupKind = "functional" | "project";
+export type Classification = "public" | "internal" | "confidential" | "restricted";
+
+export interface TenantDetail extends TenantSummary {
+  status: TenantStatus;
+}
+
+export interface TenantUser {
+  id: string;
+  username: string;
+  display_name: string;
+  email: string | null;
+  is_active: boolean;
+  role: TenantRole;
+  membership_active: boolean;
+  must_change_password: boolean;
+}
+
+export interface UserSearchResult {
+  id: string;
+  username: string;
+  display_name: string;
+  email: string | null;
+  is_active: boolean;
+}
+
+export interface TenantUserCreateResponse {
+  id: string;
+  username: string;
+  role: TenantRole;
+  tenant_id: string;
+  temporary_password: string;
+}
+
+export interface TemporaryPasswordResponse {
+  temporary_password: string;
+}
+
+export interface TenantGroup {
+  id: string;
+  tenant_id: string;
+  slug: string;
+  display_name: string;
+  kind: GroupKind;
+  description: string | null;
+  is_active: boolean;
+}
+
+export interface AccessTemplate {
+  id: string;
+  tenant_id: string;
+  document_type: string;
+  display_name: string;
+  default_classification: Classification;
+  owner_rule: "uploader" | "tenant_admin";
+  allowed_group_ids: string[];
+  direct_viewer_ids: string[];
+  is_active: boolean;
+  version: number;
 }
 
 export interface ActiveSession {

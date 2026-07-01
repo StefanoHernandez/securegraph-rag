@@ -1,0 +1,19 @@
+tenant_id: mrd-lab
+documents:
+  - {path: documents/01_access_policy.md, owner: mrd.director, classification: restricted, groups: [direction, senior-management], direct_viewers: []}
+  - {path: documents/02_classification_policy.md, owner: mrd.director, classification: confidential, groups: [direction, administration, senior-management], direct_viewers: []}
+  - {path: documents/03_ai_cloud_policy.md, owner: mrd.director, classification: restricted, groups: [direction, senior-management, project-managers], direct_viewers: []}
+  - {path: documents/04_commercial_contract.md, owner: mrd.director, classification: confidential, groups: [direction, administration, project-managers], direct_viewers: []}
+  - {path: documents/05_research_agreement.md, owner: mrd.pm, classification: confidential, groups: [project-borealis, consultants], direct_viewers: [mrd.director]}
+  - {path: documents/06_consulting_request.md, owner: mrd.pm, classification: internal, groups: [project-borealis, consultants], direct_viewers: []}
+  - {path: documents/07_consulting_assignment.md, owner: mrd.pm, classification: confidential, groups: [project-borealis, consultants], direct_viewers: []}
+  - {path: documents/08_aurora_charter.md, owner: mrd.pm, classification: internal, groups: [project-aurora, project-managers], direct_viewers: []}
+  - {path: documents/09_aurora_plan.md, owner: mrd.pm, classification: confidential, groups: [project-aurora, project-managers, senior-technicians], direct_viewers: []}
+  - {path: documents/10_timesheet.md, owner: mrd.senior-tech, classification: confidential, groups: [project-aurora, administration], direct_viewers: []}
+  - {path: documents/11_purchase_request.md, owner: mrd.pm, classification: confidential, groups: [administration, project-aurora, project-managers], direct_viewers: []}
+  - {path: documents/12_travel_request.md, owner: mrd.senior-tech, classification: confidential, groups: [administration, project-aurora], direct_viewers: []}
+  - {path: documents/13_expense_report.md, owner: mrd.senior-tech, classification: confidential, groups: [administration], direct_viewers: [mrd.pm]}
+  - {path: documents/14_repository_readme.md, owner: mrd.senior-tech, classification: public, groups: [project-aurora], direct_viewers: []}
+  - {path: documents/15_private_architecture.md, owner: mrd.senior-tech, classification: restricted, groups: [senior-technicians], direct_viewers: []}
+  - {path: documents/16_project_minutes.md, owner: mrd.pm, classification: internal, groups: [project-managers, senior-technicians], direct_viewers: []}
+  - {path: documents/17_incident_report.md, owner: mrd.senior-tech, classification: restricted, groups: [direction, senior-management, senior-technicians], direct_viewers: [mrd.pm]}

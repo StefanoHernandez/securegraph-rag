@@ -46,6 +46,7 @@ RuntimeSettingKey = Literal[
 ]
 
 RESTART_REQUIRED_SETTINGS = frozenset({"embedding_model", "storage_backend", "auth_enabled"})
+FALLBACK_POLICIES = frozenset({"block", "default_provider"})
 
 
 class ProviderCredentialRequest(BaseModel):
@@ -75,6 +76,15 @@ class RuntimeSettingResponse(BaseModel):
     restart_required: bool
     version: int
     updated_at: datetime | None
+
+
+def _validate_runtime_setting_value(key: RuntimeSettingKey, value: dict[str, Any]) -> None:
+    raw_value = value.get("value")
+    if key == "fallback_policy" and raw_value not in FALLBACK_POLICIES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="fallback_policy must be one of: block, default_provider",
+        )
 
 
 class ModelCatalogResponse(BaseModel):
@@ -266,6 +276,7 @@ async def upsert_runtime_setting(
 ) -> RuntimeSettingResponse:
     if request.key != key:
         raise HTTPException(status_code=400, detail="Setting key mismatch")
+    _validate_runtime_setting_value(key, request.value)
     await _ensure_settings_admin(session, principal, tenant_id)
     restart_required = key in RESTART_REQUIRED_SETTINGS
     result = await session.execute(

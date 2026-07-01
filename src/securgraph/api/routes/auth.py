@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from securgraph.api.dependencies import get_db_session
+from securgraph.api.dependencies import get_db_session, set_tenant_rls_context
 from securgraph.config import get_settings
 from securgraph.indexing.db import AuthSessionRow, AuthUserRow, TenantMembershipRow
 
@@ -289,6 +289,11 @@ async def _resolve_user(
     tenant_id = payload.get("tenant_id")
     if tenant_id is not None and not isinstance(tenant_id, str):
         raise HTTPException(status_code=401, detail="Invalid tenant in session")
+    await set_tenant_rls_context(
+        session,
+        tenant_id=tenant_id,
+        is_super_admin=user.is_super_admin,
+    )
     memberships = await _memberships_for_user(session, user.id)
     membership = next((m for m in memberships if m.tenant_id == tenant_id), None)
     if not user.is_super_admin and membership is None:

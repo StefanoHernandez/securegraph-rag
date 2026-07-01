@@ -10,18 +10,26 @@ Supported formats:
     - ``.pdf`` — page-by-page via :mod:`pypdf`.
     - ``.docx`` — paragraph-by-paragraph via :mod:`docx`, headings detected
       from the ``Heading N`` Word styles.
+    - ``.xlsx`` — read-only spreadsheet cells with sheet names, coordinates,
+      and cached/displayed values. Legacy ``.xls`` and macro ``.xlsm`` are
+      intentionally unsupported.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date, datetime, time
+from io import BytesIO
 from pathlib import Path
 from typing import IO, Final, Literal
 
 PARSER_VERSION: Final = "1.0.0"
 
-SourceFormat = Literal["markdown", "text", "pdf", "docx"]
+SourceFormat = Literal["markdown", "text", "pdf", "docx", "xlsx"]
+XLSX_MAX_SHEETS: Final = 25
+XLSX_MAX_CELLS: Final = 200_000
+XLSX_MAX_DECOMPRESSED_BYTES: Final = 25 * 1024 * 1024
 
 _MD_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
@@ -79,6 +87,12 @@ def detect_format(source_uri: str) -> SourceFormat:
         return "pdf"
     if suffix == ".docx":
         return "docx"
+    if suffix == ".xlsx":
+        return "xlsx"
+    if suffix in {".xls", ".xlsm"}:
+        raise ValueError(
+            f"Unsupported Excel format: {suffix!r}. Only macro-free .xlsx files are allowed."
+        )
     raise ValueError(f"Unsupported source format: {suffix!r}")
 
 
@@ -92,6 +106,8 @@ def parse_bytes(data: bytes, source_format: SourceFormat) -> ParsedDocument:
         return parse_pdf_bytes(data)
     if source_format == "docx":
         return parse_docx_bytes(data)
+    if source_format == "xlsx":
+        return parse_xlsx_bytes(data)
     raise ValueError(f"Unknown source_format: {source_format!r}")
 
 
@@ -252,3 +268,81 @@ def parse_docx_bytes(data: bytes) -> ParsedDocument:
         sections=tuple(sections),
         raw_text_length=total_len,
     )
+
+
+# ---------------------------------------------------------------------------
+# XLSX — openpyxl read-only, cached values only
+# ---------------------------------------------------------------------------
+
+
+def parse_xlsx_bytes(data: bytes) -> ParsedDocument:
+    """Extract read-only worksheet cell values with coordinates.
+
+    Formulas are not executed. ``data_only=True`` returns the workbook's cached
+    displayed value where present; cells with formulas but no cached value are
+    omitted. Macros and legacy Excel containers are blocked by suffix before
+    dispatch, and this parser only accepts the macro-free ``.xlsx`` path.
+    """
+    import zipfile
+
+    from openpyxl import load_workbook
+
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        decompressed_size = sum(info.file_size for info in archive.infolist())
+    if decompressed_size > XLSX_MAX_DECOMPRESSED_BYTES:
+        raise ValueError("XLSX decompressed size exceeds parser limit.")
+
+    workbook = load_workbook(
+        BytesIO(data),
+        read_only=True,
+        data_only=True,
+        keep_links=False,
+    )
+    try:
+        if len(workbook.worksheets) > XLSX_MAX_SHEETS:
+            raise ValueError("XLSX sheet limit exceeded.")
+
+        sections: list[ParsedSection] = []
+        total_len = 0
+        cells_seen = 0
+
+        for worksheet in workbook.worksheets:
+            lines: list[str] = []
+            for row in worksheet.iter_rows():
+                for cell in row:
+                    cells_seen += 1
+                    if cells_seen > XLSX_MAX_CELLS:
+                        raise ValueError("XLSX cell limit exceeded.")
+                    if cell.value is None:
+                        continue
+                    rendered = normalize_text(_format_xlsx_value(cell.value)).strip()
+                    if not rendered:
+                        continue
+                    line = f"{cell.coordinate}: {rendered}"
+                    lines.append(line)
+                    total_len += len(line)
+            if lines:
+                sections.append(
+                    ParsedSection(
+                        path=(f"Sheet: {worksheet.title}",),
+                        text="\n".join(lines),
+                    )
+                )
+
+        return ParsedDocument(
+            source_format="xlsx",
+            parser_version=PARSER_VERSION,
+            sections=tuple(sections),
+            raw_text_length=total_len,
+            page_count=len(workbook.worksheets),
+        )
+    finally:
+        workbook.close()
+
+
+def _format_xlsx_value(value: object) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    if isinstance(value, date | time):
+        return value.isoformat()
+    return str(value)

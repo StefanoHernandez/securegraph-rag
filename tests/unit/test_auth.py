@@ -165,11 +165,12 @@ async def test_change_password_revokes_other_sessions(
     )
     memberships_result = MagicMock()
     memberships_result.scalars.return_value.all.return_value = [membership]
+    rls_result = MagicMock()
     sessions_result = MagicMock()
     sessions_result.scalars.return_value.all.return_value = [current_session, other_session]
     mock_session = AsyncMock()
     mock_session.get.side_effect = [user, current_session, user, current_session]
-    mock_session.execute.side_effect = [memberships_result, sessions_result]
+    mock_session.execute.side_effect = [rls_result, memberships_result, sessions_result]
 
     async def override_db():
         yield mock_session

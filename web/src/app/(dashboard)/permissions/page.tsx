@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import {
   ShieldAlert,
   Trash2,
@@ -26,6 +27,7 @@ interface FGATuple {
 const DEMO_USERS = ["user:admin", "user:analyst", "user:viewer"];
 
 export default function PermissionsPage() {
+  const t = useTranslations("permissionsPage");
   const [tuples, setTuples] = useState<FGATuple[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +71,7 @@ export default function PermissionsPage() {
     } catch (err: unknown) {
       console.error(err);
       setError(
-        getErrorMessage(err, "Failed to retrieve FGA tuples from the store.")
+        getErrorMessage(err, t("loadError"))
       );
       // No fake fallback: on error show an empty list + the error banner
       // instead of fabricating permission tuples.
@@ -79,7 +81,7 @@ export default function PermissionsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void fetchTuples(), 0);
@@ -89,7 +91,7 @@ export default function PermissionsPage() {
   const handleGrant = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!subject || !relation || !object) {
-      setError("Compila tutti i campi.");
+      setError(t("fillFields"));
       return;
     }
 
@@ -99,17 +101,25 @@ export default function PermissionsPage() {
 
     try {
       await adminApi.grantPermission(subject.trim(), relation, object.trim());
-      setFormSuccess(`Permesso registrato! ${subject} è ora ${relation} di ${object}`);
+      setFormSuccess(t("grantSuccess", { subject, relation, object }));
       await fetchTuples();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Impossibile scrivere la relazione FGA."));
+      setError(getErrorMessage(err, t("grantError")));
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleRevoke = async (tuple: FGATuple) => {
-    if (!confirm(`Sei sicuro di voler revocare il permesso: ${tuple.user} -> ${tuple.relation} -> ${tuple.object}?`)) {
+    if (
+      !confirm(
+        t("revokeConfirm", {
+          object: tuple.object,
+          relation: tuple.relation,
+          user: tuple.user,
+        })
+      )
+    ) {
       return;
     }
 
@@ -118,7 +128,7 @@ export default function PermissionsPage() {
       await adminApi.revokePermission(tuple.user, tuple.relation, tuple.object);
       await fetchTuples();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Impossibile revocare la relazione FGA."));
+      setError(getErrorMessage(err, t("revokeError")));
       setLoading(false);
     }
   };
@@ -135,12 +145,11 @@ export default function PermissionsPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
 
-      {/* Header */}
       <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-4 border-b border-hairline">
         <div>
-          <p className="mono-meta">section 04 · clearance control</p>
+          <p className="mono-meta">{t("eyebrow")}</p>
           <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
-            Clearance Control
+            {t("title")}
           </h1>
         </div>
         <Button
@@ -151,7 +160,7 @@ export default function PermissionsPage() {
           disabled={loading}
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh store
+          {t("refresh")}
         </Button>
       </header>
 
@@ -159,33 +168,30 @@ export default function PermissionsPage() {
         <div className="px-4 py-3 bg-vault-sunk border border-seal-red/40 text-seal-red text-xs flex items-start gap-2 max-w-xl">
           <ShieldAlert className="h-4 w-4 flex-shrink-0 mt-0.5" />
           <div className="space-y-1 font-mono text-[10px]">
-            <span className="mono-meta text-seal-red normal-case">FGA communication error</span>
+            <span className="mono-meta text-seal-red normal-case">{t("error")}</span>
             <p>{error}</p>
-            <p className="text-bone-dim">Visualizzazione dei dati mock locali per scopi dimostrativi.</p>
+            <p className="text-bone-dim">{t("errorHint")}</p>
           </div>
         </div>
       )}
 
-      {/* Grid: Grant Form & Active Tuples Table */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
 
-        {/* Grant Permission Form (1 col) */}
         <Panel
-          label="grant relationship"
+          label={t("grantRelationship")}
           headRight={<UserPlus className="h-4 w-4 text-bone-dim" />}
         >
           <div className="px-5 py-3 border-b border-hairline">
             <p className="text-xs text-bone-dim leading-relaxed">
-              Write a direct access control tuple into the authorization model.
+              {t("grantHelp")}
             </p>
           </div>
           <div className="p-5">
             <form onSubmit={handleGrant} className="space-y-4 text-xs">
 
-              {/* Subject */}
               <div className="space-y-1.5">
                 <label className="mono-meta block">
-                  Subject (User/Group)
+                  {t("subject")}
                 </label>
                 <div className="relative">
                   <Users className="absolute left-2.5 top-2.5 h-4 w-4 text-bone-dim" />
@@ -213,10 +219,9 @@ export default function PermissionsPage() {
                 </div>
               </div>
 
-              {/* Relation */}
               <div className="space-y-1.5">
                 <label className="mono-meta block">
-                  Relationship
+                  {t("relationship")}
                 </label>
                 <select
                   value={relation}
@@ -230,10 +235,9 @@ export default function PermissionsPage() {
                 </select>
               </div>
 
-              {/* Object */}
               <div className="space-y-1.5">
                 <label className="mono-meta block">
-                  Object (Resource)
+                  {t("object")}
                 </label>
                 <div className="relative">
                   <FileText className="absolute left-2.5 top-2.5 h-4 w-4 text-bone-dim" />
@@ -263,43 +267,45 @@ export default function PermissionsPage() {
                 )}
               </div>
 
-              {/* Form Status Messages */}
               {formSuccess && (
                 <div className="px-3 py-2.5 bg-vault-sunk border border-signal-amber/40 text-signal-amber text-[10px] leading-normal font-mono">
                   {formSuccess}
                 </div>
               )}
 
-              {/* Submit */}
               <Button
                 type="submit"
                 disabled={submitting}
                 className="w-full text-xs h-9"
               >
-                {submitting ? "Scrittura tupla…" : "Register Tuple"}
+                {submitting ? t("writingTuple") : t("registerTuple")}
               </Button>
 
             </form>
           </div>
         </Panel>
 
-        {/* Active Tuples Table (2 cols) */}
         <Panel
           className="lg:col-span-2 min-h-[400px]"
-          label={`active authorization tuples · ${tuples.length}`}
+          label={t("activeTuples", { count: tuples.length })}
           headRight={<Key className="h-4 w-4 text-bone-dim" />}
         >
           <div className="overflow-x-auto custom-scrollbar">
             {loading ? (
               <div className="py-20 flex flex-col items-center gap-2 text-bone-dim">
                 <RefreshCw className="h-5 w-5 animate-spin text-signal-amber" />
-                <span className="mono-meta">caricamento tuple openfga…</span>
+                <span className="mono-meta">{t("loadingTuples")}</span>
               </div>
             ) : (
               <table className="w-full text-left text-xs border-collapse min-w-[450px]">
                 <thead>
                   <tr className="border-b border-hairline text-bone-dim">
-                    {["subject", "relation", "object", ""].map((h, i) => (
+                    {[
+                      t("subjectColumn"),
+                      t("relationColumn"),
+                      t("objectColumn"),
+                      "",
+                    ].map((h, i) => (
                       <th
                         key={i}
                         className={`px-4 py-2.5 font-mono text-[0.625rem] uppercase tracking-wider font-medium ${i === 3 ? "text-right" : ""}`}
@@ -310,32 +316,32 @@ export default function PermissionsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-hairline">
-                  {tuples.map((t, idx) => (
+                  {tuples.map((tuple, idx) => (
                     <tr key={idx} className="hover:bg-[rgba(232,230,223,0.03)] transition-colors">
-                      <td className="px-4 py-3 font-mono text-bone truncate max-w-40" title={t.user}>
-                        {t.user}
+                      <td className="px-4 py-3 font-mono text-bone truncate max-w-40" title={tuple.user}>
+                        {tuple.user}
                       </td>
                       <td className="px-4 py-3">
                         <span className={
-                          t.relation === "owner"
+                          tuple.relation === "owner"
                             ? "stamp text-seal-red"
-                            : t.relation.includes("parent")
+                            : tuple.relation.includes("parent")
                               ? "stamp text-bone-dim"
                               : "stamp text-signal-amber"
                         }>
-                          {t.relation}
+                          {tuple.relation}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-mono text-bone-dim truncate max-w-44" title={t.object}>
-                        {t.object}
+                      <td className="px-4 py-3 font-mono text-bone-dim truncate max-w-44" title={tuple.object}>
+                        {tuple.object}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleRevoke(t)}
+                          onClick={() => handleRevoke(tuple)}
                           className="h-7 w-7 text-bone-dim hover:text-seal-red"
-                          title="Revoke relationship tuple"
+                          title={t("revokeTuple")}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -349,14 +355,13 @@ export default function PermissionsPage() {
         </Panel>
       </div>
 
-      {/* User-Document Authorization Matrix */}
       <Panel
-        label="user-document clearance grid"
+        label={t("grid")}
         headRight={<Grid className="h-4 w-4 text-bone-dim" />}
       >
         <div className="px-5 py-3 border-b border-hairline">
           <p className="text-xs text-bone-dim leading-relaxed">
-            Computed accessibility derived from tuples. A granted cell carries a clearance stamp; a withheld cell is left blank.
+            {t("gridHelp")}
           </p>
         </div>
         <div className="overflow-x-auto custom-scrollbar">
@@ -364,7 +369,7 @@ export default function PermissionsPage() {
             <thead>
               <tr className="border-b border-hairline text-bone-dim">
                 <th className="px-4 py-2.5 text-left font-mono text-[0.625rem] uppercase tracking-wider font-medium">
-                  fga subject
+                  {t("fgaSubject")}
                 </th>
                 {matrixDocs.map((doc) => (
                   <th key={doc} className="px-4 py-2.5 font-medium">

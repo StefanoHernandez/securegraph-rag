@@ -8,7 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session
@@ -94,8 +94,20 @@ class UserListItem(BaseModel):
     must_change_password: bool
 
 
+class UserSearchItem(BaseModel):
+    id: str
+    username: str
+    display_name: str
+    email: str | None
+    is_active: bool
+
+
 class TemporaryPasswordResponse(BaseModel):
     temporary_password: str
+
+
+class ExistingMembershipCreate(BaseModel):
+    role: TenantRole = "viewer"
 
 
 class GroupCreate(BaseModel):
@@ -103,6 +115,13 @@ class GroupCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=256)
     kind: Literal["functional", "project"] = "functional"
     description: str | None = Field(default=None, max_length=2000)
+
+
+class GroupUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=256)
+    kind: Literal["functional", "project"] | None = None
+    description: str | None = Field(default=None, max_length=2000)
+    is_active: bool | None = None
 
 
 class GroupResponse(BaseModel):
@@ -122,6 +141,15 @@ class AccessTemplateCreate(BaseModel):
     owner_rule: Literal["uploader", "tenant_admin"] = "uploader"
     allowed_group_ids: list[str] = Field(default_factory=list, max_length=100)
     direct_viewer_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class AccessTemplateUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=256)
+    default_classification: Classification | None = None
+    owner_rule: Literal["uploader", "tenant_admin"] | None = None
+    allowed_group_ids: list[str] | None = Field(default=None, max_length=100)
+    direct_viewer_ids: list[str] | None = Field(default=None, max_length=100)
+    is_active: bool | None = None
 
 
 class AccessTemplateResponse(AccessTemplateCreate):
@@ -147,6 +175,11 @@ def _ensure_superadmin(principal: AuthenticatedPrincipal | None) -> None:
 
 def _ensure_tenant_admin(principal: AuthenticatedPrincipal | None, tenant_id: str) -> None:
     if principal is not None and not principal.can_admin_tenant(tenant_id):
+        raise HTTPException(status_code=403, detail="Tenant administrator role required.")
+
+
+def _ensure_identity_search_admin(principal: AuthenticatedPrincipal | None) -> None:
+    if principal is not None and not (principal.is_super_admin or principal.role == "tenant_admin"):
         raise HTTPException(status_code=403, detail="Tenant administrator role required.")
 
 
@@ -210,6 +243,37 @@ async def create_tenant(
         target_id=request.id,
     )
     return _tenant_response(tenant)
+
+
+@router.get("/users/search", response_model=list[UserSearchItem])
+async def search_users(
+    q: str = "",
+    principal: AuthenticatedPrincipal | None = Depends(require_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[UserSearchItem]:
+    _ensure_identity_search_admin(principal)
+    query = q.strip()
+    stmt = select(AuthUserRow).order_by(AuthUserRow.username).limit(25)
+    if query:
+        like = f"%{query}%"
+        stmt = stmt.where(
+            or_(
+                AuthUserRow.username.ilike(like),
+                AuthUserRow.display_name.ilike(like),
+                AuthUserRow.email.ilike(like),
+            )
+        )
+    result = await session.execute(stmt)
+    return [
+        UserSearchItem(
+            id=user.id,
+            username=user.username,
+            display_name=user.display_name,
+            email=user.email,
+            is_active=user.is_active,
+        )
+        for user in result.scalars().all()
+    ]
 
 
 @router.get("/tenants", response_model=list[TenantResponse])
@@ -341,6 +405,56 @@ async def create_tenant_user(
     )
 
 
+@router.post("/tenants/{tenant_id}/users/{user_id}/membership", response_model=UserListItem)
+async def attach_existing_user(
+    tenant_id: str,
+    user_id: str,
+    request: ExistingMembershipCreate,
+    principal: AuthenticatedPrincipal | None = Depends(require_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> UserListItem:
+    _ensure_tenant_admin(principal, tenant_id)
+    if request.role == "super_admin" and (principal is None or not principal.is_super_admin):
+        raise HTTPException(status_code=403, detail="Only super-admins may grant this role")
+    user = await session.get(AuthUserRow, user_id)
+    membership = await session.get(TenantMembershipRow, (tenant_id, user_id))
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=404, detail="Active user not found")
+    if membership is None:
+        membership = TenantMembershipRow(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=request.role,
+            is_active=True,
+        )
+        session.add(membership)
+    else:
+        membership.role = request.role
+        membership.is_active = True
+    if request.role == "super_admin":
+        user.is_super_admin = True
+    user.token_version += 1
+    _audit(
+        session,
+        principal,
+        tenant_id=tenant_id,
+        action="membership.attach",
+        target_type="user",
+        target_id=user_id,
+        metadata={"role": request.role},
+    )
+    return UserListItem(
+        id=user.id,
+        username=user.username,
+        display_name=user.display_name,
+        email=user.email,
+        is_active=user.is_active,
+        role=membership.role,
+        membership_active=membership.is_active,
+        must_change_password=user.must_change_password,
+    )
+
+
 @router.patch("/tenants/{tenant_id}/users/{user_id}", response_model=UserListItem)
 async def update_membership(
     tenant_id: str,
@@ -469,6 +583,33 @@ async def create_group(
         action="group.create",
         target_type="group",
         target_id=group.id,
+    )
+    return _group_response(group)
+
+
+@router.patch("/tenants/{tenant_id}/groups/{group_id}", response_model=GroupResponse)
+async def update_group(
+    tenant_id: str,
+    group_id: str,
+    request: GroupUpdate,
+    principal: AuthenticatedPrincipal | None = Depends(require_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> GroupResponse:
+    _ensure_tenant_admin(principal, tenant_id)
+    group = await session.get(GroupRow, group_id)
+    if group is None or group.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail="Group not found")
+    changes = request.model_dump(exclude_none=True)
+    for key, value in changes.items():
+        setattr(group, key, value)
+    _audit(
+        session,
+        principal,
+        tenant_id=tenant_id,
+        action="group.update",
+        target_type="group",
+        target_id=group_id,
+        metadata=changes,
     )
     return _group_response(group)
 
@@ -629,5 +770,37 @@ async def create_access_template(
         action="access_template.create",
         target_type="access_template",
         target_id=template.id,
+    )
+    return _template_response(template)
+
+
+@router.patch(
+    "/tenants/{tenant_id}/access-templates/{template_id}",
+    response_model=AccessTemplateResponse,
+)
+async def update_access_template(
+    tenant_id: str,
+    template_id: str,
+    request: AccessTemplateUpdate,
+    principal: AuthenticatedPrincipal | None = Depends(require_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> AccessTemplateResponse:
+    _ensure_tenant_admin(principal, tenant_id)
+    template = await session.get(AccessTemplateRow, template_id)
+    if template is None or template.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail="Access template not found")
+    changes = request.model_dump(exclude_none=True)
+    for key, value in changes.items():
+        setattr(template, key, value)
+    if changes:
+        template.version += 1
+    _audit(
+        session,
+        principal,
+        tenant_id=tenant_id,
+        action="access_template.update",
+        target_type="access_template",
+        target_id=template_id,
+        metadata=changes,
     )
     return _template_response(template)

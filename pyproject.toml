@@ -99,6 +99,8 @@ dev = [
 parsers = [
     "pypdf>=5.0",
     "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "reportlab>=4.2",
     "langdetect>=1.0.9",
 ]
 # Loaded from M5+
@@ -147,6 +149,9 @@ llm_all = [
     "openai>=1.50",
     "google-genai>=0.5",
     "anthropic>=0.40",
+]
+aws = [
+    "boto3>=1.35",
 ]
 
 [project.urls]

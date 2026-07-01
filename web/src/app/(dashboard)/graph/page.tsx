@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
+import { useTranslations } from "next-intl";
 import {
   Network,
   Search,
@@ -35,10 +36,11 @@ const ForceGraph3D = dynamic(
 ) as ForceGraphComponent;
 
 function LoaderComponent() {
+  const t = useTranslations("graphPage");
   return (
     <>
       <RefreshCw className="h-6 w-6 animate-spin text-signal-amber" />
-      <p className="mono-meta">initializing webgl viewport…</p>
+      <p className="mono-meta">{t("loader")}</p>
     </>
   );
 }
@@ -90,6 +92,7 @@ const LINK_DIM = "rgba(232,230,223,0.04)";
 const LINK_ACTIVE = "rgba(232,178,58,0.85)";
 
 export default function GraphPage() {
+  const t = useTranslations("graphPage");
   const { tenants, tenantId, loadingTenants, tenantError, selectTenant } =
     useTenantSelection();
   const [loading, setLoading] = useState(false);
@@ -147,7 +150,7 @@ export default function GraphPage() {
       setSelectedClassifications(classes);
     } catch (err: unknown) {
       console.error(err);
-      setError(getErrorMessage(err, "Failed to load graph nodes from Neo4j."));
+      setError(getErrorMessage(err, t("loadError")));
       // No fake fallback: on error leave the graph empty so the empty-state
       // panel is shown instead of presenting fabricated nodes as real data.
       setNodes([]);
@@ -155,7 +158,7 @@ export default function GraphPage() {
     } finally {
       setLoading(false);
     }
-  }, [tenantId]);
+  }, [tenantId, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void fetchGraphData(), 0);
@@ -303,12 +306,11 @@ export default function GraphPage() {
 
   return (
     <div className="max-w-7xl mx-auto h-[calc(100vh-140px)] flex flex-col space-y-6">
-      {/* Header */}
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-hairline flex-shrink-0">
         <div>
-          <p className="mono-meta">section 05 · knowledge graph</p>
+          <p className="mono-meta">{t("eyebrow")}</p>
           <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-bone">
-            Knowledge Graph
+            {t("title")}
           </h1>
         </div>
 
@@ -321,7 +323,7 @@ export default function GraphPage() {
             disabled={loadingTenants || tenants.length === 0}
             className="bg-vault-raised border border-hairline px-2.5 py-1.5 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
           >
-            {!tenantId && <option value="">no tenant</option>}
+            {!tenantId && <option value="">{t("noTenant")}</option>}
             {tenants.map((tenant) => (
               <option key={tenant.id} value={tenant.id}>
                 {tenant.display_name}
@@ -330,38 +332,35 @@ export default function GraphPage() {
           </select>
           <Button size="sm" onClick={fetchGraphData} variant="outline" disabled={loading} className="gap-1.5">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            Sync Neo4j
+            {t("refresh")}
           </Button>
         </div>
       </header>
 
       {error && (
         <div className="border border-seal-red/40 bg-vault-sunk px-4 py-3 max-w-xl flex-shrink-0">
-          <p className="mono-meta text-seal-red mb-1">neo4j connection failed</p>
+          <p className="mono-meta text-seal-red mb-1">{t("error")}</p>
           <p className="font-mono text-[0.625rem] text-bone-dim">{error}</p>
-          <p className="font-mono text-[0.625rem] text-bone-dim mt-1">Loading local demo graph.</p>
+          <p className="font-mono text-[0.625rem] text-bone-dim mt-1">{t("emptyOnError")}</p>
         </div>
       )}
       {tenantError && (
         <div className="border border-seal-red/40 bg-vault-sunk px-4 py-3 max-w-xl flex-shrink-0">
-          <p className="mono-meta text-seal-red mb-1">tenant directory failed</p>
+          <p className="mono-meta text-seal-red mb-1">{t("tenantError")}</p>
           <p className="font-mono text-[0.625rem] text-bone-dim">{tenantError}</p>
         </div>
       )}
 
-      {/* Main grid */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch flex-1 min-h-0">
-        {/* Left: filters + search */}
         <div className="flex flex-col gap-6 h-full overflow-y-auto custom-scrollbar flex-shrink-0">
-          {/* Search */}
-          <Panel label="find entity" className="flex-shrink-0">
+          <Panel label={t("find")} className="flex-shrink-0">
             <div className="px-4 py-4 space-y-3">
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-bone-dim" />
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="name or description…"
+                  placeholder={t("searchPlaceholder")}
                   className="pl-9 bg-vault-raised border-hairline font-mono text-xs"
                 />
               </div>
@@ -379,19 +378,18 @@ export default function GraphPage() {
                     </button>
                   ))}
                   {filteredNodes.length === 0 && (
-                    <span className="px-2.5 py-2 mono-meta block text-center">no match</span>
+                    <span className="px-2.5 py-2 mono-meta block text-center">{t("noMatch")}</span>
                   )}
                 </div>
               )}
             </div>
           </Panel>
 
-          {/* Filters */}
-          <Panel label="graph filters" className="flex-1">
+          <Panel label={t("filters")} className="flex-1">
             <div className="px-4 py-4 space-y-5">
               {/* Entity types */}
               <div className="space-y-2">
-                <p className="mono-meta">entity types</p>
+                <p className="mono-meta">{t("entityTypes")}</p>
                 <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto custom-scrollbar">
                   {uniqueTypes.map((type) => (
                     <button
@@ -408,7 +406,7 @@ export default function GraphPage() {
 
               {/* Classification levels */}
               <div className="space-y-2">
-                <p className="mono-meta">classification</p>
+                <p className="mono-meta">{t("classification")}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {uniqueClassifications.map((cls) => (
                     <button
@@ -426,11 +424,11 @@ export default function GraphPage() {
               {/* Counts */}
               <dl className="border-t border-hairline pt-3 space-y-1.5 font-mono text-xs">
                 <div className="flex justify-between">
-                  <dt className="mono-meta normal-case">filtered nodes</dt>
+                  <dt className="mono-meta normal-case">{t("filteredNodes")}</dt>
                   <dd className="text-bone tabular-nums">{filteredNodes.length}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="mono-meta normal-case">filtered links</dt>
+                  <dt className="mono-meta normal-case">{t("filteredLinks")}</dt>
                   <dd className="text-bone tabular-nums">{filteredLinks.length}</dd>
                 </div>
               </dl>
@@ -438,18 +436,15 @@ export default function GraphPage() {
           </Panel>
         </div>
 
-        {/* Center: 3D force graph */}
-        <Panel label="3d structural viewport" className="lg:col-span-2 overflow-hidden relative flex flex-col min-h-[500px]">
+        <Panel label={t("viewport")} className="lg:col-span-2 overflow-hidden relative flex flex-col min-h-[500px]">
           <div ref={containerRef} className="flex-1 w-full h-full bg-vault-sunk relative min-h-[500px]">
             {filteredNodes.length === 0 && !loading && (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-vault-sunk z-10 gap-4">
                 <Network className="h-8 w-8 text-bone-dim" />
                 <div className="space-y-1.5 max-w-md">
-                  <p className="mono-meta text-bone">no graph data</p>
+                  <p className="mono-meta text-bone">{t("emptyTitle")}</p>
                   <p className="text-xs text-bone-dim leading-relaxed">
-                    No entities or relations loaded for tenant{" "}
-                    <span className="font-mono text-signal-amber">{tenantId}</span>.
-                    Ingest documents for this tenant to populate the graph.
+                    {t("emptyCopy", { tenantId: tenantId ?? "—" })}
                   </p>
                 </div>
               </div>
@@ -479,9 +474,8 @@ export default function GraphPage() {
           </div>
         </Panel>
 
-        {/* Right: entity inspector */}
         <Panel
-          label="entity inspector"
+          label={t("inspector")}
           classification={selectedNode ? selectedNode.classification : undefined}
           className="flex flex-col"
         >
@@ -489,36 +483,37 @@ export default function GraphPage() {
             {selectedNode ? (
               <div className="space-y-4 font-mono text-xs">
                 <div>
-                  <p className="mono-meta">entity id</p>
+                  <p className="mono-meta">{t("entityId")}</p>
                   <p className="text-bone mt-1 leading-normal break-words">{selectedNode.id}</p>
                 </div>
 
                 <div>
-                  <p className="mono-meta">entity type</p>
+                  <p className="mono-meta">{t("entityType")}</p>
                   <p className="text-signal-amber mt-1 uppercase tracking-wider">
                     {selectedNode.type}
                   </p>
                 </div>
 
                 <div>
-                  <p className="mono-meta">classification</p>
+                  <p className="mono-meta">{t("classification")}</p>
                   <div className="mt-1.5">
                     <ClassificationStamp level={selectedNode.classification} />
                   </div>
                 </div>
 
                 <div>
-                  <p className="mono-meta">description</p>
+                  <p className="mono-meta">{t("description")}</p>
                   <div className="bg-vault-sunk border border-hairline px-2.5 py-2 text-[0.625rem] text-bone-dim leading-relaxed mt-1.5">
-                    {selectedNode.description || "No description present in database."}
+                    {selectedNode.description || t("noDescription")}
                   </div>
                 </div>
 
-                {/* Adjacent edges */}
                 <div>
                   <div className="flex items-center gap-1.5 mono-meta border-b border-hairline pb-1.5 mb-2">
-                    <Link2 className="h-3 w-3" /> adjacent edges (
-                    {getNodeNeighbors(selectedNode.id).length})
+                    <Link2 className="h-3 w-3" />{" "}
+                    {t("adjacentEdges", {
+                      count: getNodeNeighbors(selectedNode.id).length,
+                    })}
                   </div>
                   <ul className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
                     {getNodeNeighbors(selectedNode.id).map((edge, idx) => {
@@ -554,7 +549,7 @@ export default function GraphPage() {
               <div className="h-full flex flex-col items-center justify-center text-center gap-2 py-10">
                 <Network className="h-6 w-6 text-bone-dim" />
                 <span className="mono-meta normal-case">
-                  select a node to inspect its relations and metadata
+                  {t("selectNode")}
                 </span>
               </div>
             )}

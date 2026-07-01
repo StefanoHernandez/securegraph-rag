@@ -15,6 +15,7 @@ from securgraph.api.routes import settings as settings_routes
 from securgraph.api.routes.auth import AuthenticatedPrincipal
 from securgraph.config import get_settings
 from securgraph.indexing.db import ProviderCredentialRow, TenantRow
+from securgraph.security import secrets
 from securgraph.security.secrets import decrypt_secret, encrypt_secret
 from securgraph.services.provider_catalog import ProviderModel
 
@@ -50,6 +51,16 @@ def test_provider_secret_encryption_roundtrip(master_key_env: None) -> None:
         decrypt_secret(payload, associated_data="tenant:mrd:provider:openai")
         == "sk-test-secret"
     )
+
+
+def test_binary_source_encryption_roundtrip(master_key_env: None) -> None:
+    """Raw uploaded bytes are encrypted without text or base64 conversion."""
+    original = b"\x00policy\xffpayload"
+
+    payload = secrets.encrypt_bytes(original, associated_data="tenant:mrd:ingest:ing-1")
+
+    assert payload != original
+    assert secrets.decrypt_bytes(payload, associated_data="tenant:mrd:ingest:ing-1") == original
 
 
 async def test_superadmin_upserts_verified_provider_credential(
@@ -134,3 +145,38 @@ async def test_tenant_admin_cannot_manage_settings_without_delegation(
 
     assert response.status_code == 403
     assert "delegation" in response.json()["detail"].lower()
+
+
+async def test_runtime_fallback_policy_rejects_unknown_value(
+    client: AsyncClient,
+    fastapi_app: FastAPI,
+) -> None:
+    tenant = TenantRow(
+        id="mrd-lab",
+        display_name="MRD Lab",
+        status="active",
+        tenant_admin_settings_enabled=False,
+    )
+    empty_result = MagicMock()
+    empty_result.scalar_one_or_none.return_value = None
+    mock_session = AsyncMock()
+    mock_session.get.return_value = tenant
+    mock_session.execute.return_value = empty_result
+    mock_session.add = MagicMock()
+
+    async def override_db():
+        yield mock_session
+
+    async def override_user():
+        return principal()
+
+    fastapi_app.dependency_overrides[get_db_session] = override_db
+    fastapi_app.dependency_overrides[settings_routes.require_user] = override_user
+
+    response = await client.put(
+        "/api/v1/tenants/mrd-lab/settings/runtime/fallback_policy",
+        json={"key": "fallback_policy", "value": {"value": "always_use_anything"}},
+    )
+
+    assert response.status_code == 400
+    assert "fallback_policy" in response.json()["detail"]
