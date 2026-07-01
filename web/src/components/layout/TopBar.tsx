@@ -59,12 +59,11 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
 
   const handleTenantChange = (selected: string) => {
     selectTenant(selected);
-    window.location.reload();
+    router.refresh();
   };
 
   const handleLogout = async () => {
     await authApi.logout().catch(() => undefined);
-    localStorage.removeItem("securgraph_user");
     router.push(localizePath("/login", pathname));
   };
 
