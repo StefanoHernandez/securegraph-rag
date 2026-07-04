@@ -28,9 +28,31 @@ from securgraph.api.routes import ingest as ingest_routes
 from securgraph.api.routes import operations as operations_routes
 from securgraph.api.routes import query as query_routes
 from securgraph.api.routes import settings as settings_routes
-from securgraph.config import get_settings
+from securgraph.config import DEFAULT_JWT_SECRET, Settings, get_settings
 from securgraph.logging import configure_logging, get_logger
 from securgraph.observability import setup_observability, shutdown_observability
+
+
+def enforce_secret_hygiene(settings: Settings) -> None:
+    """Fail closed at startup when secrets are unsafe for stage/prod.
+
+    In dev/test a weak or default JWT secret is tolerated (logged as a
+    warning by the caller); in stage/prod it would let anyone forge session
+    tokens, so the process must refuse to boot.
+    """
+    if settings.env not in ("stage", "prod"):
+        return
+    jwt_secret = settings.jwt_secret.get_secret_value()
+    if jwt_secret == DEFAULT_JWT_SECRET:
+        raise RuntimeError(
+            "SECURGRAPH_JWT_SECRET is the known-public default; refusing to start "
+            f"in env={settings.env}. Set a random secret of at least 32 characters."
+        )
+    if len(jwt_secret) < 32:
+        raise RuntimeError(
+            f"SECURGRAPH_JWT_SECRET is too short ({len(jwt_secret)} chars); refusing "
+            f"to start in env={settings.env}. Use at least 32 characters."
+        )
 
 
 @asynccontextmanager
@@ -42,6 +64,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(level=settings.log_level, json_logs=settings.env != "dev")
     log = get_logger(__name__)
+    enforce_secret_hygiene(settings)
+    if (
+        settings.env in ("dev", "test")
+        and settings.jwt_secret.get_secret_value() == DEFAULT_JWT_SECRET
+    ):
+        log.warning("jwt_secret_default_in_use", env=settings.env)
     log.info(
         "securgraph_starting",
         version=__version__,
@@ -60,6 +88,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log.exception("openfga_bootstrapping_failed")
         if settings.env in ("prod", "stage"):
             raise
+
+    # Reload persisted runtime-safe settings so PUT-applied overrides
+    # survive restarts. Non-fatal: the API still serves with defaults.
+    try:
+        from securgraph.api.dependencies import AsyncSessionLocal
+        from securgraph.runtime_overrides import hydrate_overrides_from_db
+
+        async with AsyncSessionLocal() as session:
+            await hydrate_overrides_from_db(session)
+    except Exception:
+        log.exception("runtime_overrides_hydration_failed")
 
     try:
         yield

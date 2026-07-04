@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated
 
 from arq.connections import ArqRedis
@@ -15,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, get_redis_pool
+from securgraph.api.ratelimit import enforce_rate
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.config import get_settings
 from securgraph.domain import Classification, DocumentType
@@ -32,6 +34,42 @@ from securgraph.ingestion.service import IngestionRequest, ingest_document
 from securgraph.security.secrets import SecretEncryptionError, encrypt_bytes
 
 router = APIRouter(tags=["ingestion"])
+
+# Extensions the ingestion parsers actually support (see
+# securgraph.ingestion.parsers.detect_format). Anything else is rejected at
+# the API boundary instead of failing later inside the pipeline.
+_ALLOWED_UPLOAD_EXTENSIONS = frozenset({".md", ".markdown", ".txt", ".pdf", ".docx", ".xlsx"})
+_MAX_FILENAME_LENGTH = 256
+
+# Trust boundary note (prompt injection): the PARSED TEXT of uploaded
+# documents flows into LLM prompts (draft/extract/judge stages) without
+# sanitization. A malicious document can therefore attempt prompt injection
+# against the pipeline. Mitigations in place: ReBAC filtering limits whose
+# documents reach whose queries, and answers are grounded/warned via the
+# consensus layer. Full content sanitization is out of scope here — this
+# boundary is documented so reviewers don't assume the input is trusted.
+
+
+def _sanitize_filename(filename: str | None) -> str:
+    """Normalize an upload filename before it becomes part of source_uri.
+
+    Strips any client-supplied path, control characters and newlines (which
+    would corrupt logs/URIs), and caps the length.
+    """
+    name = Path(filename or "upload").name
+    name = "".join(ch for ch in name if ch.isprintable() and ch not in "\r\n\t")
+    name = name.strip() or "upload"
+    return name[:_MAX_FILENAME_LENGTH]
+
+
+def _ensure_supported_upload(filename: str) -> None:
+    suffix = Path(filename).suffix.lower()
+    if suffix not in _ALLOWED_UPLOAD_EXTENSIONS:
+        allowed = ", ".join(sorted(_ALLOWED_UPLOAD_EXTENSIONS))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file type {suffix or '(none)'}. Allowed: {allowed}",
+        )
 
 
 class IngestResponse(SGModel):
@@ -147,6 +185,11 @@ async def ingest_file(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token tenant does not match the ingestion tenant.",
         )
+    enforce_rate(
+        "ingest",
+        current_user.user_id if current_user is not None else "anonymous",
+        get_settings().ratelimit_ingest,
+    )
     effective_owner = owner_id or (
         f"user:{current_user.user_id}" if current_user is not None else "user:anonymous"
     )
@@ -182,6 +225,8 @@ async def ingest_file(
                 )
 
     settings = get_settings()
+    safe_filename = _sanitize_filename(file.filename)
+    _ensure_supported_upload(safe_filename)
     data = await file.read()
     if not data:
         raise HTTPException(
@@ -213,7 +258,7 @@ async def ingest_file(
 
         # Determine stable document_id immediately
         src_hash = compute_source_hash(data)
-        document_id = derive_document_id(tenant_id, f"file://{file.filename}", src_hash)
+        document_id = derive_document_id(tenant_id, f"file://{safe_filename}", src_hash)
 
         # Create queued job state in Postgres and commit immediately
         await create_ingestion_job(
@@ -230,7 +275,7 @@ async def ingest_file(
             await store_ingestion_source(
                 session,
                 job_id=job_id,
-                source_uri=f"file://{file.filename}",
+                source_uri=f"file://{safe_filename}",
                 encrypted_data=encrypt_bytes(
                     data,
                     associated_data=f"tenant:{tenant_id}:ingest:{job_id}",
@@ -252,7 +297,7 @@ async def ingest_file(
         # Serialize request parameters for arq
         request_dict = {
             "tenant_id": tenant_id,
-            "source_uri": f"file://{file.filename}",
+            "source_uri": f"file://{safe_filename}",
             "owner_id": effective_owner,
             "data": data,
             "document_type": document_type.value,
@@ -276,7 +321,7 @@ async def ingest_file(
 
     request = IngestionRequest(
         tenant_id=tenant_id,
-        source_uri=f"file://{file.filename}",
+        source_uri=f"file://{safe_filename}",
         owner_id=effective_owner,
         data=data,
         document_type=document_type,

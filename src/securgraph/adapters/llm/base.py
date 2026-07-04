@@ -285,6 +285,12 @@ def get_llm_adapter(role: LLMRole = "generation", tenant_id: str | None = None) 
     """
     settings = get_effective_settings(tenant_id)
     pid = _resolve_provider_id(role, settings)
+    # Tenant egress policy: block the call BEFORE any adapter is built for a
+    # disallowed provider/stage. No configured policy -> allowed.
+    from securgraph.policy.egress import ROLE_TO_STAGE, enforce_egress
+
+    stage = ROLE_TO_STAGE.get(role, "generation")
+    enforce_egress(tenant_id, pid, stage)
     try:
         return _cached_adapter(pid, role, tenant_id)
     except RuntimeError:
@@ -293,6 +299,8 @@ def get_llm_adapter(role: LLMRole = "generation", tenant_id: str | None = None) 
             and pid != settings.llm_provider
             and getattr(settings, "fallback_policy", "block") == "default_provider"
         ):
+            # The fallback provider must pass the same egress policy.
+            enforce_egress(tenant_id, settings.llm_provider, stage)
             return _cached_adapter(settings.llm_provider, role, tenant_id)
         raise
 

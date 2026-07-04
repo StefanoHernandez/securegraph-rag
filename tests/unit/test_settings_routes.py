@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,7 +15,7 @@ from securgraph.api.dependencies import get_db_session
 from securgraph.api.routes import settings as settings_routes
 from securgraph.api.routes.auth import AuthenticatedPrincipal
 from securgraph.config import get_settings
-from securgraph.indexing.db import ProviderCredentialRow, TenantRow
+from securgraph.indexing.db import ProviderCredentialRow, RuntimeSettingRow, TenantRow
 from securgraph.security import secrets
 from securgraph.security.secrets import decrypt_secret, encrypt_secret
 from securgraph.services.provider_catalog import ProviderModel
@@ -180,3 +181,144 @@ async def test_runtime_fallback_policy_rejects_unknown_value(
 
     assert response.status_code == 400
     assert "fallback_policy" in response.json()["detail"]
+
+
+async def test_runtime_egress_policy_rejects_unknown_provider(
+    client: AsyncClient,
+    fastapi_app: FastAPI,
+) -> None:
+    tenant = TenantRow(id="mrd-lab", display_name="MRD Lab", status="active")
+    empty_result = MagicMock()
+    empty_result.scalar_one_or_none.return_value = None
+    mock_session = AsyncMock()
+    mock_session.get.return_value = tenant
+    mock_session.execute.return_value = empty_result
+
+    async def override_db():
+        yield mock_session
+
+    async def override_user():
+        return principal()
+
+    fastapi_app.dependency_overrides[get_db_session] = override_db
+    fastapi_app.dependency_overrides[settings_routes.require_user] = override_user
+
+    response = await client.put(
+        "/api/v1/tenants/mrd-lab/settings/runtime/egress_policy",
+        json={
+            "key": "egress_policy",
+            "value": {
+                "value": {
+                    "default": "block",
+                    "rules": [
+                        {
+                            "provider": "unknown-cloud",
+                            "stage": "generation",
+                            "max_classification": "internal",
+                            "action": "allow",
+                        }
+                    ],
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "provider" in response.json()["detail"].lower()
+
+
+async def test_cost_estimate_returns_egress_and_hard_cap_decision(
+    client: AsyncClient,
+    fastapi_app: FastAPI,
+) -> None:
+    tenant = TenantRow(id="mrd-lab", display_name="MRD Lab", status="active")
+    settings_result = MagicMock()
+    settings_result.scalars.return_value.all.return_value = [
+        SimpleNamespace(
+            key="egress_policy",
+            value={
+                "value": {
+                    "default": "block",
+                    "rules": [
+                        {
+                            "provider": "openai",
+                            "stage": "generation",
+                            "max_classification": "internal",
+                            "action": "allow",
+                        }
+                    ],
+                }
+            },
+        ),
+        SimpleNamespace(key="hard_token_cap", value={"value": 1000}),
+    ]
+    mock_session = AsyncMock()
+    mock_session.get.return_value = tenant
+    mock_session.execute.return_value = settings_result
+
+    async def override_db():
+        yield mock_session
+
+    async def override_user():
+        return principal()
+
+    fastapi_app.dependency_overrides[get_db_session] = override_db
+    fastapi_app.dependency_overrides[settings_routes.require_user] = override_user
+
+    response = await client.post(
+        "/api/v1/tenants/mrd-lab/settings/cost-estimate",
+        json={
+            "provider": "openai",
+            "model_id": "gpt-test",
+            "stage": "generation",
+            "classification": "restricted",
+            "input_tokens": 900,
+            "output_tokens": 200,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_tokens"] == 1100
+    assert body["hard_token_cap"] == 1000
+    assert body["within_hard_token_cap"] is False
+    assert body["estimated_cost_usd"] > 0
+    assert body["egress"]["allowed"] is False
+    assert body["egress"]["reason"] == "default egress policy"
+
+
+async def test_plans_blue_green_embedding_reindex(
+    client: AsyncClient,
+    fastapi_app: FastAPI,
+) -> None:
+    tenant = TenantRow(id="mrd-lab", display_name="MRD Lab", status="active")
+    empty_result = MagicMock()
+    empty_result.scalar_one_or_none.return_value = None
+    mock_session = AsyncMock()
+    mock_session.get.return_value = tenant
+    mock_session.execute.return_value = empty_result
+    mock_session.add = MagicMock()
+
+    async def override_db():
+        yield mock_session
+
+    async def override_user():
+        return principal()
+
+    fastapi_app.dependency_overrides[get_db_session] = override_db
+    fastapi_app.dependency_overrides[settings_routes.require_user] = override_user
+
+    response = await client.post(
+        "/api/v1/tenants/mrd-lab/settings/embedding-reindex/plan",
+        json={"to_model": "BAAI/bge-large-en-v1.5", "embedding_dim": 1024},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["strategy"] == "blue_green"
+    assert body["status"] == "planned"
+    assert body["shadow_collection"].startswith("securgraph_chunks__shadow_")
+    added = [call.args[0] for call in mock_session.add.call_args_list]
+    setting = next(row for row in added if isinstance(row, RuntimeSettingRow))
+    assert setting.key == "embedding_reindex_plan"
+    assert setting.value["value"]["to_model"] == "BAAI/bge-large-en-v1.5"

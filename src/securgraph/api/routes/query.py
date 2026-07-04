@@ -16,6 +16,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, get_graph_retriever, get_qdrant_retriever
+from securgraph.api.ratelimit import enforce_rate
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.config import get_settings
 from securgraph.domain import (
@@ -38,9 +39,15 @@ from securgraph.observability.otel import (
     QUERY_LATENCY_SECS,
 )
 from securgraph.orchestration.workflow import compile_workflow
+from securgraph.policy.egress import EgressBlockedError
 
 router = APIRouter(tags=["query"])
 logger = get_logger(__name__)
+
+
+def _graph_context_id(item: Any, attr: str) -> str | None:
+    value = getattr(item, attr, None)
+    return str(value) if value else None
 
 
 @router.post(
@@ -62,6 +69,11 @@ async def query_pipeline(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token tenant does not match the requested tenant.",
         )
+    enforce_rate(
+        "query",
+        current_user.user_id if current_user is not None else "anonymous",
+        get_settings().ratelimit_query,
+    )
     # SGH-01: effective user id is always derived from the authenticated
     # principal. When auth is disabled (dev/test only), use a fixed anonymous
     # subject so a caller cannot impersonate another user via the request body.
@@ -169,7 +181,7 @@ async def query_pipeline(
                 high_trust=high_trust,
                 agreement_score=agreement_score,
                 entity_overlap=entity_overlap,
-                claim_nli_score=None,
+                claim_nli_score=consensus.claim_nli_score if consensus else None,
                 evidence_coverage=None,
             )
 
@@ -183,9 +195,46 @@ async def query_pipeline(
             )
 
             graph_context = result.get("graph_context", [])
-            graph_count = len(graph_context)
+            graph_paths = [
+                item for item in graph_context if _graph_context_id(item, "path_id") is not None
+            ]
+            community_summaries = [
+                item
+                for item in graph_context
+                if _graph_context_id(item, "community_id") is not None
+                and _graph_context_id(item, "path_id") is None
+            ]
+            graph_count = len(graph_paths)
+            community_count = len(community_summaries)
 
             # Build QueryChannels
+            graph_channel = None
+            if graph_paths or not community_summaries:
+                graph_channel = ChannelSummary(
+                    evidence_count=graph_count,
+                    draft_summary=result.get("graph_draft"),
+                    paths=tuple(
+                        path_id
+                        for path in graph_paths
+                        if (path_id := _graph_context_id(path, "path_id")) is not None
+                    ),
+                )
+
+            community_channel = None
+            if community_summaries:
+                community_channel = ChannelSummary(
+                    evidence_count=community_count,
+                    draft_summary=result.get("graph_draft"),
+                    paths=tuple(
+                        community_id
+                        for summary in community_summaries
+                        if (
+                            community_id := _graph_context_id(summary, "community_id")
+                        )
+                        is not None
+                    ),
+                )
+
             channels = QueryChannels(
                 vector=ChannelSummary(
                     evidence_count=vector_count,
@@ -197,12 +246,8 @@ async def query_pipeline(
                     draft_summary=None,
                     paths=(),
                 ),
-                graph=ChannelSummary(
-                    evidence_count=graph_count,
-                    draft_summary=result.get("graph_draft"),
-                    paths=tuple(str(path) for path in graph_context),
-                ),
-                community=None,
+                graph=graph_channel,
+                community=community_channel,
             )
 
             warnings_list = list(result.get("warnings", []))
@@ -236,16 +281,38 @@ async def query_pipeline(
                     )
                 )
 
-            for rank, path in enumerate(graph_context):
+            for rank, path in enumerate(graph_paths):
+                path_id = _graph_context_id(path, "path_id")
+                if path_id is None:
+                    continue
+                path_confidence = getattr(path, "confidence", None) or 0.0
                 evidence_rows.append(
                     RetrievalEvidenceRow(
-                        evidence_id=f"ev_graph_{path.path_id}_{trace_id}",
+                        evidence_id=f"ev_graph_{path_id}_{trace_id}",
                         trace_id=trace_id,
                         tenant_id=request.tenant_id,
-                        object_id=path.path_id,
+                        object_id=path_id,
                         retriever_id="graph",
                         original_rank=rank,
-                        original_score=path.confidence,
+                        original_score=path_confidence,
+                        included_in_prompt=True,
+                        tamper_hash=None,
+                    )
+                )
+
+            for rank, summary in enumerate(community_summaries):
+                community_id = _graph_context_id(summary, "community_id")
+                if community_id is None:
+                    continue
+                evidence_rows.append(
+                    RetrievalEvidenceRow(
+                        evidence_id=f"ev_community_{community_id}_{trace_id}",
+                        trace_id=trace_id,
+                        tenant_id=request.tenant_id,
+                        object_id=community_id,
+                        retriever_id="community",
+                        original_rank=rank,
+                        original_score=0.0,
                         included_in_prompt=True,
                         tamper_hash=None,
                     )
@@ -334,6 +401,13 @@ async def query_pipeline(
                     error=str(audit_error),
                     trace_id=trace_id,
                 )
+            if isinstance(e, EgressBlockedError):
+                # Tenant egress policy blocked an outbound provider call:
+                # a policy outcome, not a server fault.
+                raise HTTPException(
+                    status_code=status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS,
+                    detail=str(e),
+                ) from e
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Query execution failed: {e!s}",

@@ -16,6 +16,7 @@ from securgraph.api.dependencies import get_db_session, get_redis_pool
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.config import get_settings
 from securgraph.indexing.db import IngestionJobRow
+from securgraph.ingestion.worker import async_ingest_task
 
 pytestmark = pytest.mark.unit
 
@@ -162,3 +163,116 @@ async def test_tenant_admin_retries_failed_job_from_encrypted_source(
     assert response.status_code == 202
     assert response.json()["status"] == "queued"
     redis.enqueue_job.assert_awaited_once()
+
+
+async def test_worker_marks_job_failed_after_ingestion_store_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Worker failure injection: external store failures become durable failed jobs."""
+    status_updates: list[tuple[str, bool, str | None]] = []
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.commit = AsyncMock()
+            self.rollback = AsyncMock()
+
+    class FakeSessionContext:
+        def __init__(self, session: FakeSession) -> None:
+            self.session = session
+
+        async def __aenter__(self) -> FakeSession:
+            return self.session
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class FakeSessionMaker:
+        def __init__(self) -> None:
+            self.sessions: list[FakeSession] = []
+
+        def __call__(self) -> FakeSessionContext:
+            session = FakeSession()
+            self.sessions.append(session)
+            return FakeSessionContext(session)
+
+    async def noop_set_tenant_context(*args: object, **kwargs: object) -> None:
+        return None
+
+    async def record_job_update(*args: object, **kwargs: object) -> None:
+        status_updates.append(
+            (
+                str(kwargs["status"]),
+                bool(kwargs.get("increment_attempt", False)),
+                kwargs.get("error"),
+            )
+        )
+
+    async def fail_ingest(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("qdrant unavailable")
+
+    session_maker = FakeSessionMaker()
+    monkeypatch.setattr(
+        "securgraph.ingestion.worker.set_tenant_rls_context",
+        noop_set_tenant_context,
+    )
+    monkeypatch.setattr("securgraph.ingestion.worker.update_ingestion_job", record_job_update)
+    monkeypatch.setattr("securgraph.ingestion.worker.ingest_document", fail_ingest)
+
+    request_dict = {
+        "tenant_id": "mrd",
+        "source_uri": "file://policy.md",
+        "owner_id": "user:alice",
+        "data": b"# policy",
+        "document_type": "policy",
+        "classification": "internal",
+        "policy_tags": [],
+        "direct_viewers": [],
+        "title_override": None,
+        "source_format": None,
+    }
+
+    with pytest.raises(RuntimeError, match="qdrant unavailable"):
+        await async_ingest_task(
+            {"session_maker": session_maker},
+            request_dict,
+            "ing-1",
+            "trace-1",
+        )
+
+    assert status_updates == [
+        ("running", True, None),
+        ("failed", False, "qdrant unavailable"),
+    ]
+    session_maker.sessions[1].rollback.assert_awaited_once()
+    session_maker.sessions[2].commit.assert_awaited_once()
+
+
+@pytest.mark.unit
+def test_sanitize_filename_strips_paths_and_control_chars() -> None:
+    from securgraph.api.routes.ingest import _sanitize_filename
+
+    assert _sanitize_filename("../../etc/passwd.md") == "passwd.md"
+    assert _sanitize_filename("report\nwith\rnewlines.pdf") == "reportwithnewlines.pdf"
+    assert _sanitize_filename(None) == "upload"
+    assert _sanitize_filename("   ") == "upload"
+    assert len(_sanitize_filename("a" * 500 + ".md")) == 256
+
+
+@pytest.mark.unit
+def test_unsupported_extension_rejected() -> None:
+    from fastapi import HTTPException
+
+    from securgraph.api.routes.ingest import _ensure_supported_upload
+
+    with pytest.raises(HTTPException) as exc:
+        _ensure_supported_upload("malware.exe")
+    assert exc.value.status_code == 400
+    assert "Unsupported file type" in exc.value.detail
+
+
+@pytest.mark.unit
+def test_supported_extensions_accepted() -> None:
+    from securgraph.api.routes.ingest import _ensure_supported_upload
+
+    for name in ("a.md", "b.txt", "c.pdf", "d.docx", "e.xlsx", "f.MARKDOWN"):
+        _ensure_supported_upload(name)

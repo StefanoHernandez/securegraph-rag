@@ -15,6 +15,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 EnvName = Literal["dev", "test", "stage", "prod"]
 
+# Known-public default used when no JWT_SECRET is configured. Fine for local
+# dev; startup MUST refuse to boot with this value in stage/prod (see
+# ``securgraph.api.main``).
+DEFAULT_JWT_SECRET = "securgraph-jwt-secret-very-secure-key-default-replace-me"  # noqa: S105
+
 
 class Settings(BaseSettings):
     """Application settings. Singleton via :func:`get_settings`."""
@@ -157,9 +162,17 @@ class Settings(BaseSettings):
     audit_tamper_evident: bool = False  # M7+
     feature_self_healing_enabled: bool = False
 
+    # -------------------------------------------------------------- rate limits
+    # Requests per minute, enforced in-process (deploy is single-worker
+    # uvicorn). 0 disables a limiter; env=test disables all of them.
+    ratelimit_login_ip: int = Field(default=10, ge=0)
+    ratelimit_login_user: int = Field(default=5, ge=0)
+    ratelimit_query: int = Field(default=30, ge=0)
+    ratelimit_ingest: int = Field(default=10, ge=0)
+
     # ------------------------------------------------------------- auth settings
     jwt_secret: SecretStr = Field(
-        default=SecretStr("securgraph-jwt-secret-very-secure-key-default-replace-me"),
+        default=SecretStr(DEFAULT_JWT_SECRET),
         validation_alias="JWT_SECRET",
     )
     auth_enabled: bool = True

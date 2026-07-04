@@ -21,6 +21,10 @@ def _master_key_bytes() -> bytes:
     value = get_settings().master_key.get_secret_value()
     if not value:
         raise SecretEncryptionError("SECURGRAPH_MASTER_KEY is required for credential storage")
+    if len(value) < 16:
+        raise SecretEncryptionError(
+            "SECURGRAPH_MASTER_KEY is too short: use at least 16 characters"
+        )
     return hashlib.sha256(value.encode()).digest()
 
 

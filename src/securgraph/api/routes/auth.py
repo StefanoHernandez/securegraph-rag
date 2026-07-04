@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, set_tenant_rls_context
+from securgraph.api.ratelimit import enforce_rate, reset_rate
 from securgraph.config import get_settings
 from securgraph.indexing.db import AuthSessionRow, AuthUserRow, TenantMembershipRow
 
@@ -73,6 +74,20 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def _hash_token(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+# Hash burned on login attempts against unknown usernames so the PBKDF2 cost
+# is paid on every attempt — otherwise response timing reveals whether a
+# username exists (username-enumeration oracle). Computed lazily to avoid the
+# ~100ms PBKDF2 cost at import time.
+_DUMMY_HASH: str | None = None
+
+
+def _timing_equalizer_hash() -> str:
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = hash_password("timing-equalizer-not-a-real-password")
+    return _DUMMY_HASH
 
 
 class LoginRequest(BaseModel):
@@ -342,6 +357,18 @@ async def get_current_user(
     )
 
 
+# Endpoints a user with a pending forced password change may still reach:
+# just enough to change the password, inspect their session, or leave.
+_MUST_CHANGE_ALLOWED_PATHS = frozenset(
+    {
+        "/api/v1/auth/change-password",
+        "/api/v1/auth/me",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/refresh",
+    }
+)
+
+
 async def require_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_optional),
@@ -349,7 +376,13 @@ async def require_user(
 ) -> AuthenticatedPrincipal | None:
     if not get_settings().auth_enabled:
         return None
-    return await get_current_user(request, credentials, session)
+    principal = await get_current_user(request, credentials, session)
+    if (
+        principal.must_change_password
+        and request.url.path not in _MUST_CHANGE_ALLOWED_PATHS
+    ):
+        raise HTTPException(status_code=403, detail="Password change required.")
+    return principal
 
 
 async def require_admin(
@@ -379,15 +412,20 @@ async def login(
     response: Response,
     session: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
+    settings = get_settings()
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    enforce_rate("login_ip", client_ip, settings.ratelimit_login_ip)
+    enforce_rate("login_user", request.username, settings.ratelimit_login_user)
     result = await session.execute(
         select(AuthUserRow).where(AuthUserRow.username == request.username)
     )
     user = result.scalar_one_or_none()
-    if (
-        user is None
-        or not user.is_active
-        or not verify_password(request.password, user.password_hash)
-    ):
+    if user is None or not user.is_active:
+        # Burn the same PBKDF2 cost as a real verification so the response
+        # time does not reveal whether the username exists.
+        verify_password(request.password, _timing_equalizer_hash())
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    if not verify_password(request.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     memberships = await _memberships_for_user(session, user.id)
@@ -407,6 +445,9 @@ async def login(
     )
     session.add(auth_session)
     user.last_login_at = datetime.now(UTC)
+    # Successful login clears the brute-force counters for this client.
+    reset_rate("login_ip", client_ip)
+    reset_rate("login_user", request.username)
     access_token = create_access_token(
         user.id,
         user.username,

@@ -5,15 +5,18 @@ Mocking the LangGraph workflow and retrieval backend singletons.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
 
+from securgraph.api.dependencies import get_db_session
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.domain import (
     Answer,
     Claim,
+    CommunitySummaryResponse,
     ConsensusReport,
     GraphPath,
     NLILabel,
@@ -123,11 +126,11 @@ async def test_query_route_success(
     mock_workflow = AsyncMock()
     mock_workflow.ainvoke.return_value = workflow_output
 
-    with (
-        patch("securgraph.api.routes.query.compile_workflow", return_value=mock_workflow),
-        patch("securgraph.api.routes.query.get_qdrant_retriever", return_value=AsyncMock()),
-        patch("securgraph.api.routes.query.get_graph_retriever", return_value=AsyncMock()),
-    ):
+    # NOTE: do not `patch` the Depends-injected retriever providers —
+    # FastAPI analyses the mock's (*args, **kwargs) signature and turns them
+    # into required query params (422). The lazy providers are harmless here;
+    # the workflow itself is mocked.
+    with patch("securgraph.api.routes.query.compile_workflow", return_value=mock_workflow):
         payload = {
             "tenant_id": "mrd",
             "user_id": "user:stefano",
@@ -247,3 +250,61 @@ async def test_query_rejects_cross_tenant_principal(fastapi_app, client: AsyncCl
         },
     )
     assert response.status_code == 403
+
+
+async def test_query_global_mode_reports_community_channel_and_evidence(
+    fastapi_app,
+    client: AsyncClient,
+) -> None:
+    """Global RAG returns community summaries in graph_context; keep their channel identity."""
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.add_all = MagicMock()
+
+    async def override_db_session() -> AsyncIterator[AsyncMock]:
+        yield session
+
+    fastapi_app.dependency_overrides[get_db_session] = override_db_session
+
+    community = CommunitySummaryResponse(
+        community_id="comm_policy_restricted",
+        title="Restricted architecture",
+        summary="Private architecture constraints.",
+        level=0,
+        member_entities=["Private Architecture"],
+        policy_class_key="restricted-class",
+    )
+    workflow = AsyncMock()
+    workflow.ainvoke.return_value = {
+        "vector_context": [],
+        "vector_draft": None,
+        "graph_context": [community],
+        "graph_draft": "Restricted architecture summary.",
+        "consensus_report": None,
+        "final_answer": Answer(text="Global summary", citations=()),
+        "warnings": [],
+    }
+
+    with patch("securgraph.api.routes.query.compile_workflow", return_value=workflow):
+        response = await client.post(
+            "/query",
+            json={
+                "tenant_id": "mrd",
+                "user_id": "user:analyst",
+                "query": "Summarize the architecture communities",
+                "options": {"query_type": "global"},
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["channels"]["community"]["evidence_count"] == 1
+    assert body["channels"]["community"]["draft_summary"] == "Restricted architecture summary."
+    assert body["channels"]["community"]["paths"] == ["comm_policy_restricted"]
+    assert body["channels"]["graph"] is None
+
+    evidence_rows = session.add_all.call_args.args[0]
+    community_rows = [row for row in evidence_rows if row.object_id == "comm_policy_restricted"]
+    assert len(community_rows) == 1
+    assert community_rows[0].retriever_id == "community"
+    assert community_rows[0].evidence_id.startswith("ev_community_comm_policy_restricted_")
