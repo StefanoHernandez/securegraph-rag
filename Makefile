@@ -125,10 +125,47 @@ test-adversarial: ## Run adversarial property-based tests (security gate).
 cov: ## Test coverage report.
 	$(VENV)/bin/pytest --cov=securgraph --cov-report=term-missing --cov-report=html
 
+##@ Database & bootstrap
+
+.PHONY: migrate
+migrate: ## Apply Alembic migrations to head.
+	$(VENV)/bin/alembic upgrade head
+
+.PHONY: seed
+seed: ## Seed demo users (dev only).
+	$(VENV)/bin/securgraph seed-demo
+
+.PHONY: bootstrap-admin
+bootstrap-admin: ## Create the initial super-admin user.
+	$(VENV)/bin/securgraph bootstrap-superadmin
+
+##@ Web frontend
+
+.PHONY: web-install
+web-install: ## Install web dependencies (npm ci).
+	npm ci --prefix web
+
+.PHONY: web-lint
+web-lint: ## Lint the web frontend.
+	npm --prefix web run lint
+
+.PHONY: web-i18n
+web-i18n: ## Check i18n message consistency (en/it).
+	npm --prefix web run check:i18n
+
+.PHONY: web-build
+web-build: ## Production build of the web frontend.
+	npm --prefix web run build
+
+.PHONY: web-e2e
+web-e2e: ## Run Playwright E2E tests (needs API + web running).
+	npm --prefix web run test:e2e
+
 ##@ CI
 
 .PHONY: ci
-ci: lint type test ## Run all CI checks locally (lint + type + test).
+# test-unit (not test): the unit suite is Docker-free, matching .github/workflows/ci.yml.
+ci: lint type test-unit ## Run the same checks as GitHub Actions CI (Docker-free).
 
 ##@ Eval (M8)
 

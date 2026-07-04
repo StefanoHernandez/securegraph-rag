@@ -72,6 +72,11 @@ docs/eval/REPORT-*.md
 docs/eval/REPORT-*.json
 !docs/eval/REPORT-template.md
 
+# Eval run outputs (generated; keep files referenced by docs/research)
+eval/results/*
+!eval/results/.gitkeep
+!eval/results/c3-ablation-live-20260701T154455Z.json
+
 # Frontend
 web/node_modules/
 web/.next/
@@ -101,3 +106,6 @@ docker/postgres-init/
 
 # Mascot codex
 .codex-hatch-pet
+
+# Codex CLI local state
+.codex/

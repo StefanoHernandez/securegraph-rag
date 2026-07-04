@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (lint + type + unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create venv and install deps
+        run: |
+          uv venv .venv --python 3.11
+          uv pip install --python .venv/bin/python -e ".[dev,parsers]"
+
+      - name: Lint (ruff)
+        run: make lint
+
+      - name: Type-check (mypy)
+        run: make type
+
+      # test-unit is Docker-free: conftest sets SECURGRAPH_ENV=test and all
+      # backing stores are mocked. Do NOT switch to `make test`/`make ci`,
+      # which assume live containers.
+      - name: Unit tests
+        run: make test-unit
+
+  web:
+    name: Web (lint + i18n + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: i18n consistency
+        run: npm run check:i18n
+
+      # `next build` also runs the typed-routes typegen, so this covers tsc.
+      - name: Build
+        run: npm run build
