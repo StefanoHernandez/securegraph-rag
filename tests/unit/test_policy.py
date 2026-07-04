@@ -303,7 +303,18 @@ async def test_authorized_graph_retriever_path_cut() -> None:
         assert args[0] == mock_session_db
         assert args[1] == "tenant_1"
         assert sorted(args[2]) == ["chk_1", "chk_2", "chk_3"]
-        mock_write.assert_called_once()
+
+        # Two persisted decision batches: chunk-level checks, then the
+        # path-level outcomes the provenance report matches evidence against.
+        assert mock_write.call_count == 2
+        path_decisions = mock_write.call_args_list[1].args[1]
+        assert {d.object_type for d in path_decisions} == {PolicyObjectType.GRAPH_PATH}
+        by_outcome = {d.object_id: d.decision for d in path_decisions}
+        assert len(by_outcome) == 2
+        kept_path_id = authorized_paths[0].path_id
+        assert by_outcome[kept_path_id] == PolicyDecisionValue.ALLOW
+        # The cut path (Seed -> C -> D) must be recorded as denied.
+        assert PolicyDecisionValue.DENY in by_outcome.values()
 
 
 @pytest.mark.asyncio
