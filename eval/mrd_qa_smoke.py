@@ -173,6 +173,10 @@ def _write_report(
     lines = [
         "# MRD QA smoke report",
         "",
+        "> Metric: expected-text matching is *normalized containment* "
+        "(lowercase, markdown/punctuation stripped, key-fact token fallback), "
+        "not exact substring. Required-source and deny/leakage checks are exact.",
+        "",
         f"- Pairs: {len(pairs)}",
         f"- Allow: {allow_count}",
         f"- Deny: {deny_count}",

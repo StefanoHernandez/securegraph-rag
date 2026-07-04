@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -9,6 +10,7 @@ from securgraph.adapters.llm import get_llm_adapter, get_llm_adapter_for
 from securgraph.api.dependencies import AsyncSessionLocal
 from securgraph.domain import (
     Answer,
+    Citation,
     Claim,
     ConsensusReport,
     NLILabel,
@@ -18,6 +20,7 @@ from securgraph.domain import (
 from securgraph.domain.consensus import calculate_consensus
 from securgraph.logging import get_logger
 from securgraph.observability import get_tracer
+from securgraph.orchestration.citations import build_authorized_citations
 from securgraph.runtime_overrides import get_effective_settings
 
 _LOG = get_logger(__name__)
@@ -26,6 +29,131 @@ _LOG = get_logger(__name__)
 # weak reference to a bare create_task() result, so without this a self-healing
 # task could be garbage-collected mid-run and silently cancelled (RUF006).
 _BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
+
+
+# Identifier-like tokens (ticket codes "A-12", quoted phrases, long numbers)
+# signal an exact-match lookup where the lexical channel shines.
+_LEXICAL_SIGNAL = re.compile(r"[A-Z]-\d|\"[^\"]+\"|“[^”]+”|\d{4,}")
+# Relationship questions benefit from deeper graph traversal.
+_RELATIONAL_SIGNAL = re.compile(
+    r"\b(related to|connected to|linked to|relationship|who knows|depends on"
+    r"|collega|collegat[oaie]|conness[oaie]|relazion|con chi|chi \w+ con)\b",
+    re.IGNORECASE,
+)
+
+
+def auto_route(query: str, options: dict[str, Any]) -> dict[str, Any]:
+    """Intent-based router for ``retrieval_mode="auto"``.
+
+    Returns a (possibly adjusted) copy of ``options`` with the mode resolved:
+    - identifier/quoted/numeric queries → hybrid with a larger top_k so the
+      lexical lane has room to surface exact matches;
+    - relational questions → hybrid with max_graph_depth+1 (hard cap 4);
+    - everything else → plain hybrid.
+    Explicit modes (vector/lexical/graph/hybrid) pass through untouched.
+    """
+    mode = options.get("retrieval_mode") or "auto"
+    if mode != "auto":
+        return options
+    routed = dict(options)
+    routed["retrieval_mode"] = "hybrid"
+    if _LEXICAL_SIGNAL.search(query):
+        routed["top_k"] = max(int(options.get("top_k", 10)), 15)
+    elif _RELATIONAL_SIGNAL.search(query):
+        current_depth = int(options.get("max_graph_depth", 2))
+        routed["max_graph_depth"] = min(current_depth + 1, 4)
+    return routed
+
+
+class SynthesisPlan(TypedDict):
+    """Outcome of the code-level synthesis decision (see decide_synthesis)."""
+
+    branch: str  # "no_evidence" | "single_channel" | "direct" | "cautious"
+    system_prompt: str | None  # None only for "no_evidence" (no LLM call)
+    user_prompt: str | None
+    warnings: list[str]
+
+
+def decide_synthesis(
+    query: str,
+    vector_draft: str | None,
+    graph_draft: str | None,
+    report: ConsensusReport | None,
+    threshold: float,
+) -> SynthesisPlan:
+    """Decide the synthesis strategy in code, from evidence and consensus.
+
+    The refusal/caution verdict is made HERE — never delegated to the LLM.
+    Leaving it to the prompt made the model refuse even at agreement score
+    1.0 (observed on the MRD eval: 14/50 answers lost to self-triggered
+    refusals). Disagreement is disclosed via warnings, not by replacing the
+    answer with refusal boilerplate.
+    """
+    v = (vector_draft or "").strip()
+    g = (graph_draft or "").strip()
+
+    if not v and not g:
+        return SynthesisPlan(
+            branch="no_evidence",
+            system_prompt=None,
+            user_prompt=None,
+            warnings=["no_evidence: both retrieval channels returned no authorized content"],
+        )
+
+    if not v or not g:
+        populated = v or g
+        empty_channel = "graph" if v else "vector"
+        return SynthesisPlan(
+            branch="single_channel",
+            system_prompt=(
+                "You are a synthesis agent. Produce a secure, unified answer grounded "
+                "strictly in the draft below. Do not extrapolate beyond it. "
+                "Answer the query directly and completely from the draft content."
+            ),
+            user_prompt=f"Draft:\n{populated}\n\nQuery: {query}",
+            warnings=[
+                f"single-channel evidence: the {empty_channel} channel returned no "
+                "authorized content; cross-channel consensus is not meaningful"
+            ],
+        )
+
+    if report is not None and report.high_trust:
+        return SynthesisPlan(
+            branch="direct",
+            system_prompt=(
+                "You are a synthesis agent. The two independent retrieval channels "
+                "agree. Produce a secure, unified answer grounded strictly in both "
+                "drafts. Do not extrapolate. Answer the query directly and completely."
+            ),
+            user_prompt=(f"Vector Draft: {v}\nGraph Draft: {g}\n\nQuery: {query}"),
+            warnings=[],
+        )
+
+    score = report.agreement_score if report is not None else 0.0
+    return SynthesisPlan(
+        branch="cautious",
+        system_prompt=(
+            "You are a synthesis agent. The two independent retrieval channels "
+            "only partially agree. Answer the query directly. Prefer facts "
+            "confirmed by both drafts; facts present in only one draft may be "
+            "used when the other draft does not contradict them. Where the "
+            "drafts actively conflict, omit the disputed detail rather than "
+            "guessing. Do not refuse to answer, do not say information is "
+            "unavailable if either draft contains it, and do not add "
+            "disclaimers — caveats are handled separately. Do not extrapolate."
+        ),
+        user_prompt=(
+            f"Vector Draft: {v}\n"
+            f"Graph Draft: {g}\n"
+            f"Agreement Score: {score:.2f} (threshold {threshold:.2f})\n\n"
+            f"Query: {query}"
+        ),
+        warnings=[
+            f"cross-channel agreement below threshold "
+            f"({score:.2f} < {threshold:.2f}); answer is based on the facts "
+            "shared by both channels — verify independently before relying on it"
+        ],
+    )
 
 
 def _bounded_context(items: list[Any], token_budget: int) -> str:
@@ -59,6 +187,25 @@ def _bounded_context(items: list[Any], token_budget: int) -> str:
 def _heuristic_seeds(query: str) -> list[str]:
     """Fallback seed extraction: capitalized words stripped of trailing punctuation."""
     return [word.strip(",.?!") for word in query.split() if word and word[0].isupper()]
+
+
+async def _build_citations_for_state(state: QueryState) -> tuple[Citation, ...]:
+    try:
+        async with AsyncSessionLocal() as session:
+            return await build_authorized_citations(
+                session,
+                tenant_id=state["subject"].tenant_id,
+                vector_context=list(state["vector_context"]),
+                graph_context=list(state["graph_context"]),
+                trace_id=state["trace_id"],
+            )
+    except Exception as exc:  # pragma: no cover - citation lookup must not mask answer failures
+        _LOG.warning(
+            "citation_generation_failed",
+            trace_id=state["trace_id"],
+            error=str(exc),
+        )
+        return ()
 
 
 async def _extract_seeds_from_catalog(driver: Any, tenant_id: str, query: str) -> list[str]:
@@ -125,8 +272,13 @@ class QueryState(TypedDict):
 def compile_workflow(qdrant: Any, graph: Any) -> Any:
     builder = StateGraph(QueryState)
 
+    def _routed_options(state: QueryState) -> dict[str, Any]:
+        # auto_route is pure and cheap: calling it per node keeps the state
+        # schema unchanged while both retrieval nodes see the same plan.
+        return auto_route(state["query"], state["options"])
+
     def _mode(state: QueryState) -> str:
-        m = state["options"].get("retrieval_mode") or "auto"
+        m = _routed_options(state).get("retrieval_mode") or "hybrid"
         return "hybrid" if m == "auto" else m
 
     async def vector_retrieval_node(state: QueryState) -> dict[str, Any]:
@@ -140,7 +292,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             subject: Subject = state["subject"]
             q: str = state["query"]
             trace: str = state["trace_id"]
-            limit = state["options"].get("top_k", 10)
+            limit = _routed_options(state).get("top_k", 10)
 
             if mode == "lexical":
                 dense = []
@@ -203,6 +355,38 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                 )
                 span.set_attribute("securgraph.communities_count", len(summaries))
 
+                # Persist an allow decision per returned community so the
+                # provenance report can match evidence rows (object_id =
+                # community_id) to an authorization record instead of
+                # rendering authorized evidence as redacted. Denied
+                # communities never become evidence; their denial is
+                # currently tracked as a metric inside the retriever.
+                if summaries:
+                    from securgraph.domain import utcnow
+                    from securgraph.domain.policy import (
+                        PolicyDecision,
+                        PolicyDecisionValue,
+                        PolicyObjectType,
+                    )
+                    from securgraph.indexing.postgres_writer import write_policy_decisions
+
+                    community_decisions = [
+                        PolicyDecision(
+                            decision_id=f"dec_{comm.community_id}_{utcnow().timestamp()}",
+                            trace_id=state["trace_id"],
+                            tenant_id=state["subject"].tenant_id,
+                            user_id=state["subject"].user_id,
+                            object_type=PolicyObjectType.COMMUNITY,
+                            object_id=str(comm.community_id),
+                            decision=PolicyDecisionValue.ALLOW,
+                            reason_code="community_policy_class_ok",
+                        )
+                        for comm in summaries
+                    ]
+                    async with AsyncSessionLocal() as decision_session:
+                        await write_policy_decisions(decision_session, community_decisions)
+                        await decision_session.commit()
+
                 context_parts = []
                 for idx, comm in enumerate(summaries):
                     context_parts.append(
@@ -233,7 +417,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     subject=state["subject"],
                     seed_entities=seeds,
                     trace_id=state["trace_id"],
-                    max_depth=state["options"].get("max_graph_depth", 2),
+                    max_depth=_routed_options(state).get("max_graph_depth", 2),
                 )
                 await session.commit()
 
@@ -459,28 +643,43 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     think=settings.llm_thinking,
                     keep_alive=300,
                 )
-                return {"final_answer": Answer(text=content, citations=tuple())}
+                citations = await _build_citations_for_state(state)
+                return {"final_answer": Answer(text=content, citations=citations)}
 
-            final_prompt = (
-                f"Synthesize a final unified secure response based on two draft reviews:\n"
-                f"Vector Draft: {state['vector_draft']}\n"
-                f"Graph Draft: {state['graph_draft']}\n"
-                "Agreement Score: "
-                f"{state['consensus_report'].agreement_score if state['consensus_report'] else 0.0}"
+            plan = decide_synthesis(
+                query=state["query"],
+                vector_draft=state["vector_draft"],
+                graph_draft=state["graph_draft"],
+                report=state["consensus_report"],
+                threshold=state["options"].get("consensus_threshold", 0.7),
             )
+            warnings = list(state.get("warnings") or []) + plan["warnings"]
+            citations = await _build_citations_for_state(state)
+
+            if plan["branch"] == "no_evidence":
+                # Honest refusal without an LLM call: there is nothing to
+                # synthesize from.
+                return {
+                    "final_answer": Answer(
+                        text=(
+                            "No authorized evidence was found to answer this query. "
+                            "The accessible sources do not contain relevant content."
+                        ),
+                        citations=citations,
+                    ),
+                    "warnings": warnings,
+                }
+
             content = await adapter.chat(
-                system=(
-                    "You are a synthesis agent. Produce a secure, unified answer grounded "
-                    "strictly in both drafts. Do not extrapolate, only summarize agreement "
-                    "areas. If there is no agreement and the score is below the threshold, "
-                    "warn that agreement could not be reached and synthesize a cautious "
-                    "minimal response."
-                ),
-                user=final_prompt,
+                system=plan["system_prompt"] or "",
+                user=plan["user_prompt"] or "",
                 think=settings.llm_thinking,
                 keep_alive=300,
             )
-            return {"final_answer": Answer(text=content, citations=tuple())}
+            return {
+                "final_answer": Answer(text=content, citations=citations),
+                "warnings": warnings,
+            }
 
     # Add all nodes
     builder.add_node("vector_retrieval", vector_retrieval_node)

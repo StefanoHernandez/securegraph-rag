@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from securgraph.domain import RetrievalEvidence, RetrieverId, Subject
+from securgraph.domain import Citation, RetrievalEvidence, RetrieverId, Subject
 from securgraph.orchestration.workflow import compile_workflow
 
 pytestmark = pytest.mark.unit
@@ -190,3 +190,110 @@ async def test_vector_policy_audit_failure_aborts_query(
     workflow = compile_workflow(qdrant, graph)
     with pytest.raises(RuntimeError, match="audit unavailable"):
         await workflow.ainvoke(_empty_state("vector"))
+
+
+@pytest.mark.asyncio
+async def test_synthesis_attaches_deterministic_citations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    qdrant, graph = _build_mocks()
+    graph.fga = None
+    evidence = RetrievalEvidence(
+        evidence_id="ev-source",
+        trace_id="tr1",
+        tenant_id="t1",
+        evidence_type="chunk",
+        object_id="chunk-1",
+        retriever_id=RetrieverId.VECTOR,
+        retrieval_strategy="dense",
+        original_rank=0,
+        original_score=0.9,
+        policy_check_id="dec-1",
+        text="Policy source text.",
+    )
+    qdrant.search_dense.return_value = [evidence]
+    qdrant.search_lexical.return_value = []
+
+    class FakeSessionContext:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    async def fake_build_citations(*args: object, **kwargs: object) -> tuple[Citation, ...]:
+        assert kwargs["tenant_id"] == "t1"
+        vector_context = kwargs["vector_context"]
+        assert isinstance(vector_context, list)
+        assert vector_context[0].object_id == "chunk-1"
+        return (
+            Citation(
+                evidence_id="ev-source",
+                document_id="doc-1",
+                chunk_id="chunk-1",
+                label="Policy",
+                source_uri="documents/01_policy.md",
+            ),
+        )
+
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("answer without structured citations"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("answer without structured citations"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.AsyncSessionLocal",
+        lambda: FakeSessionContext(),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.build_authorized_citations",
+        fake_build_citations,
+    )
+
+    workflow = compile_workflow(qdrant, graph)
+    result = await workflow.ainvoke(_empty_state("vector"))
+
+    final_answer = result["final_answer"]
+    assert final_answer.citations[0].source_uri == "documents/01_policy.md"
+
+
+def test_auto_route_identifier_query_boosts_lexical() -> None:
+    from securgraph.orchestration.workflow import auto_route
+
+    routed = auto_route(
+        'Find ticket A-12 about "budget freeze"', {"retrieval_mode": "auto", "top_k": 5}
+    )
+    assert routed["retrieval_mode"] == "hybrid"
+    assert routed["top_k"] == 15
+
+
+def test_auto_route_relational_query_deepens_graph() -> None:
+    from securgraph.orchestration.workflow import auto_route
+
+    routed = auto_route(
+        "Who is related to the Aurora project?",
+        {"retrieval_mode": "auto", "max_graph_depth": 2},
+    )
+    assert routed["retrieval_mode"] == "hybrid"
+    assert routed["max_graph_depth"] == 3
+    # Hard cap at 4.
+    capped = auto_route(
+        "Who is related to Aurora?", {"retrieval_mode": "auto", "max_graph_depth": 4}
+    )
+    assert capped["max_graph_depth"] == 4
+
+
+def test_auto_route_plain_query_defaults_to_hybrid() -> None:
+    from securgraph.orchestration.workflow import auto_route
+
+    opts = {"retrieval_mode": "auto", "top_k": 5, "max_graph_depth": 2}
+    routed = auto_route("What is the security policy?", opts)
+    assert routed["retrieval_mode"] == "hybrid"
+    assert routed["top_k"] == 5
+    assert routed["max_graph_depth"] == 2
+    # Explicit modes pass through untouched (same object).
+    explicit = {"retrieval_mode": "vector", "top_k": 5}
+    assert auto_route('Find "exact" A-12', explicit) is explicit

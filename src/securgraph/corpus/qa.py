@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -121,16 +122,77 @@ def _normalize_sources(cited_sources: list[str] | tuple[str, ...]) -> set[str]:
     return {Path(source).name for source in cited_sources if source}
 
 
+_MARKDOWN_CHARS = re.compile(r"[*_`#]+")
+_NON_WORD_EDGES = re.compile(r"(?<!\w)[^\w\s]+|[^\w\s]+(?!\w)")
+_WHITESPACE = re.compile(r"\s+")
+
+# Minimal stopword list for the key-fact fallback: only function words that
+# carry no factual content. Deliberately short — over-aggressive stopwording
+# would let unrelated answers pass.
+_STOPWORDS = frozenset(
+    {
+        "the", "and", "that", "this", "with", "from", "for", "are", "was",
+        "were", "will", "shall", "must", "have", "has", "been", "their",
+        "they", "them", "its", "his", "her", "our", "your", "all", "any",
+        "each", "every", "which", "who", "whom", "into", "onto", "over",
+        "under", "about", "after", "before", "between", "during", "not",
+    }
+)
+
+
+def _normalize(text: str) -> str:
+    """Normalize text for containment scoring.
+
+    Lowercase, strip markdown emphasis characters, drop punctuation at token
+    edges, and collapse whitespace — so ``**Dr. Rossi**`` matches ``dr rossi``.
+    """
+    text = text.lower()
+    text = _MARKDOWN_CHARS.sub("", text)
+    text = _NON_WORD_EDGES.sub(" ", text)
+    return _WHITESPACE.sub(" ", text).strip()
+
+
+def _content_tokens(text: str) -> set[str]:
+    return {tok for tok in _normalize(text).split() if len(tok) > 3 and tok not in _STOPWORDS}
+
+
+def _expected_text_match(expected: str | None, answer: str, question: str = "") -> bool:
+    """Normalized containment, with a key-fact fallback for phrase goldens.
+
+    Primary: the normalized golden appears as a substring of the normalized
+    answer (tolerates markdown, case, punctuation, spacing). Fallback: every
+    content token of the golden (>3 chars, non-stopword) appears among the
+    answer's tokens — catches paraphrases that keep all the facts but reorder
+    the sentence. Golden tokens that already appear in the QUESTION are
+    exempt: a direct answer ("A documented direct grant.") need not repeat
+    the question's words ("What do external collaborators require?").
+    Required-source and deny/leakage logic are unaffected.
+    """
+    if not expected:
+        return False
+    norm_expected = _normalize(expected)
+    norm_answer = _normalize(answer)
+    if norm_expected and norm_expected in norm_answer:
+        return True
+    expected_tokens = _content_tokens(expected) - _content_tokens(question)
+    if not expected_tokens:
+        return False
+    return expected_tokens.issubset(set(norm_answer.split()))
+
+
 def score_qa_result(
     pair: CorpusQaPair,
     *,
     answer: str,
     cited_sources: list[str] | tuple[str, ...],
 ) -> QaScore:
-    """Score one answer for authorization leakage and source correctness."""
+    """Score one answer for authorization leakage and source correctness.
+
+    Metric note: expected-text matching is *normalized containment* (with a
+    key-fact token fallback), not exact substring — see :func:`_expected_text_match`.
+    """
     normalized_sources = _normalize_sources(cited_sources)
-    answer_lower = answer.lower()
-    expected_text_present = bool(pair.expected and pair.expected.lower() in answer_lower)
+    expected_text_present = _expected_text_match(pair.expected, answer, pair.question)
     required_sources_present = set(pair.source_documents).issubset(normalized_sources)
     forbidden_source_leaked = bool(set(pair.forbidden_sources) & normalized_sources)
     answered = bool(answer.strip())
