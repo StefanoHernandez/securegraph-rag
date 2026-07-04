@@ -1,1 +1,1 @@
-export { DashboardContent as default } from "../../(dashboard)/layout";
+export { default } from "@/components/layout/DashboardShell";

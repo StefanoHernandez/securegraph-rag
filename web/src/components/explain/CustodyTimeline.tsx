@@ -11,8 +11,15 @@ import {
   TamperChain,
   EvidenceTag,
 } from "@/components/forensic";
+import dynamic from "next/dynamic";
 import { TimelineStage } from "./TimelineStage";
-import { ProvLineagePanel } from "./ProvLineagePanel";
+
+// @xyflow/react is heavy and browser-only: load it lazily, client-side,
+// only when the timeline actually renders (same pattern as the 3D graph).
+const ProvLineagePanel = dynamic(
+  () => import("./ProvLineagePanel").then((m) => m.ProvLineagePanel),
+  { ssr: false }
+);
 
 function Meter({ label, value }: { label: string; value: number | null | undefined }) {
   const pct = value == null ? 0 : Math.round(value * 100);
@@ -64,6 +71,13 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
 
   const c = report.consensus;
   const hasConsensus = !!c && (c.agreement_score != null || c.high_trust != null);
+  // With evidence from a single pipeline (vector/lexical vs graph) there is
+  // no cross-channel agreement to certify — show "consensus N/A" instead of
+  // a score that would overstate the verification.
+  const laneKinds = new Set(
+    report.evidence.map((e) => (e.retriever_id === "graph" ? "graph" : "vector"))
+  );
+  const singleChannel = report.evidence.length > 0 && laneKinds.size < 2;
 
   return (
     <div className="space-y-6">
@@ -240,6 +254,7 @@ export function CustodyTimeline({ report }: { report: ExplainReport }) {
               <TrustVerdict
                 highTrust={!!c?.high_trust}
                 score={c?.agreement_score ?? undefined}
+                notApplicableLabel={singleChannel ? t("consensusNA") : undefined}
               />
             ) : (
               <span className="mono-meta">{t("notRecorded")}</span>

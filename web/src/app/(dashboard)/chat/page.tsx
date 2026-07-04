@@ -16,6 +16,7 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   response?: QueryResponse;
+  retrievalMode?: RetrievalMode;
   timestamp: Date;
 }
 
@@ -67,6 +68,7 @@ export default function ChatPage() {
 
   // Query Engine Options
   const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("auto");
+  const [showAdvancedModes, setShowAdvancedModes] = useState(false);
   const [queryType, setQueryType] = useState<QueryType>("standard");
   const [maxGraphDepth, setMaxGraphDepth] = useState(2);
   const [topK, setTopK] = useState(10);
@@ -160,6 +162,7 @@ export default function ChatPage() {
         role: "assistant",
         content: apiResponse.answer,
         response: apiResponse,
+        retrievalMode,
         timestamp: new Date()
       };
       setMessages((prev) => [...prev, assistantMessage]);
@@ -256,7 +259,7 @@ export default function ChatPage() {
                     ) : (
                       <div className="w-full max-w-[95%]">
                         {msg.response ? (
-                          <AnswerCard response={msg.response} />
+                          <AnswerCard response={msg.response} retrievalMode={msg.retrievalMode} />
                         ) : (
                           <div
                             className="classification-gutter panel px-4 py-3 prose prose-invert prose-sm max-w-none text-bone/90 leading-relaxed font-sans"
@@ -367,16 +370,38 @@ export default function ChatPage() {
               <div className="space-y-1.5">
                 <label className="mono-meta block">{t("retrievalMode")}</label>
                 <select
-                  value={retrievalMode}
+                  value={showAdvancedModes ? retrievalMode : (retrievalMode === "auto" || retrievalMode === "hybrid" ? retrievalMode : "hybrid")}
                   onChange={(e) => setRetrievalMode(e.target.value as RetrievalMode)}
                   className="w-full bg-vault-raised border border-hairline px-2.5 py-1.5 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
                 >
                   <option value="auto">Auto Router (Intent-based)</option>
-                  <option value="vector">Vector Only (Semantic)</option>
-                  <option value="lexical">Lexical Only (Keywords)</option>
-                  <option value="graph">Graph Only (Relational)</option>
                   <option value="hybrid">Hybrid Lane Fusion</option>
+                  {showAdvancedModes && (
+                    <>
+                      <option value="vector">Vector Only (Semantic)</option>
+                      <option value="lexical">Lexical Only (Keywords)</option>
+                      <option value="graph">Graph Only (Relational)</option>
+                    </>
+                  )}
                 </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showAdvancedModes && retrievalMode !== "auto" && retrievalMode !== "hybrid") {
+                      setRetrievalMode("auto");
+                    }
+                    setShowAdvancedModes(!showAdvancedModes);
+                  }}
+                  className="inline-flex items-center gap-1 mono-meta text-bone-dim hover:text-signal-amber transition-colors"
+                >
+                  {showAdvancedModes ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  {t("advancedModes")}
+                </button>
+                {showAdvancedModes && (
+                  <p className="font-mono text-[0.6875rem] leading-relaxed text-seal-red/90">
+                    ⚠ {t("singleLaneWarning")}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">

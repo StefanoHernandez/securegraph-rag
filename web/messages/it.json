@@ -78,10 +78,38 @@
     "fingerprint": "fingerprint",
     "models": "modelli",
     "notConfigured": "non_configurato",
+    "egressPolicy": "policy egress",
+    "policyJson": "json policy",
+    "saveEgress": "Salva policy egress",
+    "costEstimate": "stima costo",
+    "model": "modello",
+    "stage": "stadio",
+    "classification": "classificazione",
+    "inputTokens": "token input",
+    "outputTokens": "token output",
+    "estimate": "Stima",
+    "totalTokens": "token totali",
+    "hardCap": "hard cap",
+    "withinCap": "entro cap",
+    "estimatedUsd": "USD stimati",
+    "egress": "egress",
+    "egressRule": "regola egress",
+    "yes": "sì",
+    "no": "no",
+    "blueGreenReindex": "reindex blue-green",
+    "targetEmbedding": "embedding target",
+    "embeddingDim": "dim embedding",
+    "planReindex": "Pianifica reindex",
+    "activeCollection": "collection attiva",
+    "shadowCollection": "collection shadow",
     "loadError": "Impossibile caricare le impostazioni provider.",
     "noTenant": "Nessun tenant selezionato.",
     "providerFailed": "Verifica provider fallita.",
-    "runtimeFailed": "Impostazione runtime non salvata."
+    "runtimeFailed": "Impostazione runtime non salvata.",
+    "egressFailed": "Policy egress non salvata.",
+    "estimateFailed": "Stima costo fallita.",
+    "reindexFailed": "Piano reindex non salvato.",
+    "invalidNumber": "Inserisci un numero valido non negativo."
   },
   "profilePage": {
     "eyebrow": "account operatore",
@@ -371,7 +399,9 @@
     "collectionsHelp": "Lista di collection separate da virgola.",
     "documents": "limita a document id",
     "documentsHelp": "Lista di ID documento univoci separati da virgola.",
-    "queryError": "**Errore di recupero:** Non è stato possibile completare la query.\n\nDettaglio errore: `{detail}`.\n\nAssicurati che backend e database container (Postgres, Neo4j, Qdrant) siano attivi."
+    "queryError": "**Errore di recupero:** Non è stato possibile completare la query.\n\nDettaglio errore: `{detail}`.\n\nAssicurati che backend e database container (Postgres, Neo4j, Qdrant) siano attivi.",
+    "advancedModes": "modalità avanzate",
+    "singleLaneWarning": "le modalità a corsia singola saltano il consenso cross-retriever: il verdetto di fiducia non è significativo. Solo per diagnostica."
   },
   "ingestPage": {
     "eyebrow": "section 02 · intake evidenze",
@@ -508,7 +538,8 @@
     "evidenceCited": "prove citate",
     "doc": "doc",
     "chunk": "chunk",
-    "pp": "pp."
+    "pp": "pp.",
+    "consensusNA": "CONSENSO N/A (CORSIA SINGOLA)"
   },
   "custodyTimeline": {
     "integrity": "integrità",
@@ -540,6 +571,7 @@
     "synthesis": "sintesi · risposta sigillata",
     "noAnswer": "_Nessuna risposta registrata._",
     "custodySeal": "sigillo di custodia",
-    "sealed": "SIGILLATO"
+    "sealed": "SIGILLATO",
+    "consensusNA": "CONSENSO N/A (CORSIA SINGOLA)"
   }
 }

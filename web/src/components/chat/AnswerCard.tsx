@@ -11,7 +11,11 @@ import { ChevronDown, ChevronUp, ArrowUpRight, Info } from "lucide-react";
 
 interface AnswerCardProps {
   response: QueryResponse;
+  /** Retrieval mode the query ran with; single-lane modes get a "consensus N/A" verdict. */
+  retrievalMode?: string;
 }
+
+const SINGLE_LANE_MODES = new Set(["vector", "lexical", "graph"]);
 
 function Meter({
   label,
@@ -36,11 +40,12 @@ function Meter({
   );
 }
 
-export default function AnswerCard({ response }: AnswerCardProps) {
+export default function AnswerCard({ response, retrievalMode }: AnswerCardProps) {
   const [showCitations, setShowCitations] = useState(false);
   const t = useTranslations("answerCard");
   const { answer, confidence, channels, citations, trace_id, warnings } =
     response;
+  const singleLane = retrievalMode ? SINGLE_LANE_MODES.has(retrievalMode) : false;
 
   const channelRows = [
     { key: "vector", label: t("vectorLane"), unit: t("chunks"), ch: channels.vector },
@@ -61,6 +66,7 @@ export default function AnswerCard({ response }: AnswerCardProps) {
         <TrustVerdict
           highTrust={confidence.high_trust}
           score={confidence.agreement_score ?? undefined}
+          notApplicableLabel={singleLane ? t("consensusNA") : undefined}
         />
         <Link
           href={`/explain?trace_id=${trace_id}`}

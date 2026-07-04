@@ -1,1 +1,1 @@
-export { LoginContent as default } from "../../login/page";
+export { default } from "../../login/LoginForm";

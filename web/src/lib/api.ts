@@ -23,10 +23,44 @@ import {
   OperationIngestionJobList,
   OperationJob,
   OperationJobList,
+  CostEstimateRequest,
+  CostEstimateResponse,
+  EmbeddingReindexPlan,
 } from "./types";
 
 const API_PREFIX = "/api/v1";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+type ApiRequestOptions = RequestInit & {
+  redirectOnUnauthorized?: boolean;
+};
+
+// Single-flight refresh: concurrent 401s share one /auth/refresh call
+// instead of racing several token rotations.
+let refreshPromise: Promise<boolean> | null = null;
+
+async function tryRefreshSession(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${API_PREFIX}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+    })
+      .then((res) => res.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+function redirectToLogin(): void {
+  localStorage.removeItem("securgraph_user");
+  const path = window.location.pathname + window.location.search;
+  const next =
+    path && path !== "/login" ? `?next=${encodeURIComponent(path)}` : "";
+  window.location.href = `/login${next}`;
+}
 
 function readCookie(name: string): string | null {
   if (typeof document === "undefined") {
@@ -42,8 +76,10 @@ function readCookie(name: string): string | null {
 
 async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: ApiRequestOptions = {},
+  isRetryAfterRefresh = false
 ): Promise<T> {
+  const { redirectOnUnauthorized = true, ...fetchOptions } = options;
   const headers = new Headers(options.headers);
   const method = (options.method ?? "GET").toUpperCase();
   const csrfToken = readCookie("securgraph_csrf");
@@ -55,15 +91,24 @@ async function request<T>(
   const url = path.startsWith(API_PREFIX) ? path : `${API_PREFIX}${path}`;
 
   const response = await fetch(url, {
-    ...options,
+    ...fetchOptions,
     headers,
     credentials: "include",
   });
 
   if (response.status === 401) {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("securgraph_user");
-      window.location.href = "/login";
+    // Expired access token with a valid refresh cookie: refresh once and
+    // replay the request transparently. Never for auth endpoints themselves
+    // and never twice (anti-loop).
+    const isAuthEndpoint = url.startsWith(`${API_PREFIX}/auth/`);
+    if (!isAuthEndpoint && !isRetryAfterRefresh && typeof window !== "undefined") {
+      const refreshed = await tryRefreshSession();
+      if (refreshed) {
+        return request<T>(path, options, true);
+      }
+    }
+    if (redirectOnUnauthorized && typeof window !== "undefined") {
+      redirectToLogin();
     }
     throw new Error("Unauthorized");
   }
@@ -82,10 +127,10 @@ async function request<T>(
 }
 
 export const api = {
-  get: <T>(path: string, options?: RequestInit) =>
+  get: <T>(path: string, options?: ApiRequestOptions) =>
     request<T>(path, { ...options, method: "GET" }),
 
-  post: <T>(path: string, body: unknown, options?: RequestInit) =>
+  post: <T>(path: string, body: unknown, options?: ApiRequestOptions) =>
     request<T>(path, {
       ...options,
       method: "POST",
@@ -96,7 +141,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  put: <T>(path: string, body: unknown, options?: RequestInit) =>
+  put: <T>(path: string, body: unknown, options?: ApiRequestOptions) =>
     request<T>(path, {
       ...options,
       method: "PUT",
@@ -107,7 +152,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  patch: <T>(path: string, body: unknown, options?: RequestInit) =>
+  patch: <T>(path: string, body: unknown, options?: ApiRequestOptions) =>
     request<T>(path, {
       ...options,
       method: "PATCH",
@@ -118,10 +163,14 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  delete: <T>(path: string, options?: RequestInit) =>
+  delete: <T>(path: string, options?: ApiRequestOptions) =>
     request<T>(path, { ...options, method: "DELETE" }),
 
-  postMultipart: <T>(path: string, formData: FormData, options?: RequestInit) =>
+  postMultipart: <T>(
+    path: string,
+    formData: FormData,
+    options?: ApiRequestOptions
+  ) =>
     request<T>(path, {
       ...options,
       method: "POST",
@@ -485,19 +534,27 @@ export const authApi = {
       username,
       password,
       tenant_id: tenantId || undefined,
+    }, { redirectOnUnauthorized: false }),
+
+  me: () =>
+    api.get<import("./types").SessionUser>("/auth/me", {
+      redirectOnUnauthorized: false,
     }),
 
-  me: () => api.get<import("./types").SessionUser>("/auth/me"),
+  refresh: () =>
+    api.post<import("./types").UserSession>(
+      "/auth/refresh",
+      {},
+      { redirectOnUnauthorized: false }
+    ),
 
-  refresh: () => api.post<import("./types").UserSession>("/auth/refresh", {}),
-
-  logout: () => api.post<void>("/auth/logout", {}),
+  logout: () => api.post<void>("/auth/logout", {}, { redirectOnUnauthorized: false }),
 
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post<void>("/auth/change-password", {
       current_password: currentPassword,
       new_password: newPassword,
-    }),
+    }, { redirectOnUnauthorized: false }),
 
   listSessions: () => api.get<ActiveSession[]>("/auth/sessions"),
 
@@ -540,5 +597,20 @@ export const settingsApi = {
     api.put<RuntimeSetting>(
       `/tenants/${encodeURIComponent(tenantId)}/settings/runtime/${encodeURIComponent(key)}`,
       { key, value }
+    ),
+
+  estimateCost: (tenantId: string, payload: CostEstimateRequest) =>
+    api.post<CostEstimateResponse>(
+      `/tenants/${encodeURIComponent(tenantId)}/settings/cost-estimate`,
+      payload
+    ),
+
+  planEmbeddingReindex: (
+    tenantId: string,
+    payload: { to_model: string; from_model?: string; embedding_dim?: number }
+  ) =>
+    api.post<EmbeddingReindexPlan>(
+      `/tenants/${encodeURIComponent(tenantId)}/settings/embedding-reindex/plan`,
+      payload
     ),
 };

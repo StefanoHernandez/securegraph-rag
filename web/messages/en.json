@@ -78,10 +78,38 @@
     "fingerprint": "fingerprint",
     "models": "models",
     "notConfigured": "not_configured",
+    "egressPolicy": "egress policy",
+    "policyJson": "policy json",
+    "saveEgress": "Save egress policy",
+    "costEstimate": "cost estimate",
+    "model": "model",
+    "stage": "stage",
+    "classification": "classification",
+    "inputTokens": "input tokens",
+    "outputTokens": "output tokens",
+    "estimate": "Estimate",
+    "totalTokens": "total tokens",
+    "hardCap": "hard cap",
+    "withinCap": "within cap",
+    "estimatedUsd": "estimated USD",
+    "egress": "egress",
+    "egressRule": "egress rule",
+    "yes": "yes",
+    "no": "no",
+    "blueGreenReindex": "blue-green reindex",
+    "targetEmbedding": "target embedding",
+    "embeddingDim": "embedding dim",
+    "planReindex": "Plan reindex",
+    "activeCollection": "active collection",
+    "shadowCollection": "shadow collection",
     "loadError": "Unable to load provider settings.",
     "noTenant": "No tenant selected.",
     "providerFailed": "Provider verification failed.",
-    "runtimeFailed": "Runtime setting was not saved."
+    "runtimeFailed": "Runtime setting was not saved.",
+    "egressFailed": "Egress policy was not saved.",
+    "estimateFailed": "Cost estimate failed.",
+    "reindexFailed": "Reindex plan was not saved.",
+    "invalidNumber": "Enter a valid non-negative number."
   },
   "profilePage": {
     "eyebrow": "operator account",
@@ -371,7 +399,9 @@
     "collectionsHelp": "Comma-separated list of collection names.",
     "documents": "limit to document ids",
     "documentsHelp": "Comma-separated list of unique doc IDs.",
-    "queryError": "**Retrieval error:** Query could not be completed.\n\nError detail: `{detail}`.\n\nMake sure backend and database containers (Postgres, Neo4j, Qdrant) are running."
+    "queryError": "**Retrieval error:** Query could not be completed.\n\nError detail: `{detail}`.\n\nMake sure backend and database containers (Postgres, Neo4j, Qdrant) are running.",
+    "advancedModes": "advanced modes",
+    "singleLaneWarning": "single-lane modes bypass cross-retriever consensus: the trust verdict is not meaningful. Use for diagnostics only."
   },
   "ingestPage": {
     "eyebrow": "section 02 · evidence intake",
@@ -508,7 +538,8 @@
     "evidenceCited": "evidence cited",
     "doc": "doc",
     "chunk": "chunk",
-    "pp": "pp."
+    "pp": "pp.",
+    "consensusNA": "CONSENSUS N/A (SINGLE LANE)"
   },
   "custodyTimeline": {
     "integrity": "integrity",
@@ -540,6 +571,7 @@
     "synthesis": "synthesis · sealed answer",
     "noAnswer": "_No answer recorded._",
     "custodySeal": "custody seal",
-    "sealed": "SEALED"
+    "sealed": "SEALED",
+    "consensusNA": "CONSENSUS N/A (SINGLE LANE)"
   }
 }

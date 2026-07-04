@@ -361,6 +361,7 @@ export default function GraphPage() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={t("searchPlaceholder")}
+                  aria-label={t("find")}
                   className="pl-9 bg-vault-raised border-hairline font-mono text-xs"
                 />
               </div>

@@ -5,6 +5,12 @@ interface TrustVerdictProps extends React.ComponentProps<"span"> {
   highTrust: boolean;
   /** Optional agreement score 0–1 appended in mono. */
   score?: number;
+  /**
+   * When set, replaces the verdict entirely (e.g. "CONSENSO N/A (CORSIA
+   * SINGOLA)"): with one retrieval lane there is no cross-channel consensus
+   * to certify, so showing a score would be dishonest.
+   */
+  notApplicableLabel?: string;
 }
 
 /**
@@ -14,9 +20,21 @@ interface TrustVerdictProps extends React.ComponentProps<"span"> {
 export function TrustVerdict({
   highTrust,
   score,
+  notApplicableLabel,
   className,
   ...props
 }: TrustVerdictProps) {
+  if (notApplicableLabel) {
+    return (
+      <span
+        data-slot="trust-verdict"
+        className={cn("stamp text-bone-dim", className)}
+        {...props}
+      >
+        {notApplicableLabel}
+      </span>
+    );
+  }
   return (
     <span
       data-slot="trust-verdict"

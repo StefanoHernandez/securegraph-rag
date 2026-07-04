@@ -52,6 +52,7 @@ export default function AuditPage() {
   const size = 10;
 
   const [loadingTraces, setLoadingTraces] = useState(false);
+  const [tracesError, setTracesError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
   const [verifReport, setVerifReport] = useState<VerificationReport | null>(null);
@@ -62,12 +63,14 @@ export default function AuditPage() {
       return;
     }
     setLoadingTraces(true);
+    setTracesError(null);
     try {
       const res = await adminApi.getAuditTraces(tenantId, page, size);
       setTraces(res.traces);
       setTotal(res.total);
     } catch (err) {
       console.error("Failed to fetch audit traces", err);
+      setTracesError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoadingTraces(false);
     }
@@ -286,6 +289,10 @@ export default function AuditPage() {
             <div className="py-20 flex flex-col items-center gap-2 text-bone-dim">
               <RefreshCw className="h-5 w-5 animate-spin text-signal-amber" />
               <span className="mono-meta">{t("loading")}</span>
+            </div>
+          ) : tracesError ? (
+            <div className="py-20 text-center">
+              <p className="font-mono text-xs text-seal-red">⚠ {tracesError}</p>
             </div>
           ) : traces.length === 0 ? (
             <div className="py-20 text-center mono-meta">
