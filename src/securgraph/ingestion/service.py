@@ -18,7 +18,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from neo4j import AsyncDriver
 from qdrant_client import QdrantClient
@@ -348,7 +348,7 @@ async def _write_document_owner_tuples(
     Idempotent: re-ingest of the same corpus may hit "already exists"; we
     log+swallow so reseeding doesn't break.
     """
-    from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
+    from openfga_sdk.client.models import ClientTuple
 
     from securgraph.api import dependencies as deps
 
@@ -368,18 +368,16 @@ async def _write_document_owner_tuples(
         )
     if not writes:
         return
-    try:
-        await client.write(ClientWriteRequest(writes=writes))
-    except Exception as e:
-        import structlog
-
-        structlog.get_logger(__name__).warning(
-            "fga_document_owner_tuple_write_failed",
-            error=str(e),
-            doc_id=doc_id,
-            owner_id=owner_id,
-            direct_viewers_count=len(direct_viewers),
-        )
+    await _write_fga_tuple_batch(
+        client,
+        writes,
+        failure_event="fga_document_owner_tuple_write_failed",
+        log_fields={
+            "doc_id": doc_id,
+            "owner_id": owner_id,
+            "direct_viewers_count": len(direct_viewers),
+        },
+    )
 
 
 async def _write_chunk_parent_tuples(doc_id: str, chunk_ids: list[str]) -> None:
@@ -390,7 +388,7 @@ async def _write_chunk_parent_tuples(doc_id: str, chunk_ids: list[str]) -> None:
     Idempotent: re-ingest of the same corpus may hit "already exists"; we
     log+swallow so reseeding doesn't break.
     """
-    from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
+    from openfga_sdk.client.models import ClientTuple
 
     from securgraph.api import dependencies as deps
 
@@ -405,16 +403,51 @@ async def _write_chunk_parent_tuples(doc_id: str, chunk_ids: list[str]) -> None:
         )
         for cid in chunk_ids
     ]
+    await _write_fga_tuple_batch(
+        client,
+        writes,
+        failure_event="fga_chunk_parent_tuple_write_failed",
+        log_fields={"doc_id": doc_id, "n": len(chunk_ids)},
+    )
+
+
+def _is_duplicate_fga_tuple_error(exc: Exception) -> bool:
+    """Return whether OpenFGA rejected an idempotent duplicate tuple write."""
+    message = str(exc).lower()
+    return "already exists" in message or "write_failed_due_to_invalid_input" in message
+
+
+async def _write_fga_tuple_batch(
+    client: Any,
+    writes: list[Any],
+    *,
+    failure_event: str,
+    log_fields: dict[str, Any],
+) -> None:
+    """Write OpenFGA tuples idempotently, but fail closed for real store errors."""
+    from openfga_sdk.client.models import ClientWriteRequest
+
+    if not writes:
+        return
     try:
         await client.write(ClientWriteRequest(writes=writes))
-    except Exception as e:
-        # Idempotent reseeds raise 'write_failed_due_to_invalid_input' /
-        # 'already exists'; log+swallow so re-ingest doesn't break.
-        import structlog
+        return
+    except Exception as exc:
+        if not _is_duplicate_fga_tuple_error(exc):
+            _LOG.error(failure_event, error=str(exc), **log_fields)
+            raise
 
-        structlog.get_logger(__name__).warning(
-            "fga_chunk_parent_tuple_write_failed",
-            error=str(e),
-            doc_id=doc_id,
-            n=len(chunk_ids),
-        )
+    for item in writes:
+        try:
+            await client.write(ClientWriteRequest(writes=[item]))
+        except Exception as exc:
+            if _is_duplicate_fga_tuple_error(exc):
+                _LOG.debug(
+                    "fga_duplicate_tuple_skipped",
+                    user=getattr(item, "user", ""),
+                    relation=getattr(item, "relation", ""),
+                    object=getattr(item, "object", ""),
+                )
+                continue
+            _LOG.error(failure_event, error=str(exc), **log_fields)
+            raise

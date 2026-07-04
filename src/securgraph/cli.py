@@ -79,22 +79,39 @@ async def seed_demo_users(session: AsyncSession) -> None:
         ("viewer", "viewer"),
     ):
         result = await session.execute(select(AuthUserRow).where(AuthUserRow.username == username))
-        if result.scalar_one_or_none() is not None:
-            continue
-        user = AuthUserRow(
-            id=f"usr_{uuid.uuid4().hex}",
-            username=username,
-            display_name=username.title(),
-            password_hash=hash_password(f"{username}123"),
-            is_active=True,
-            is_super_admin=False,
-            must_change_password=True,
-            token_version=1,
-        )
-        session.add(user)
-        session.add(
-            TenantMembershipRow(tenant_id="default", user_id=user.id, role=role, is_active=True)
-        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            user = AuthUserRow(
+                id=f"usr_{uuid.uuid4().hex}",
+                username=username,
+                display_name=username.title(),
+                password_hash=hash_password(f"{username}123"),
+                is_active=True,
+                is_super_admin=False,
+                must_change_password=True,
+                token_version=1,
+            )
+            session.add(user)
+        else:
+            user.password_hash = hash_password(f"{username}123")
+            user.is_active = True
+            user.is_super_admin = False
+            user.must_change_password = True
+            user.token_version += 1
+
+        membership = await session.get(TenantMembershipRow, ("default", user.id))
+        if membership is None:
+            session.add(
+                TenantMembershipRow(
+                    tenant_id="default",
+                    user_id=user.id,
+                    role=role,
+                    is_active=True,
+                )
+            )
+        else:
+            membership.role = role
+            membership.is_active = True
     await session.commit()
 
 

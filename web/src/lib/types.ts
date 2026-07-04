@@ -308,6 +308,49 @@ export interface RuntimeSetting {
   updated_at: string | null;
 }
 
+export type EgressStage = "extract" | "judge" | "generation" | "embedding";
+export type EgressClassification = "public" | "internal" | "confidential" | "restricted";
+
+export interface EgressDecision {
+  allowed: boolean;
+  action: "allow" | "block";
+  reason: string;
+  matched_rule_index: number | null;
+}
+
+export interface CostEstimateRequest {
+  provider: ProviderName;
+  model_id: string;
+  stage: EgressStage;
+  classification: EgressClassification;
+  input_tokens: number;
+  output_tokens: number;
+  input_cost_per_1k_usd?: number;
+  output_cost_per_1k_usd?: number;
+}
+
+export interface CostEstimateResponse extends CostEstimateRequest {
+  total_tokens: number;
+  hard_token_cap: number;
+  within_hard_token_cap: boolean;
+  estimated_cost_usd: number;
+  price_source: string;
+  egress: EgressDecision;
+}
+
+export interface EmbeddingReindexPlan {
+  tenant_id: string;
+  strategy: "blue_green";
+  status: "planned";
+  from_model: string;
+  to_model: string;
+  embedding_dim: number;
+  active_collection: string;
+  shadow_collection: string;
+  cutover_required: boolean;
+  setting_version: number;
+}
+
 export interface ModelCatalogEntry {
   provider: ProviderName;
   model_id: string;

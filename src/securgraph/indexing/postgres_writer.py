@@ -6,6 +6,7 @@ talks to a clean async API.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import select
@@ -35,6 +36,21 @@ from securgraph.indexing.tamper import chain_policy_decisions
 # ---------------------------------------------------------------------------
 # Idempotency lookup
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkCitationMetadata:
+    """User-facing source metadata for a chunk citation."""
+
+    chunk_id: str
+    document_id: str
+    # Nullable in the DB (documents.source_uri/title); downstream label
+    # building handles None.
+    source_uri: str | None
+    title: str | None
+    page_start: int | None
+    page_end: int | None
+    ordinal: int
 
 
 async def find_existing_document(
@@ -351,10 +367,51 @@ async def fetch_chunks_by_ids(
     ]
 
 
+async def fetch_chunk_citation_metadata(
+    session: AsyncSession, tenant_id: str, chunk_ids: list[str]
+) -> dict[str, ChunkCitationMetadata]:
+    """Return source metadata for cited chunks, scoped by tenant."""
+    if not chunk_ids:
+        return {}
+    stmt = (
+        select(
+            ChunkRow.chunk_id,
+            ChunkRow.document_id,
+            DocumentRow.source_uri,
+            DocumentRow.title,
+            ChunkRow.page_start,
+            ChunkRow.page_end,
+            ChunkRow.ordinal,
+        )
+        .join(DocumentRow, DocumentRow.document_id == ChunkRow.document_id)
+        .where(
+            ChunkRow.tenant_id == tenant_id,
+            DocumentRow.tenant_id == tenant_id,
+            ChunkRow.chunk_id.in_(chunk_ids),
+        )
+    )
+    res = await session.execute(stmt)
+    metadata: dict[str, ChunkCitationMetadata] = {}
+    for row in res.all():
+        chunk_id, document_id, source_uri, title, page_start, page_end, ordinal = row
+        metadata[chunk_id] = ChunkCitationMetadata(
+            chunk_id=chunk_id,
+            document_id=document_id,
+            source_uri=source_uri,
+            title=title,
+            page_start=page_start,
+            page_end=page_end,
+            ordinal=ordinal,
+        )
+    return metadata
+
+
 __all__ = [
+    "ChunkCitationMetadata",
     "TraceStatus",  # convenience re-export
     "count_chunks_for_document",
     "create_ingestion_job",
+    "fetch_chunk_citation_metadata",
     "fetch_chunks_by_ids",
     "fetch_ingestion_job",
     "find_existing_document",

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 /**
  * Forensic Vault E2E smoke tests.
@@ -10,66 +10,115 @@ import { test, expect } from "@playwright/test";
  * - Locale switching works (/it and /en)
  *
  * Prerequisites:
- * - API on :8000 with auth_enabled=true
- * - Super-admin bootstrapped via `securgraph bootstrap-superadmin`
- * - Next dev server on :3000
+ * - API with auth_enabled=true
+ * - Demo users seeded via `securgraph seed-demo`
+ * - Next server reachable at E2E_BASE_URL
  *
- * Set E2E_ADMIN_PASSWORD env var to the bootstrap password.
+ * Set E2E_ADMIN_USERNAME / E2E_ADMIN_PASSWORD to override the demo admin.
  */
 
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? "change-me-min-12-chars";
+const ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME ?? "admin";
+const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? "admin123";
+const usernameField = /operator id|username|id operatore/i;
+const passwordField = /passphrase|password/i;
+const submitButton = /authenticate session|autentica sessione|login|sign in|enter/i;
+
+async function gotoLogin(page: Page) {
+  const authCheckPromise = page
+    .waitForResponse((response) => response.url().includes("/api/v1/auth/me"), {
+      timeout: 10_000,
+    })
+    .catch(() => null);
+  await page.goto("/en/login", { waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(/\/en\/login/);
+  await expect(page.getByRole("textbox", { name: usernameField })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: passwordField })).toBeVisible();
+  await authCheckPromise;
+}
+
+async function fillLoginForm(page: Page, username: string, password: string) {
+  const usernameInput = page.locator("#username");
+  const passwordInput = page.locator("#password");
+  await expect(usernameInput).toBeEditable();
+  await expect(passwordInput).toBeEditable();
+  await usernameInput.fill(username);
+  await expect(usernameInput).toHaveValue(username);
+  await passwordInput.fill(password);
+  await expect(passwordInput).toHaveValue(password);
+}
+
+async function loginAsDemoAdmin(page: Page) {
+  await gotoLogin(page);
+  await fillLoginForm(page, ADMIN_USERNAME, ADMIN_PASSWORD);
+  const loginResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/v1/auth/login") &&
+      response.request().method() === "POST"
+  );
+  await page.getByRole("button", { name: submitButton }).click();
+  const loginResponse = await loginResponsePromise;
+  expect(loginResponse.status()).toBe(200);
+  await expect(page).toHaveURL(/\/(it|en)(\/)?$/);
+}
 
 test.describe("Forensic Vault smoke", () => {
   test("login page renders with forensic vault branding", async ({ page }) => {
-    await page.goto("/login");
+    await gotoLogin(page);
     await expect(page).toHaveTitle(/SecureGraph|Forensic/i);
-    // Login form present
-    await expect(page.locator('input[name="username"], input[placeholder*="username" i]')).toBeVisible();
-    await expect(page.locator('input[type="password"]')).toBeVisible();
+    await expect(page.getByText(/securegraph/i)).toBeVisible();
+    await expect(page.getByRole("textbox", { name: usernameField })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: passwordField })).toBeVisible();
   });
 
   test("login rejects invalid credentials", async ({ page }) => {
-    await page.goto("/login");
-    await page.locator('input[name="username"], input[placeholder*="username" i]').fill("nonexistent");
-    await page.locator('input[type="password"]').fill("wrong-password-x");
-    await page.getByRole("button", { name: /login|sign in|enter/i }).click();
-    // Should stay on login or show error
-    await expect(page).toHaveURL(/login/);
+    // Requires a live backend: the assertion waits for a real 401 from
+    // /api/v1/auth/login. Without E2E_LIVE the proxied request never
+    // resolves to 401 and waitForResponse would hang the CI run.
+    test.skip(!process.env.E2E_LIVE, "Set E2E_LIVE=1 to run live login tests");
+
+    await gotoLogin(page);
+    await fillLoginForm(page, "nonexistent", "wrong-password-x");
+    const loginResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/v1/auth/login") &&
+        response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: submitButton }).click();
+    const loginResponse = await loginResponsePromise;
+    expect(loginResponse.status()).toBe(401);
+    await expect(page).toHaveURL(/\/(it|en)\/login/);
+    await expect(page.getByRole("button", { name: submitButton })).toBeEnabled();
   });
 
-  test("super_admin can login and see dashboard", async ({ browser }) => {
+  test("demo admin can login and see dashboard", async ({ page }) => {
     // Skip if no live API — this test requires a running backend
     test.skip(!process.env.E2E_LIVE, "Set E2E_LIVE=1 to run live login tests");
 
-    const page = await browser.newPage();
-    await page.goto("/login");
-    await page.locator('input[name="username"], input[placeholder*="username" i]').fill("admin");
-    await page.locator('input[type="password"]').fill(ADMIN_PASSWORD);
-    await page.getByRole("button", { name: /login|sign in|enter/i }).click();
-    // Should redirect to dashboard
-    await expect(page).toHaveURL(/\/(it|en)?\/?$/);
-    // Sidebar should be visible
+    await loginAsDemoAdmin(page);
     await expect(page.locator("nav, aside").first()).toBeVisible();
+    await expect(page.getByText(/documents under custody|documenti/i)).toBeVisible();
   });
 
   test("locale routes render (/it and /en)", async ({ page }) => {
-    // Italian locale
-    await page.goto("/it");
-    await expect(page).toHaveURL(/\/it/);
-    // English locale
-    await page.goto("/en");
-    await expect(page).toHaveURL(/\/en/);
+    await page.goto("/it/login", { waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(/\/it\/login/);
+    await expect(page.getByRole("button", { name: submitButton })).toBeVisible();
+
+    await page.goto("/en/login", { waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(/\/en\/login/);
+    await expect(page.getByRole("button", { name: submitButton })).toBeVisible();
   });
 
   test("dashboard pages render without JS errors", async ({ page }) => {
-    const pages = ["/", "/chat", "/ingest", "/health", "/audit", "/graph"];
+    const errors: string[] = [];
+    page.on("pageerror", (err) => errors.push(err.message));
+    if (process.env.E2E_LIVE) {
+      await loginAsDemoAdmin(page);
+    }
+    const pages = ["/it", "/it/chat", "/it/ingest", "/it/health", "/it/audit", "/it/graph"];
     for (const path of pages) {
-      await page.goto(path);
-      // No uncaught JS errors
-      const errors: string[] = [];
-      page.on("pageerror", (err) => errors.push(err.message));
-      await page.waitForLoadState("networkidle");
-      // Allow Next.js prerender warnings but not hard errors
+      await page.goto(path, { waitUntil: "domcontentloaded" });
+      await expect(page.locator("body")).toBeVisible();
       expect(errors.filter((e) => !e.includes("ENVIRONMENT_FALLBACK"))).toEqual([]);
     }
   });

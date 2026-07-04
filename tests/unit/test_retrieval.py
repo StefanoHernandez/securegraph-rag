@@ -157,6 +157,7 @@ async def test_qdrant_writer_and_dual_strategy_retriever() -> None:
     )
     assert len(evidences_a) == 1
     assert evidences_a[0].object_id == "chk_apple"
+    assert evidences_a[0].document_id == "doc_1"
     assert evidences_a[0].retriever_id == RetrieverId.VECTOR
     assert evidences_a[0].retrieval_strategy == "dense"
     assert evidences_a[0].policy_check_id == "unverified"
@@ -180,6 +181,7 @@ async def test_qdrant_writer_and_dual_strategy_retriever() -> None:
     )
     assert len(lexical_evidences_b) == 1
     assert lexical_evidences_b[0].object_id == "chk_banana"
+    assert lexical_evidences_b[0].document_id == "doc_2"
     assert lexical_evidences_b[0].retriever_id == RetrieverId.LEXICAL
     assert lexical_evidences_b[0].retrieval_strategy == "full_text"
     assert lexical_evidences_b[0].policy_check_id == "unverified"

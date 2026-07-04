@@ -110,7 +110,8 @@ def main() -> None:
     args = parser.parse_args()
     if not args.yes:
         confirm = input(
-            f"This will DELETE all rows/points/nodes with tenant_id={args.tenant!r}. Type the tenant to confirm: "
+            f"This will DELETE all rows/points/nodes with tenant_id={args.tenant!r}. "
+            "Type the tenant to confirm: "
         )
         if confirm.strip() != args.tenant:
             print("Aborted.")

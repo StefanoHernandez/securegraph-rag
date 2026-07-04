@@ -22,6 +22,10 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from securgraph.corpus.access import (  # noqa: E402
+    group_viewer_ids_for_document,
+    tenant_authenticated_group_id,
+)
 from securgraph.corpus.manifest import CorpusManifest, load_corpus_manifest  # noqa: E402
 
 
@@ -87,6 +91,13 @@ async def _seed_fga_group_memberships(
     tuples: list[ClientTuple] = []
     for user in users:
         user_id = user["id"]
+        tuples.append(
+            ClientTuple(
+                user=f"user:{user_id}",
+                relation="member",
+                object=f"group:{tenant_authenticated_group_id(tenant_id)}",
+            )
+        )
         for group_id in user.get("groups", []):
             tuples.append(
                 ClientTuple(
@@ -95,11 +106,14 @@ async def _seed_fga_group_memberships(
                     object=f"group:{group_id}",
                 )
             )
-    try:
-        await fga.write(ClientWriteRequest(writes=tuples))
-        print(f"  seeded {len(tuples)} group membership tuples")
-    except Exception as e:
-        print(f"  fga group seed note: {e}")
+    written = 0
+    for t in tuples:
+        try:
+            await fga.write(ClientWriteRequest(writes=[t]))
+            written += 1
+        except Exception:  # noqa: S110 - duplicate tuple, skip
+            pass
+    print(f"  seeded {written} group membership tuples")
     await fga.close()  # type: ignore[attr-defined]
 
 
@@ -121,13 +135,14 @@ async def _seed_fga_document_tuples(
             continue
         target = f"document:{document_id}"
         # Skip owner tuples — the API writes them during ingestion.
+        group_viewers = group_viewer_ids_for_document(
+            tenant_id=manifest.tenant_id,
+            classification=document.classification,
+            manifest_groups=document.groups,
+        )
         tuples.extend(
-            ClientTuple(
-                user=f"group:{group_id}#member",
-                relation="group_viewer",
-                object=target,
-            )
-            for group_id in document.groups
+            ClientTuple(user=f"group:{group_id}#member", relation="group_viewer", object=target)
+            for group_id in group_viewers
         )
         tuples.extend(
             ClientTuple(
@@ -245,7 +260,7 @@ async def _ensure_tenant(tenant_id: str) -> None:
         print(f"  created {len(all_groups)} groups for tenant {tenant_id}")
 
 
-async def _ingest_documents(manifest: CorpusManifest) -> list[str]:
+async def _ingest_documents(manifest: CorpusManifest, *, api_base_url: str) -> list[str]:
     """Ingest all manifest documents via the HTTP API and return their doc_ids.
 
     Uses the live API so that chunk->parent_document FGA tuples are written
@@ -273,7 +288,7 @@ async def _ingest_documents(manifest: CorpusManifest) -> list[str]:
             }
             try:
                 resp = await client.post(
-                    "http://localhost:8000/api/v1/ingest",
+                    f"{api_base_url.rstrip('/')}/api/v1/ingest",
                     files=files,
                     data=data,
                 )
@@ -313,6 +328,7 @@ async def _recompute_communities(tenant_id: str) -> None:
 async def main() -> None:
     parser = argparse.ArgumentParser(prog="mrd-seed-live")
     parser.add_argument("--corpus", type=Path, default=REPO_ROOT / "corpus" / "mrd_v1")
+    parser.add_argument("--api-base-url", default="http://localhost:8000")
     parser.add_argument("--recompute-communities", action="store_true")
     args = parser.parse_args()
 
@@ -333,7 +349,7 @@ async def main() -> None:
     await _seed_fga_group_memberships(users, groups, tenant_id)
 
     print("3. Ingesting documents...")
-    doc_ids = await _ingest_documents(manifest)
+    doc_ids = await _ingest_documents(manifest, api_base_url=args.api_base_url)
 
     print("4. Seeding FGA document access tuples...")
     await _seed_fga_document_tuples(doc_ids, manifest)
@@ -349,7 +365,7 @@ async def main() -> None:
     print("Ready for live scoring with:")
     print(
         f"  .venv/bin/python eval/mrd_qa_smoke.py "
-        f"--live-query-url http://localhost:8000/api/v1/query "
+        f"--live-query-url {args.api_base_url.rstrip('/')}/api/v1/query "
         f"--tenant-id {tenant_id}"
     )
 

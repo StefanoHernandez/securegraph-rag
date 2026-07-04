@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 from collections.abc import AsyncIterator
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, status
@@ -18,10 +19,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, get_redis_pool
 from securgraph.domain import Classification, DocumentType, IngestionStatus
+from securgraph.domain.graph import ExtractedGraphSlice
 from securgraph.indexing.db import AccessTemplateRow, ChunkRow, DocumentRow
 from securgraph.ingestion.chunker import chunk_document
 from securgraph.ingestion.parsers import detect_format, parse_bytes
 from securgraph.ingestion.service import IngestionRequest, IngestionResult, ingest_document
+
+
+class DummyEmbeddingAdapter:
+    """Deterministic embedding adapter for ingestion tests."""
+
+    def embed_text(self, text: str) -> list[float]:
+        return [0.1] * 1024
+
+    def embed_chunks(self, chunks: list[str]) -> list[list[float]]:
+        return [[0.1] * 1024 for _ in chunks]
 
 
 @pytest.fixture
@@ -54,13 +66,6 @@ def mock_graph_extraction_and_writing(monkeypatch: pytest.MonkeyPatch) -> None:
 
     async def mock_write(*args: Any, **kwargs: Any) -> None:
         pass
-
-    class DummyEmbeddingAdapter:
-        def embed_text(self, text: str) -> list[float]:
-            return [0.1] * 1024
-
-        def embed_chunks(self, chunks: list[str]) -> list[list[float]]:
-            return [[0.1] * 1024 for _ in chunks]
 
     monkeypatch.setattr(ollama, "extract_graph_slice", mock_extract)
     monkeypatch.setattr(writer, "write_graph_slice", mock_write)
@@ -201,6 +206,255 @@ async def test_ingestion_pipeline_idempotency(real_db_session: AsyncSession) -> 
     assert res2.status == IngestionStatus.ALREADY_INGESTED
     assert res2.document_id == res1.document_id
     assert res2.chunks_created == 0
+
+
+@pytest.mark.asyncio
+async def test_ingestion_failure_injection_qdrant_aborts_before_auth_and_provenance() -> None:
+    """A Qdrant write failure must abort before FGA, Neo4j, provenance, and completion."""
+    session = AsyncMock(spec=AsyncSession)
+    request = IngestionRequest(
+        tenant_id="mrd",
+        source_uri="file://qdrant-failure.md",
+        owner_id="user:stefano",
+        data=b"# Qdrant Failure\nThis document should not finish ingest.",
+        document_type=DocumentType.POLICY,
+        classification=Classification.INTERNAL,
+    )
+
+    fga_chunk = AsyncMock()
+    fga_owner = AsyncMock()
+    write_provenance = AsyncMock()
+    complete_job = AsyncMock()
+    graph_write = AsyncMock()
+    adapter = MagicMock()
+    adapter.extract_graph_slice = AsyncMock(return_value=ExtractedGraphSlice())
+
+    with (
+        patch("securgraph.ingestion.service.find_existing_document", AsyncMock(return_value=None)),
+        patch("securgraph.ingestion.service.create_ingestion_job", AsyncMock()),
+        patch("securgraph.ingestion.service.upsert_document", AsyncMock()),
+        patch("securgraph.ingestion.service.upsert_chunks", AsyncMock()),
+        patch("securgraph.ingestion.service.update_ingestion_job", complete_job),
+        patch("securgraph.ingestion.service.write_ingestion_provenance", write_provenance),
+        patch(
+            "securgraph.indexing.qdrant_writer.upsert_chunks_to_qdrant",
+            side_effect=RuntimeError("qdrant unavailable"),
+        ),
+        patch(
+            "securgraph.adapters.embeddings.get_embedding_adapter",
+            return_value=DummyEmbeddingAdapter(),
+        ),
+        patch("securgraph.ingestion.service._write_chunk_parent_tuples", fga_chunk),
+        patch("securgraph.ingestion.service._write_document_owner_tuples", fga_owner),
+        patch("securgraph.adapters.llm.get_llm_adapter_for", return_value=adapter),
+        patch("securgraph.adapters.neo4j_writer.write_graph_slice", graph_write),
+        pytest.raises(RuntimeError, match="qdrant unavailable"),
+    ):
+        await ingest_document(session, request, neo4j_driver=MagicMock())
+
+    fga_chunk.assert_not_awaited()
+    fga_owner.assert_not_awaited()
+    adapter.extract_graph_slice.assert_not_awaited()
+    graph_write.assert_not_awaited()
+    write_provenance.assert_not_awaited()
+    complete_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ingestion_failure_injection_postgres_aborts_before_external_stores() -> None:
+    """A PostgreSQL persistence failure must abort before Qdrant, FGA, Neo4j, and provenance."""
+    session = AsyncMock(spec=AsyncSession)
+    request = IngestionRequest(
+        tenant_id="mrd",
+        source_uri="file://postgres-failure.md",
+        owner_id="user:stefano",
+        data=b"# PostgreSQL Failure\nNo external store should be touched.",
+        document_type=DocumentType.POLICY,
+        classification=Classification.INTERNAL,
+    )
+
+    qdrant_write = MagicMock()
+    fga_chunk = AsyncMock()
+    fga_owner = AsyncMock()
+    write_provenance = AsyncMock()
+    complete_job = AsyncMock()
+    graph_write = AsyncMock()
+    adapter = MagicMock()
+    adapter.extract_graph_slice = AsyncMock(return_value=ExtractedGraphSlice())
+
+    with (
+        patch("securgraph.ingestion.service.find_existing_document", AsyncMock(return_value=None)),
+        patch("securgraph.ingestion.service.create_ingestion_job", AsyncMock()),
+        patch(
+            "securgraph.ingestion.service.upsert_document",
+            AsyncMock(side_effect=RuntimeError("postgres unavailable")),
+        ),
+        patch("securgraph.ingestion.service.upsert_chunks", AsyncMock()),
+        patch("securgraph.ingestion.service.update_ingestion_job", complete_job),
+        patch("securgraph.ingestion.service.write_ingestion_provenance", write_provenance),
+        patch("securgraph.indexing.qdrant_writer.upsert_chunks_to_qdrant", qdrant_write),
+        patch(
+            "securgraph.adapters.embeddings.get_embedding_adapter",
+            return_value=DummyEmbeddingAdapter(),
+        ),
+        patch("securgraph.ingestion.service._write_chunk_parent_tuples", fga_chunk),
+        patch("securgraph.ingestion.service._write_document_owner_tuples", fga_owner),
+        patch("securgraph.adapters.llm.get_llm_adapter_for", return_value=adapter),
+        patch("securgraph.adapters.neo4j_writer.write_graph_slice", graph_write),
+        pytest.raises(RuntimeError, match="postgres unavailable"),
+    ):
+        await ingest_document(session, request, neo4j_driver=MagicMock())
+
+    qdrant_write.assert_not_called()
+    fga_chunk.assert_not_awaited()
+    fga_owner.assert_not_awaited()
+    adapter.extract_graph_slice.assert_not_awaited()
+    graph_write.assert_not_awaited()
+    write_provenance.assert_not_awaited()
+    complete_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ingestion_failure_injection_openfga_aborts_before_graph_and_provenance() -> None:
+    """An OpenFGA tuple write failure must fail closed instead of completing ingest."""
+    session = AsyncMock(spec=AsyncSession)
+    request = IngestionRequest(
+        tenant_id="mrd",
+        source_uri="file://openfga-failure.md",
+        owner_id="user:stefano",
+        data=b"# OpenFGA Failure\nAuthorization tuples must be durable.",
+        document_type=DocumentType.POLICY,
+        classification=Classification.INTERNAL,
+    )
+
+    write_provenance = AsyncMock()
+    complete_job = AsyncMock()
+    fga_owner = AsyncMock()
+    graph_write = AsyncMock()
+    adapter = MagicMock()
+    adapter.extract_graph_slice = AsyncMock(return_value=ExtractedGraphSlice())
+
+    with (
+        patch("securgraph.ingestion.service.find_existing_document", AsyncMock(return_value=None)),
+        patch("securgraph.ingestion.service.create_ingestion_job", AsyncMock()),
+        patch("securgraph.ingestion.service.upsert_document", AsyncMock()),
+        patch("securgraph.ingestion.service.upsert_chunks", AsyncMock()),
+        patch("securgraph.ingestion.service.update_ingestion_job", complete_job),
+        patch("securgraph.ingestion.service.write_ingestion_provenance", write_provenance),
+        patch("securgraph.indexing.qdrant_writer.upsert_chunks_to_qdrant", return_value=None),
+        patch(
+            "securgraph.adapters.embeddings.get_embedding_adapter",
+            return_value=DummyEmbeddingAdapter(),
+        ),
+        patch(
+            "securgraph.ingestion.service._write_chunk_parent_tuples",
+            AsyncMock(side_effect=RuntimeError("openfga unavailable")),
+        ),
+        patch("securgraph.ingestion.service._write_document_owner_tuples", fga_owner),
+        patch("securgraph.adapters.llm.get_llm_adapter_for", return_value=adapter),
+        patch("securgraph.adapters.neo4j_writer.write_graph_slice", graph_write),
+        pytest.raises(RuntimeError, match="openfga unavailable"),
+    ):
+        await ingest_document(session, request, neo4j_driver=MagicMock())
+
+    fga_owner.assert_not_awaited()
+    adapter.extract_graph_slice.assert_not_awaited()
+    graph_write.assert_not_awaited()
+    write_provenance.assert_not_awaited()
+    complete_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ingestion_failure_injection_neo4j_aborts_before_provenance() -> None:
+    """A Neo4j graph persistence failure must leave the ingest job incomplete."""
+    session = AsyncMock(spec=AsyncSession)
+    request = IngestionRequest(
+        tenant_id="mrd",
+        source_uri="file://neo4j-failure.md",
+        owner_id="user:stefano",
+        data=b"# Neo4j Failure\nGraph writes must not fail silently.",
+        document_type=DocumentType.POLICY,
+        classification=Classification.INTERNAL,
+    )
+
+    write_provenance = AsyncMock()
+    complete_job = AsyncMock()
+    fga_chunk = AsyncMock()
+    fga_owner = AsyncMock()
+    adapter = MagicMock()
+    adapter.extract_graph_slice = AsyncMock(return_value=ExtractedGraphSlice())
+
+    with (
+        patch("securgraph.ingestion.service.find_existing_document", AsyncMock(return_value=None)),
+        patch("securgraph.ingestion.service.create_ingestion_job", AsyncMock()),
+        patch("securgraph.ingestion.service.upsert_document", AsyncMock()),
+        patch("securgraph.ingestion.service.upsert_chunks", AsyncMock()),
+        patch("securgraph.ingestion.service.update_ingestion_job", complete_job),
+        patch("securgraph.ingestion.service.write_ingestion_provenance", write_provenance),
+        patch("securgraph.indexing.qdrant_writer.upsert_chunks_to_qdrant", return_value=None),
+        patch(
+            "securgraph.adapters.embeddings.get_embedding_adapter",
+            return_value=DummyEmbeddingAdapter(),
+        ),
+        patch("securgraph.ingestion.service._write_chunk_parent_tuples", fga_chunk),
+        patch("securgraph.ingestion.service._write_document_owner_tuples", fga_owner),
+        patch("securgraph.adapters.llm.get_llm_adapter_for", return_value=adapter),
+        patch(
+            "securgraph.adapters.neo4j_writer.write_graph_slice",
+            AsyncMock(side_effect=RuntimeError("neo4j unavailable")),
+        ),
+        pytest.raises(RuntimeError, match="neo4j unavailable"),
+    ):
+        await ingest_document(session, request, neo4j_driver=MagicMock())
+
+    fga_chunk.assert_awaited_once()
+    fga_owner.assert_awaited_once()
+    adapter.extract_graph_slice.assert_awaited_once()
+    write_provenance.assert_not_awaited()
+    complete_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_openfga_duplicate_ingest_tuples_are_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Duplicate OpenFGA tuples remain idempotent during retry/reseed."""
+    from securgraph.api import dependencies as deps
+    from securgraph.ingestion import service as ingestion_service
+
+    fga_client = MagicMock()
+    fga_client.write = AsyncMock(
+        side_effect=[
+            Exception("write_failed_due_to_invalid_input: tuple already exists"),
+            Exception("cannot write a tuple which already exists"),
+            None,
+        ]
+    )
+    monkeypatch.setattr(deps, "_fga_client", fga_client)
+
+    await ingestion_service._write_document_owner_tuples(
+        "doc-1",
+        owner_id="user:alice",
+        direct_viewers=("user:bob",),
+    )
+
+    assert fga_client.write.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_openfga_ingest_tuple_store_errors_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-duplicate OpenFGA errors must fail ingest instead of being logged away."""
+    from securgraph.api import dependencies as deps
+    from securgraph.ingestion import service as ingestion_service
+
+    fga_client = MagicMock()
+    fga_client.write = AsyncMock(side_effect=RuntimeError("openfga unavailable"))
+    monkeypatch.setattr(deps, "_fga_client", fga_client)
+
+    with pytest.raises(RuntimeError, match="openfga unavailable"):
+        await ingestion_service._write_chunk_parent_tuples("doc-1", ["chunk-1"])
+
+    fga_client.write.assert_awaited_once()
 
 
 # ----------------------------------------------------------------------------

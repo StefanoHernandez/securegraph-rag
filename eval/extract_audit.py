@@ -154,7 +154,8 @@ async def main() -> None:
                 print(f"  raw head: {res['raw_head']!r}")
         else:
             print(
-                f"  {res['latency_s']}s | entities={res['n_entities']} relations={res['n_relations']} "
+                f"  {res['latency_s']}s | entities={res['n_entities']} "
+                f"relations={res['n_relations']} "
                 f"recall={res['expected_entity_recall']}"
             )
             print(f"  hits: {res['expected_hits']}")

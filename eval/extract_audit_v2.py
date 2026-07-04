@@ -221,7 +221,13 @@ async def main() -> None:
         }
         print(f"== {combo_key} ==")
         for fname, (text, gt) in docs.items():
-            per_doc = {"recalls": [], "rel_counts": [], "ent_counts": [], "latencies": [], "parse_ok": 0}
+            per_doc = {
+                "recalls": [],
+                "rel_counts": [],
+                "ent_counts": [],
+                "latencies": [],
+                "parse_ok": 0,
+            }
             for run_idx in range(RUNS_PER_COMBO):
                 result = await call_once(client, model, thinking, text)
                 by_combo[combo_key]["total_calls"] += 1
@@ -312,7 +318,12 @@ async def main() -> None:
     out_path = RESULTS_DIR / f"extract_audit_{stamp}.json"
     out_path.write_text(
         json.dumps(
-            {"summary": summary, "ranked": ranked, "by_combo": by_combo, "ground_truth": {k: sorted(v) for k, v in GROUND_TRUTH.items()}},
+            {
+                "summary": summary,
+                "ranked": ranked,
+                "by_combo": by_combo,
+                "ground_truth": {k: sorted(v) for k, v in GROUND_TRUTH.items()},
+            },
             indent=2,
             default=str,
         ),

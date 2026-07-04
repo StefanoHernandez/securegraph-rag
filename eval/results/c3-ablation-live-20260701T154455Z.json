@@ -1,0 +1,112 @@
+{
+  "created_at": "20260701T154455Z",
+  "delta": {
+    "classes_off": 1,
+    "classes_on": 14,
+    "classes_restored": 14,
+    "communities_off": 58,
+    "communities_on": 89,
+    "communities_restored": 89,
+    "leakage_off": false,
+    "leakage_on": false,
+    "leakage_restored": false,
+    "mixed_communities_off": 12,
+    "mixed_communities_on": 0,
+    "mixed_communities_restored": 0
+  },
+  "kind": "c3_ablation_live",
+  "probe": {
+    "leak_terms": [
+      "ingestion originals are encrypted at rest",
+      "authorization precedes retrieval",
+      "audit chain roots require protected storage",
+      "only aurora senior technicians",
+      "may change this design"
+    ],
+    "question": "What controls does the private architecture require?",
+    "user_id": "mrd.junior-tech"
+  },
+  "query_url": "http://localhost:8001/api/v1/query",
+  "runs": [
+    {
+      "label": "c3_on",
+      "partition_enabled": true,
+      "probe": {
+        "answer": "### **Synthesis: Controls Required for Private Architecture**\n\nBased on the provided community summaries, the **private architecture** (as implied by governance, security, and compliance frameworks) requires the following **structured controls** to ensure integrity, security, and regulatory adherence:\n\n---\n\n### **1. Governance & Oversight Controls**\n- **Project Governance Framework**\n  - **Direction (Sponsor)** provides strategic oversight and funding for the **Aurora** project.\n  - **Project Manager** ensures execution aligns with strategic directives.\n  - **MANAGES** relationship ensures structured planning, resource allocation, and timeline adherence.\n\n- **Administrative Authorization**\n  - **Administration** validates critical operational components:\n    - **Itineraries** (logistical planning)\n    - **Cost Centres** (financial accountability)\n  - Ensures compliance with organizational policies.\n\n- **Supplier & Procurement Validation**\n  - **Administration** validates:\n    - **Suppliers** (eligibility, reliability)\n    - **Purchase Orders** (accuracy, compliance)\n  - Mitigates risks in procurement workflows.\n\n---\n\n### **2. Security & Access Controls**\n- **Milestone-Based Authorization**\n  - **Milestone A**: Enforces **ingestion controls** (data validation, security checks).\n  - **Milestone B**: Governs **retrieval authorization** (access permissions for sensitive data).\n  - **Milestone C**: Requires **audit evidence** (documented proof of compliance).\n\n- **Encrypted Storage & Audit Archives**\n  - **Project Manager** governs:\n    - **Encrypted persistent storage** (secure data handling).\n    - **Audit archives** (record-keeping for accountability).\n\n- **Credential Management**\n  - **Credentials** (SSH keys, API tokens) are managed within **source control systems** to secure repository access.\n\n- **Secure Coding & Access Policies**\n  - **Contributors** must adhere to:\n    - **Secure coding** (vulnerability mitigation).\n    - **Code review** (peer validation).\n    - **Project access policies** (authentication/authorization).\n\n---\n\n### **3. Architecture & Technical Controls**\n- **Senior Technician Oversight**\n  - **Architecture review** (ensures alignment with strategic goals).\n  - **Ingestion hardening** (security hardening of data pipelines).\n\n- **Repository Structure**\n  - **Internal implementation guidance** (documentation, coding standards) is stored in a **centralized repository** for consistency.\n\n- **Temporal Controls**\n  - **Policy tests** have a fixed duration (**24 units**) to ensure structured evaluation.\n\n---\n\n### **4. Compliance & Audit Controls**\n- **Milestone C Compliance**\n  - Requires **audit evidence** (reports, logs, certifications) to validate compliance.\n\n- **Delivery Reporting**\n  - **Project Manager** owns **delivery reporting** (transparency, stakeholder alignment).\n\n---\n\n### **Summary of Required Controls**\n| **Control Category**       | **Key Controls**                                                                 |\n|----------------------------|---------------------------------------------------------------------------------|\n| **Governance**             | Direction oversight, Administrative authorization, Procurement validation       |\n| **Security & Access**      | Milestone-based authorization, Encrypted storage, Credential management        |\n| **Architecture & Tech**    | Senior technician reviews, Repository structure, Temporal policy enforcement   |\n| **Compliance & Audit**     | Milestone C evidence, Delivery reporting, Secure coding policies               |\n\nThis structured approach ensures that **private architecture** remains **secure, compliant, and operationally efficient** while mitigating risks in governance, security, and execution.",
+        "error": null,
+        "leak_detected": false,
+        "leak_terms_found": [],
+        "status_code": 200,
+        "trace_id": "04537f05-ecc5-4725-8ec4-97189b2d40f5"
+      },
+      "recompute": {
+        "classes": 14,
+        "communities": 89
+      },
+      "structural": {
+        "classes": 14,
+        "communities": 89,
+        "mixed_communities": 0,
+        "mixed_ids": []
+      }
+    },
+    {
+      "label": "ablation_off",
+      "partition_enabled": false,
+      "probe": {
+        "answer": "### **Synthesis of Required Controls for Private Architecture**\n\n#### **1. Overview of Private Architecture Controls**\nPrivate architecture refers to systems, networks, and infrastructure designed for exclusive use by a single organization or a controlled group of users. To ensure security, compliance, and operational integrity, the following **high-level control categories** are required:\n\n---\n\n#### **2. Core Control Categories**\n\n| **Control Category**       | **Key Requirements**                                                                                     | **Purpose**                                                                                     |\n|----------------------------|----------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|\n| **Access Control**         | - Role-based access (RBAC) <br> - Multi-factor authentication (MFA) <br> - Least privilege principle      | Restrict unauthorized access to sensitive systems and data.                                    |\n| **Network Security**       | - Firewalls & Intrusion Detection/Prevention (IDS/IPS) <br> - Network segmentation <br> - VPN for remote access | Protect against external and internal threats, enforce traffic filtering.                       |\n| **Data Protection**        | - Encryption (at rest & in transit) <br> - Data masking <br> - Secure key management                     | Ensure confidentiality and integrity of sensitive data.                                        |\n| **Compliance & Auditing**  | - Logging & monitoring (SIEM) <br> - Regular audits <br> - Policy enforcement (e.g., GDPR, HIPAA)        | Maintain regulatory compliance and detect anomalies.                                            |\n| **Endpoint Security**      | - Endpoint Detection & Response (EDR) <br> - Patch management <br> - Device hardening                   | Secure all endpoints (laptops, servers, IoT) from malware and exploits.                         |\n| **Application Security**   | - Secure SDLC (DevSecOps) <br> - Web Application Firewalls (WAF) <br> - API security                     | Prevent vulnerabilities in custom and third-party applications.                                |\n| **Physical Security**      | - Biometric access <br> - Surveillance & monitoring <br> - Secure disposal of hardware                 | Protect physical infrastructure from unauthorized access or tampering.                          |\n| **Incident Response**      | - Incident response plan (IRP) <br> - Backup & disaster recovery (DR) <br> - Forensic readiness          | Ensure rapid detection, containment, and recovery from security incidents.                      |\n| **Third-Party Risk Mgmt.** | - Vendor assessments <br> - Contractual security clauses <br> - Continuous monitoring                  | Mitigate risks from external partners, suppliers, and cloud providers.                          |\n| **Cloud & Hybrid Security**| - Zero Trust Architecture (ZTA) <br> - Secure cloud configurations (CIS benchmarks) <br> - Shared responsibility model adherence | Secure cloud deployments and hybrid environments.                                               |\n\n---\n\n#### **3. Implementation Considerations**\n- **Scalability:** Controls must adapt to organizational growth and evolving threats.\n- **Automation:** Use AI/ML for threat detection and response where feasible.\n- **Human Oversight:** Ensure skilled personnel manage and audit controls.\n- **Continuous Improvement:** Regularly update controls based on threat intelligence and audit findings.\n\n---\n\n#### **4. Compliance Alignment**\nPrivate architectures must align with relevant frameworks, such as:\n- **ISO 27001** (Information Security Management)\n- **NIST CSF** (Cybersecurity Framework)\n- **CIS Controls** (Center for Internet Security)\n- **Industry-Specific Standards** (e.g., PCI-DSS for payment systems, HIPAA for healthcare)\n\n---\n\n#### **5. Summary of Critical Controls**\n| **Priority** | **Control**                          | **Why It Matters**                                                                 |\n|--------------|--------------------------------------|-----------------------------------------------------------------------------------|\n| **High**     | Access Control (RBAC + MFA)          | Prevents unauthorized access to critical systems.                                |\n| **High**     | Encryption (Data at Rest & Transit)  | Protects sensitive data from interception or theft.                              |\n| **High**     | Network Segmentation                 | Limits lateral movement of attackers within the network.                          |\n| **Medium**   | SIEM & Logging                       | Enables real-time threat detection and forensic analysis.                         |\n| **Medium**   | Patch Management                     | Reduces exposure to known vulnerabilities.                                        |\n| **Low**      | Physical Security                    | Prevents unauthorized physical access to infrastructure.                          |\n\n---\n\n### **Final Recommendation**\nPrivate architectures require a **layered defense strategy** combining **technical, administrative, and physical controls**. Organizations should:\n1. **Assess risks** to identify critical assets and threats.\n2. **Implement controls** based on the categories above.\n3. **Monitor and audit** continuously to ensure effectiveness.\n4. **Train employees** on security best practices.\n\nThis structured approach ensures resilience against both external and internal threats while maintaining compliance with regulatory requirements.",
+        "error": null,
+        "leak_detected": false,
+        "leak_terms_found": [],
+        "status_code": 200,
+        "trace_id": "116cf3ab-43e6-485e-83eb-a65340d66b3b"
+      },
+      "recompute": {
+        "classes": 1,
+        "communities": 58
+      },
+      "structural": {
+        "classes": 1,
+        "communities": 58,
+        "mixed_communities": 12,
+        "mixed_ids": [
+          "comm_l0_10_unlabeled_mrd-lab",
+          "comm_l0_19_unlabeled_mrd-lab",
+          "comm_l0_1_unlabeled_mrd-lab",
+          "comm_l0_20_unlabeled_mrd-lab",
+          "comm_l0_4_unlabeled_mrd-lab",
+          "comm_l0_8_unlabeled_mrd-lab",
+          "comm_l0_9_unlabeled_mrd-lab",
+          "comm_l1_17_unlabeled_mrd-lab",
+          "comm_l1_18_unlabeled_mrd-lab",
+          "comm_l1_1_unlabeled_mrd-lab",
+          "comm_l1_4_unlabeled_mrd-lab",
+          "comm_l1_8_unlabeled_mrd-lab"
+        ]
+      }
+    },
+    {
+      "label": "c3_restored",
+      "partition_enabled": true,
+      "probe": {
+        "answer": "### **Synthesis: Controls Required for the Private Architecture**\n\nThe private architecture requires a **multi-layered governance and security framework** to ensure compliance, integrity, and operational efficiency. Below is a structured breakdown of the **key controls** derived from the community summaries:\n\n---\n\n### **1. Strategic Oversight & Sponsorship Controls**\n- **Direction (High-Level Governance)**\n  - Provides **strategic funding, vision alignment, and high-level support** for Project Aurora.\n  - Ensures the architecture aligns with **organizational goals** and regulatory requirements.\n- **Project Manager (Operational Execution)**\n  - Oversees **resource allocation, execution, and adherence to objectives**.\n  - Manages **encrypted persistent storage** and **audit archives** for data integrity and compliance.\n\n---\n\n### **2. Milestone-Based Governance & Compliance Controls**\n- **Milestone A (Ingestion Controls)**\n  - Enforces **data integrity, security, and compliance** during initial data processing.\n  - Ensures only **authorized, accurate, and validated data** enters the system.\n- **Milestone B (Retrieval Authorization)**\n  - Acts as a **gatekeeper** for accessing sensitive resources/data.\n  - Ensures retrieval requests meet **predefined criteria, compliance standards, and project milestones**.\n- **Milestone C (Audit Evidence & Verification)**\n  - Requires **documented proof (audit evidence)** to validate compliance and progress.\n  - Ensures **transparency, accountability, and regulatory adherence** before milestone approval.\n\n---\n\n### **3. Technical & Security Controls**\n- **Senior Technicians (Architecture Review & Hardening)**\n  - **Own and validate** architecture reviews to ensure alignment with **best practices and security standards**.\n  - Request **ingestion hardening** (e.g., 28-unit duration) and **architecture review** (20-unit duration) within a **72-hour timeframe**.\n  - Ensure **secure coding, code review, and project access policies** are enforced by contributors.\n- **Credential Management**\n  - **Securely store and manage credentials** within source control systems (with strict access controls and encryption).\n- **Policy Testing Frameworks**\n  - Execute **24-point evaluation cycles** to validate compliance with **security and operational policies**.\n\n---\n\n### **4. Administrative & Procurement Controls**\n- **Administration (Authorization & Validation)**\n  - **Validates suppliers** (ensuring compliance and quality standards).\n  - **Approves purchase orders** (ensuring budgetary and policy alignment).\n  - **Authorizes itineraries and cost centres** (ensuring financial and operational governance).\n\n---\n\n### **5. Repository & Implementation Controls**\n- **Repository Structure**\n  - Stores **internal implementation guidance** (documentation, best practices, coding standards).\n  - Ensures **consistent and secure implementation** of architectural decisions.\n\n---\n\n### **6. Contributor Compliance Controls**\n- **Secure Coding**\n  - Enforces **coding best practices** to prevent vulnerabilities.\n- **Code Review**\n  - Mandates **peer review processes** to ensure quality and security.\n- **Project Access Policy**\n  - Restricts **contributor permissions** to authorized personnel only.\n\n---\n\n### **Summary of Required Controls**\n| **Control Category**       | **Key Controls**                                                                 |\n|----------------------------|---------------------------------------------------------------------------------|\n| **Strategic Governance**   | Direction (funding, vision), Project Manager (execution, audit archives)        |\n| **Milestone Compliance**   | Ingestion controls (Milestone A), Retrieval authorization (Milestone B), Audit evidence (Milestone C) |\n| **Technical Security**     | Architecture review (Senior Technicians), Credential management, Policy testing (24-point cycles) |\n| **Administrative Oversight** | Supplier validation, Purchase order approval, Itinerary/cost centre authorization |\n| **Repository & Implementation** | Internal guidance storage, Secure coding standards, Code review policies |\n| **Contributor Compliance** | Secure coding, Code review, Project access restrictions |\n\nThis **structured control framework** ensures the private architecture remains **secure, compliant, and operationally efficient** while aligning with organizational and regulatory requirements.",
+        "error": null,
+        "leak_detected": false,
+        "leak_terms_found": [],
+        "status_code": 200,
+        "trace_id": "30ecc9a2-9541-476a-88d1-1ac7b05e7adf"
+      },
+      "recompute": {
+        "classes": 14,
+        "communities": 89
+      },
+      "structural": {
+        "classes": 14,
+        "communities": 89,
+        "mixed_communities": 0,
+        "mixed_ids": []
+      }
+    }
+  ],
+  "tenant_id": "mrd-lab"
+}

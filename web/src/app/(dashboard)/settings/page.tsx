@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
-import { CheckCircle2, KeyRound, Save, ShieldAlert } from "lucide-react";
+import { Calculator, CheckCircle2, KeyRound, RefreshCw, Save, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/forensic";
@@ -12,6 +12,10 @@ import {
   ProviderCredentialStatus,
   ProviderName,
   RuntimeSetting,
+  CostEstimateResponse,
+  EgressClassification,
+  EgressStage,
+  EmbeddingReindexPlan,
 } from "@/lib/types";
 import { useTenantSelection } from "@/lib/useTenantSelection";
 
@@ -26,6 +30,27 @@ const RUNTIME_KEYS = [
   "fallback_policy",
   "hard_token_cap",
 ] as const;
+const DEFAULT_EGRESS_POLICY = JSON.stringify(
+  {
+    default: "block",
+    rules: [
+      {
+        provider: "ollama",
+        stage: "any",
+        max_classification: "restricted",
+        action: "allow",
+      },
+      {
+        provider: "openai",
+        stage: "generation",
+        max_classification: "internal",
+        action: "allow",
+      },
+    ],
+  },
+  null,
+  2
+);
 
 export default function SettingsPage() {
   const t = useTranslations("settingsPage");
@@ -40,6 +65,22 @@ export default function SettingsPage() {
   const [savingProvider, setSavingProvider] = useState(false);
   const [savingRuntime, setSavingRuntime] = useState(false);
   const [runtimeResult, setRuntimeResult] = useState<RuntimeSetting | null>(null);
+  const [egressPolicy, setEgressPolicy] = useState(DEFAULT_EGRESS_POLICY);
+  const [savingEgress, setSavingEgress] = useState(false);
+  const [egressResult, setEgressResult] = useState<RuntimeSetting | null>(null);
+  const [estimateProvider, setEstimateProvider] = useState<ProviderName>("openai");
+  const [estimateModel, setEstimateModel] = useState("gpt-4.1-mini");
+  const [estimateStage, setEstimateStage] = useState<EgressStage>("generation");
+  const [estimateClassification, setEstimateClassification] =
+    useState<EgressClassification>("internal");
+  const [inputTokens, setInputTokens] = useState("1200");
+  const [outputTokens, setOutputTokens] = useState("400");
+  const [estimatingCost, setEstimatingCost] = useState(false);
+  const [costEstimate, setCostEstimate] = useState<CostEstimateResponse | null>(null);
+  const [reindexTargetModel, setReindexTargetModel] = useState("BAAI/bge-m3");
+  const [reindexDim, setReindexDim] = useState("1024");
+  const [planningReindex, setPlanningReindex] = useState(false);
+  const [reindexPlan, setReindexPlan] = useState<EmbeddingReindexPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const configured = useMemo(
@@ -108,6 +149,84 @@ export default function SettingsPage() {
       setError(getErrorMessage(err, t("runtimeFailed")));
     } finally {
       setSavingRuntime(false);
+    }
+  };
+
+  const saveEgressPolicy = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSavingEgress(true);
+    setError(null);
+    try {
+      if (!tenantId) {
+        throw new Error(t("noTenant"));
+      }
+      const parsed = JSON.parse(egressPolicy) as Record<string, unknown>;
+      const result = await settingsApi.saveRuntimeSetting(tenantId, "egress_policy", {
+        value: parsed,
+      });
+      setEgressResult(result);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, t("egressFailed")));
+    } finally {
+      setSavingEgress(false);
+    }
+  };
+
+  const estimateCost = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setEstimatingCost(true);
+    setError(null);
+    try {
+      if (!tenantId) {
+        throw new Error(t("noTenant"));
+      }
+      const parsedInput = Number(inputTokens);
+      const parsedOutput = Number(outputTokens);
+      if (
+        !Number.isFinite(parsedInput) ||
+        !Number.isFinite(parsedOutput) ||
+        parsedInput < 0 ||
+        parsedOutput < 0
+      ) {
+        throw new Error(t("invalidNumber"));
+      }
+      const result = await settingsApi.estimateCost(tenantId, {
+        provider: estimateProvider,
+        model_id: estimateModel,
+        stage: estimateStage,
+        classification: estimateClassification,
+        input_tokens: parsedInput,
+        output_tokens: parsedOutput,
+      });
+      setCostEstimate(result);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, t("estimateFailed")));
+    } finally {
+      setEstimatingCost(false);
+    }
+  };
+
+  const planReindex = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setPlanningReindex(true);
+    setError(null);
+    try {
+      if (!tenantId) {
+        throw new Error(t("noTenant"));
+      }
+      const parsedDim = Number(reindexDim);
+      if (!Number.isFinite(parsedDim) || parsedDim < 1) {
+        throw new Error(t("invalidNumber"));
+      }
+      const result = await settingsApi.planEmbeddingReindex(tenantId, {
+        to_model: reindexTargetModel,
+        embedding_dim: parsedDim,
+      });
+      setReindexPlan(result);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, t("reindexFailed")));
+    } finally {
+      setPlanningReindex(false);
     }
   };
 
@@ -257,6 +376,176 @@ export default function SettingsPage() {
             );
           })}
         </div>
+      </Panel>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_0.9fr] gap-6">
+        <Panel classification="confidential" label={t("egressPolicy")}>
+          <form onSubmit={saveEgressPolicy} className="px-5 py-5 space-y-4">
+            <label className="space-y-1.5 block">
+              <span className="mono-meta block">{t("policyJson")}</span>
+              <textarea
+                value={egressPolicy}
+                onChange={(event) => setEgressPolicy(event.target.value)}
+                className="min-h-56 w-full resize-y bg-vault-raised border border-hairline px-3 py-2 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
+                spellCheck={false}
+              />
+            </label>
+            <Button type="submit" disabled={savingEgress || !tenantId} className="gap-2">
+              <ShieldAlert className="h-4 w-4" />
+              {t("saveEgress")}
+            </Button>
+            {egressResult && (
+              <div className="border border-hairline bg-vault-sunk px-3 py-2 font-mono text-xs text-bone-dim">
+                v{egressResult.version} · {t("runtimeSafe")}
+              </div>
+            )}
+          </form>
+        </Panel>
+
+        <Panel classification="internal" label={t("costEstimate")}>
+          <form onSubmit={estimateCost} className="px-5 py-5 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="space-y-1.5">
+                <span className="mono-meta block">{t("provider")}</span>
+                <select
+                  value={estimateProvider}
+                  onChange={(event) =>
+                    setEstimateProvider(event.target.value as ProviderName)
+                  }
+                  className="h-10 w-full bg-vault-raised border border-hairline px-3 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
+                >
+                  {PROVIDERS.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="mono-meta block">{t("model")}</span>
+                <Input
+                  value={estimateModel}
+                  onChange={(event) => setEstimateModel(event.target.value)}
+                  className="bg-vault-raised border-hairline text-bone font-mono text-xs h-10"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="mono-meta block">{t("stage")}</span>
+                <select
+                  value={estimateStage}
+                  onChange={(event) => setEstimateStage(event.target.value as EgressStage)}
+                  className="h-10 w-full bg-vault-raised border border-hairline px-3 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
+                >
+                  {["generation", "extract", "judge", "embedding"].map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="mono-meta block">{t("classification")}</span>
+                <select
+                  value={estimateClassification}
+                  onChange={(event) =>
+                    setEstimateClassification(event.target.value as EgressClassification)
+                  }
+                  className="h-10 w-full bg-vault-raised border border-hairline px-3 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
+                >
+                  {["public", "internal", "confidential", "restricted"].map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="mono-meta block">{t("inputTokens")}</span>
+                <Input
+                  value={inputTokens}
+                  onChange={(event) => setInputTokens(event.target.value)}
+                  type="number"
+                  min="0"
+                  className="bg-vault-raised border-hairline text-bone font-mono text-xs h-10"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="mono-meta block">{t("outputTokens")}</span>
+                <Input
+                  value={outputTokens}
+                  onChange={(event) => setOutputTokens(event.target.value)}
+                  type="number"
+                  min="0"
+                  className="bg-vault-raised border-hairline text-bone font-mono text-xs h-10"
+                />
+              </label>
+            </div>
+            <Button type="submit" disabled={estimatingCost || !tenantId} className="gap-2">
+              <Calculator className="h-4 w-4" />
+              {t("estimate")}
+            </Button>
+            {costEstimate && (
+              <dl className="grid grid-cols-2 gap-px bg-hairline font-mono text-xs">
+                {[
+                  [t("totalTokens"), costEstimate.total_tokens],
+                  [t("hardCap"), costEstimate.hard_token_cap],
+                  [t("withinCap"), costEstimate.within_hard_token_cap ? t("yes") : t("no")],
+                  [t("estimatedUsd"), costEstimate.estimated_cost_usd.toFixed(6)],
+                  [t("egress"), costEstimate.egress.action],
+                  [t("egressRule"), costEstimate.egress.reason],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="bg-vault-sunk px-3 py-2">
+                    <dt className="text-bone-dim">{label}</dt>
+                    <dd className="text-bone">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </form>
+        </Panel>
+      </div>
+
+      <Panel classification="internal" label={t("blueGreenReindex")}>
+        <form onSubmit={planReindex} className="px-5 py-5 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="space-y-1.5">
+              <span className="mono-meta block">{t("targetEmbedding")}</span>
+              <Input
+                value={reindexTargetModel}
+                onChange={(event) => setReindexTargetModel(event.target.value)}
+                className="bg-vault-raised border-hairline text-bone font-mono text-xs h-10"
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="mono-meta block">{t("embeddingDim")}</span>
+              <Input
+                value={reindexDim}
+                onChange={(event) => setReindexDim(event.target.value)}
+                type="number"
+                min="1"
+                className="bg-vault-raised border-hairline text-bone font-mono text-xs h-10"
+              />
+            </label>
+          </div>
+          <Button type="submit" disabled={planningReindex || !tenantId} className="gap-2">
+            <RefreshCw className="h-4 w-4" />
+            {t("planReindex")}
+          </Button>
+          {reindexPlan && (
+            <dl className="grid grid-cols-1 md:grid-cols-3 gap-px bg-hairline font-mono text-xs">
+              {[
+                [t("status"), reindexPlan.status],
+                [t("activeCollection"), reindexPlan.active_collection],
+                [t("shadowCollection"), reindexPlan.shadow_collection],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="bg-vault-sunk px-3 py-2">
+                  <dt className="text-bone-dim">{label}</dt>
+                  <dd className="text-bone break-all">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </form>
       </Panel>
     </div>
   );

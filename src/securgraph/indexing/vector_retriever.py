@@ -62,6 +62,7 @@ class QdrantRetriever:
                 original_score=r.score,
                 policy_check_id="unverified",
                 text=r.payload.get("text"),  # type: ignore
+                document_id=r.payload.get("document_id"),  # type: ignore
             )
             for idx, r in enumerate(results)
         ]
@@ -107,6 +108,7 @@ class QdrantRetriever:
                 original_score=1.0,  # Uniform default score before RRF fusion
                 policy_check_id="unverified",
                 text=r.payload.get("text"),  # type: ignore
+                document_id=r.payload.get("document_id"),  # type: ignore
             )
             for idx, r in enumerate(scroll_results)
         ]

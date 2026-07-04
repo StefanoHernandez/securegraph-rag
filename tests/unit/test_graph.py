@@ -425,6 +425,14 @@ async def test_ingest_document_triggers_graph_processing() -> None:
         patch("securgraph.ingestion.service.write_ingestion_provenance"),
         patch("securgraph.indexing.qdrant_writer.upsert_chunks_to_qdrant"),
         patch("securgraph.adapters.embeddings.get_embedding_adapter"),
+        patch(
+            "securgraph.ingestion.service._write_chunk_parent_tuples",
+            new_callable=AsyncMock,
+        ) as mock_chunk_tuples,
+        patch(
+            "securgraph.ingestion.service._write_document_owner_tuples",
+            new_callable=AsyncMock,
+        ) as mock_document_tuples,
         patch("securgraph.adapters.llm.get_llm_adapter_for") as mock_get_adapter,
         patch("securgraph.adapters.neo4j_writer.write_graph_slice") as mock_write,
     ):
@@ -452,6 +460,8 @@ async def test_ingest_document_triggers_graph_processing() -> None:
         # Verify success
         assert res.chunks_created == 1
 
+        mock_chunk_tuples.assert_awaited_once()
+        mock_document_tuples.assert_awaited_once()
         # Extractor and Neo4j writer should be called exactly once (since we had 1 chunk)
         mock_adapter.extract_graph_slice.assert_awaited_once_with(
             "SecureGraph is an awesome local RAG ProjectA."

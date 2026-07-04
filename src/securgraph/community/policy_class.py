@@ -49,6 +49,7 @@ class ClassEdge:
     target: str
     type: str
     confidence: float
+    source_policy_class_keys: frozenset[str] = field(default_factory=frozenset)
 
 
 def partition_edges_by_class(
@@ -74,12 +75,14 @@ def partition_edges_by_class(
             keys.add(policy_class_key(label) if label is not None else UNLABELED_CLASS_KEY)
         if not keys:
             keys.add(UNLABELED_CLASS_KEY)
-        ce = ClassEdge(
-            source=edge["source"],
-            target=edge["target"],
-            type=edge["type"],
-            confidence=float(edge.get("confidence", 0.5)),
-        )
         for key in keys:
-            buckets[key].append(ce)
+            buckets[key].append(
+                ClassEdge(
+                    source=edge["source"],
+                    target=edge["target"],
+                    type=edge["type"],
+                    confidence=float(edge.get("confidence", 0.5)),
+                    source_policy_class_keys=frozenset({key}),
+                )
+            )
     return dict(buckets)

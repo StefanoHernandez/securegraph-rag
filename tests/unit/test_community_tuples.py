@@ -63,3 +63,82 @@ async def test_unlabeled_class_emits_no_grants_only_in_class() -> None:
     assert len(req.writes) == 1
     assert req.writes[0].user == "policy_class:unlabeled"
     assert req.writes[0].object == "community:comm_l0_0_unlabeled_t1"
+
+
+@pytest.mark.asyncio
+async def test_batches_openfga_community_tuple_writes_under_request_limit() -> None:
+    """Large tenants must split community tuple writes across OpenFGA requests."""
+    label = AccessLabel(
+        owner="alice",
+        group_viewers=frozenset({"eng"}),
+        direct_viewers=frozenset(),
+    )
+    key = policy_class_key(label)
+    chunk_labels = {"c1": label}
+    buckets = {key: []}
+    written = [
+        {"community_id": f"comm_l0_{idx}_{key}_t1", "policy_class_key": key}
+        for idx in range(125)
+    ]
+
+    fga = MagicMock()
+    fga.client = MagicMock()
+    fga.client.write = AsyncMock()
+
+    await emit_community_authorization_tuples(fga, chunk_labels, buckets, written)
+
+    assert fga.client.write.await_count == 2
+    batch_sizes = [
+        len(call.args[0].writes) for call in fga.client.write.await_args_list
+    ]
+    assert batch_sizes == [80, 47]
+
+
+@pytest.mark.asyncio
+async def test_emits_tuples_with_raw_openfga_client() -> None:
+    label = AccessLabel(
+        owner="alice",
+        group_viewers=frozenset(),
+        direct_viewers=frozenset(),
+    )
+    key = policy_class_key(label)
+    raw_client = MagicMock()
+    raw_client.client = None
+    raw_client.write = AsyncMock()
+
+    await emit_community_authorization_tuples(
+        raw_client,
+        {"c1": label},
+        {key: []},
+        [{"community_id": f"comm_l0_0_{key}_t1", "policy_class_key": key}],
+    )
+
+    raw_client.write.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_openfga_tuples_are_skipped_during_recompute() -> None:
+    label = AccessLabel(
+        owner="alice",
+        group_viewers=frozenset(),
+        direct_viewers=frozenset(),
+    )
+    key = policy_class_key(label)
+    raw_client = MagicMock()
+    raw_client.client = None
+    raw_client.write = AsyncMock(
+        side_effect=[
+            Exception("cannot write a tuple which already exists"),
+            Exception("cannot write a tuple which already exists"),
+            None,
+        ]
+    )
+
+    await emit_community_authorization_tuples(
+        raw_client,
+        {"c1": label},
+        {key: []},
+        [{"community_id": f"comm_l0_0_{key}_t1", "policy_class_key": key}],
+    )
+
+    assert raw_client.write.await_count == 3

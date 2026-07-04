@@ -46,6 +46,8 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0",
     "alembic>=1.13",
     "asyncpg>=0.29",
+    "arq>=0.26",
+    "redis>=5.1",
 
     # Vector + Graph
     "qdrant-client>=1.12",
@@ -54,6 +56,9 @@ dependencies = [
 
     # Authorization
     "openfga-sdk>=0.8",
+
+    # Secrets
+    "cryptography>=43.0",
 
     # LLM + embeddings
     "ollama>=0.4",
@@ -110,8 +115,7 @@ fusion = [
 ]
 # Loaded from M6+
 async_workers = [
-    "arq>=0.26",
-    "redis>=5.1",
+    # Kept for backwards-compatible install commands; runtime worker deps are core.
 ]
 community = [
     "graspologic>=3.4",

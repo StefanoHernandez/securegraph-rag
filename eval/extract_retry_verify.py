@@ -21,7 +21,9 @@ from pathlib import Path
 from securgraph.adapters.ollama import extract_graph_slice
 
 N_TRIALS = 5
-DOC_PATH = Path(__file__).parent.parent / "corpus" / "baseline_v1" / "documents" / "01_internal_policy.txt"
+DOC_PATH = (
+    Path(__file__).parent.parent / "corpus" / "baseline_v1" / "documents" / "01_internal_policy.txt"
+)
 
 
 async def main() -> None:
@@ -43,7 +45,8 @@ async def main() -> None:
         if slice_.relations:
             has_rel += 1
         print(
-            f"  trial {i+1}: entities={len(slice_.entities):>2} relations={len(slice_.relations):>2} "
+            f"  trial {i+1}: entities={len(slice_.entities):>2} "
+            f"relations={len(slice_.relations):>2} "
             f"latency={dt:.1f}s"
         )
 
@@ -51,9 +54,11 @@ async def main() -> None:
     rate = has_rel / N_TRIALS
     print(f"relations>0 rate: {rate:.0%} ({has_rel}/{N_TRIALS}) [target >=80%]")
     if rel_counts:
-        print(f"relation count: mean={statistics.mean(rel_counts):.1f} stdev={statistics.stdev(rel_counts) if len(rel_counts) > 1 else 0:.1f}")
+        rel_stdev = statistics.stdev(rel_counts) if len(rel_counts) > 1 else 0
+        print(f"relation count: mean={statistics.mean(rel_counts):.1f} stdev={rel_stdev:.1f}")
     if ent_counts:
-        print(f"entity count:   mean={statistics.mean(ent_counts):.1f} stdev={statistics.stdev(ent_counts) if len(ent_counts) > 1 else 0:.1f}")
+        ent_stdev = statistics.stdev(ent_counts) if len(ent_counts) > 1 else 0
+        print(f"entity count:   mean={statistics.mean(ent_counts):.1f} stdev={ent_stdev:.1f}")
     if latencies:
         print(f"latency:        mean={statistics.mean(latencies):.1f}s p_max={max(latencies):.1f}s")
     print()

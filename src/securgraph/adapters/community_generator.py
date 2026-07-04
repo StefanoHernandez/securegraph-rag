@@ -13,6 +13,7 @@ from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
 from securgraph.adapters.llm import get_llm_adapter, robust_json_loads
 from securgraph.adapters.llm.base import LLMAdapter
 from securgraph.community.policy_class import (
+    UNLABELED_CLASS_KEY,
     AccessLabel,
     ClassEdge,
     partition_edges_by_class,
@@ -24,7 +25,23 @@ from securgraph.runtime_overrides import get_effective_settings
 _LOG = get_logger(__name__)
 
 
-def _edges_to_class_edges(edges: list[dict[str, Any]]) -> list[ClassEdge]:
+def _edge_policy_class_keys(
+    edge: dict[str, Any],
+    chunk_labels: dict[str, AccessLabel],
+) -> frozenset[str]:
+    keys: set[str] = set()
+    for chunk_id in edge.get("source_chunk_ids") or []:
+        label = chunk_labels.get(chunk_id)
+        keys.add(policy_class_key(label) if label is not None else UNLABELED_CLASS_KEY)
+    if not keys:
+        keys.add(UNLABELED_CLASS_KEY)
+    return frozenset(keys)
+
+
+def _edges_to_class_edges(
+    edges: list[dict[str, Any]],
+    chunk_labels: dict[str, AccessLabel],
+) -> list[ClassEdge]:
     """Convert raw edge dicts to ClassEdge without policy partitioning (ablation)."""
     return [
         ClassEdge(
@@ -32,6 +49,7 @@ def _edges_to_class_edges(edges: list[dict[str, Any]]) -> list[ClassEdge]:
             target=edge["target"],
             type=edge["type"],
             confidence=float(edge.get("confidence", 0.5)),
+            source_policy_class_keys=_edge_policy_class_keys(edge, chunk_labels),
         )
         for edge in edges
     ]
@@ -94,9 +112,7 @@ async def generate_hierarchical_communities(
 
     if c3_ablation:
         # Ablation: skip policy partitioning, treat all edges as one bucket.
-        from securgraph.community.policy_class import UNLABELED_CLASS_KEY
-
-        buckets = {UNLABELED_CLASS_KEY: _edges_to_class_edges(edges)}
+        buckets = {UNLABELED_CLASS_KEY: _edges_to_class_edges(edges, chunk_labels)}
     else:
         buckets = partition_edges_by_class(edges, chunk_labels)
 
@@ -191,6 +207,15 @@ async def _summarize_and_write_community(
         for ce in class_edges
         if ce.source in members and ce.target in members
     ]
+    source_policy_class_keys = sorted(
+        {
+            key
+            for ce in class_edges
+            if ce.source in members and ce.target in members
+            for key in (ce.source_policy_class_keys or frozenset({class_key}))
+        }
+        or {class_key}
+    )
 
     system_prompt = (
         "You are an expert knowledge graph summarization assistant.\n"
@@ -230,7 +255,8 @@ async def _summarize_and_write_community(
             "MERGE (c:Community {community_id: $comm_id, tenant_id: $tenant_id}) "
             "SET c.title = $title, c.summary = $summary, c.level = $level, "
             "    c.member_entities = $member_entities, "
-            "    c.policy_class_key = $policy_class_key",
+            "    c.policy_class_key = $policy_class_key, "
+            "    c.source_policy_class_keys = $source_policy_class_keys",
             comm_id=comm_id,
             tenant_id=tenant_id,
             title=title,
@@ -238,6 +264,7 @@ async def _summarize_and_write_community(
             level=level,
             member_entities=member_list,
             policy_class_key=class_key,
+            source_policy_class_keys=source_policy_class_keys,
         )
         await session.run(
             "UNWIND $member_entities AS ent_name "
@@ -256,12 +283,45 @@ async def _summarize_and_write_community(
         "summary": summary,
         "members": members,
         "level": level,
+        "source_policy_class_keys": source_policy_class_keys,
     }
 
 
 def _fga_user(principal: str) -> str:
     """Return an FGA user expression. Pass-through if already namespaced."""
     return principal if ":" in principal else f"user:{principal}"
+
+
+def _fga_write_client(fga: Any) -> Any:
+    """Accept either OpenFGAPolicyAdapter or a raw OpenFGA client."""
+    return getattr(fga, "client", None) or fga
+
+
+def _is_duplicate_tuple_error(exc: Exception) -> bool:
+    return "already exists" in str(exc).lower()
+
+
+async def _write_fga_tuple_batch(writer: Any, tuples: list[ClientTuple]) -> None:
+    try:
+        await writer.write(ClientWriteRequest(writes=tuples))
+        return
+    except Exception as exc:
+        if not _is_duplicate_tuple_error(exc):
+            raise
+
+    for item in tuples:
+        try:
+            await writer.write(ClientWriteRequest(writes=[item]))
+        except Exception as exc:
+            if _is_duplicate_tuple_error(exc):
+                _LOG.debug(
+                    "openfga_duplicate_tuple_skipped",
+                    user=item.user,
+                    relation=item.relation,
+                    object=item.object,
+                )
+                continue
+            raise
 
 
 async def emit_community_authorization_tuples(
@@ -307,4 +367,8 @@ async def emit_community_authorization_tuples(
         )
 
     if tuples:
-        await fga.client.write(ClientWriteRequest(writes=tuples))
+        # OpenFGA limits writes to 100 tuples per request; chunk to stay under.
+        batch_size = 80
+        writer = _fga_write_client(fga)
+        for i in range(0, len(tuples), batch_size):
+            await _write_fga_tuple_batch(writer, tuples[i : i + batch_size])

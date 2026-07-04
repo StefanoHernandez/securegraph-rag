@@ -48,6 +48,7 @@ from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
 from securgraph.api.dependencies import AsyncSessionLocal, bootstrap_openfga
 from securgraph.api.main import create_app
 from securgraph.config import get_settings
+from securgraph.corpus.access import group_viewer_ids_for_document
 from securgraph.corpus.manifest import CorpusManifest, load_corpus_manifest
 from securgraph.domain import Classification
 from securgraph.ingestion.service import IngestionRequest, ingest_document
@@ -373,9 +374,14 @@ async def _seed_fga_owner_tuples(doc_ids: list[str], manifest: CorpusManifest) -
     for document_id, document in zip(doc_ids, manifest.documents, strict=True):
         target = f"document:{document_id}"
         tuples.append(ClientTuple(user=f"user:{document.owner}", relation="owner", object=target))
+        group_viewers = group_viewer_ids_for_document(
+            tenant_id=manifest.tenant_id,
+            classification=document.classification,
+            manifest_groups=document.groups,
+        )
         tuples.extend(
             ClientTuple(user=f"group:{group_id}#member", relation="group_viewer", object=target)
-            for group_id in document.groups
+            for group_id in group_viewers
         )
         tuples.extend(
             ClientTuple(user=f"user:{user_id}", relation="direct_viewer", object=target)

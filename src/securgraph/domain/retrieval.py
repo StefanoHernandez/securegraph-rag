@@ -58,6 +58,10 @@ class RetrievalEvidence(SGModel):
     policy_check_id: str = Field(min_length=1, max_length=128)
     included_in_prompt: bool = False
     text: str | None = Field(default=None, description="The raw source context text.")
+    document_id: str | None = Field(default=None, max_length=128)
+    source_uri: str | None = None
+    page_start: int | None = None
+    page_end: int | None = None
 
     # Optional graph-specific fields, populated only for path/node/edge evidence.
     graph_path_id: str | None = None

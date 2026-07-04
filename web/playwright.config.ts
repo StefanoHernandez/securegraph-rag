@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
+const webServerUrl = process.env.E2E_WEB_SERVER_URL ?? baseURL;
+const webServerCommand = process.env.E2E_WEB_SERVER_COMMAND ?? "npm run dev";
+const skipWebServer = process.env.E2E_SKIP_WEB_SERVER === "1";
+
 /**
  * Playwright E2E configuration for the Forensic Vault UI.
  *
@@ -17,7 +22,7 @@ export default defineConfig({
   workers: 1,
   reporter: "list",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL,
     trace: "on-first-retry",
     headless: true,
   },
@@ -27,10 +32,12 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: true,
-    timeout: 60_000,
-  },
+  webServer: skipWebServer
+    ? undefined
+    : {
+        command: webServerCommand,
+        url: webServerUrl,
+        reuseExistingServer: true,
+        timeout: 60_000,
+      },
 });
