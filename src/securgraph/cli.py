@@ -11,8 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.routes.auth import hash_password
+from securgraph.api.routes.control_plane import BUSINESS_GROUPS
 from securgraph.config import get_settings
-from securgraph.indexing.db import AuthUserRow, TenantMembershipRow, TenantRow
+from securgraph.indexing.db import AuthUserRow, GroupRow, TenantMembershipRow, TenantRow
 
 
 async def bootstrap_superadmin(
@@ -66,6 +67,24 @@ async def bootstrap_superadmin(
     return temporary_password
 
 
+async def _ensure_business_groups(session: AsyncSession, tenant_id: str) -> None:
+    for slug, display_name in BUSINESS_GROUPS:
+        existing = await session.execute(
+            select(GroupRow).where(GroupRow.tenant_id == tenant_id, GroupRow.slug == slug)
+        )
+        if existing.scalar_one_or_none() is None:
+            session.add(
+                GroupRow(
+                    id=f"grp_{uuid.uuid4().hex}",
+                    tenant_id=tenant_id,
+                    slug=slug,
+                    display_name=display_name,
+                    kind="functional",
+                    is_active=True,
+                )
+            )
+
+
 async def seed_demo_users(session: AsyncSession) -> None:
     """Explicitly create deterministic demo accounts in dev/test only."""
     if get_settings().env not in {"dev", "test"}:
@@ -73,6 +92,31 @@ async def seed_demo_users(session: AsyncSession) -> None:
     tenant = await session.get(TenantRow, "default")
     if tenant is None:
         session.add(TenantRow(id="default", display_name="Default Demo Tenant"))
+    await _ensure_business_groups(session, "default")
+
+    superadmin_result = await session.execute(
+        select(AuthUserRow).where(AuthUserRow.username == "superadmin")
+    )
+    superadmin = superadmin_result.scalar_one_or_none()
+    if superadmin is None:
+        superadmin = AuthUserRow(
+            id=f"usr_{uuid.uuid4().hex}",
+            username="superadmin",
+            display_name="Superadmin",
+            password_hash=hash_password("superadmin123"),
+            is_active=True,
+            is_super_admin=True,
+            must_change_password=True,
+            token_version=1,
+        )
+        session.add(superadmin)
+    else:
+        superadmin.password_hash = hash_password("superadmin123")
+        superadmin.is_active = True
+        superadmin.is_super_admin = True
+        superadmin.must_change_password = True
+        superadmin.token_version += 1
+
     for username, role in (
         ("admin", "tenant_admin"),
         ("analyst", "analyst"),
@@ -130,7 +174,12 @@ async def _run(args: argparse.Namespace) -> None:
             print(f"Temporary password (shown once): {password}")
         elif args.command == "seed-demo":
             await seed_demo_users(session)
-            print("Demo users seeded. All accounts require a password change.")
+            print(
+                "Demo users seeded (password pattern: {username}123). "
+                "Accounts: superadmin, admin, analyst, viewer. "
+                "Default tenant includes functional business groups. "
+                "All accounts require a password change on first login."
+            )
 
 
 def main() -> None:

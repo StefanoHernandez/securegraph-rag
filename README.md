@@ -108,7 +108,7 @@ make web-dev
 
 Open **http://localhost:3000**, sign in with the bootstrap account, and change the password when prompted.
 
-Optional dev-only demo accounts (tenant `default`, passwords `{username}123`, forced reset):
+Optional dev-only demo accounts (tenant `default`, users `superadmin`, `admin`, `analyst`, `viewer`; passwords `{username}123`, forced reset; `default` tenant includes functional business groups):
 
 ```sh
 .venv/bin/securgraph seed-demo

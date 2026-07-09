@@ -8,7 +8,7 @@ import pytest
 
 from securgraph.api.routes.auth import verify_password
 from securgraph.cli import bootstrap_superadmin, seed_demo_users
-from securgraph.indexing.db import AuthUserRow, TenantMembershipRow, TenantRow
+from securgraph.indexing.db import AuthUserRow, GroupRow, TenantMembershipRow, TenantRow
 
 pytestmark = pytest.mark.unit
 
@@ -71,6 +71,8 @@ async def test_seed_demo_resets_existing_demo_user_credentials_and_membership() 
     no_user.scalar_one_or_none.return_value = None
     admin_result = MagicMock()
     admin_result.scalar_one_or_none.return_value = existing_admin
+    no_group = MagicMock()
+    no_group.scalar_one_or_none.return_value = None
     session = AsyncMock()
     session.get.side_effect = [
         TenantRow(id="default", display_name="Default"),
@@ -78,7 +80,20 @@ async def test_seed_demo_resets_existing_demo_user_credentials_and_membership() 
         None,
         None,
     ]
-    session.execute.side_effect = [admin_result, no_user, no_user]
+    session.execute.side_effect = [
+        no_group,
+        no_group,
+        no_group,
+        no_group,
+        no_group,
+        no_group,
+        no_group,
+        no_group,
+        no_user,
+        admin_result,
+        no_user,
+        no_user,
+    ]
     session.add = MagicMock()
 
     await seed_demo_users(session)
@@ -100,4 +115,28 @@ async def test_seed_demo_resets_existing_demo_user_credentials_and_membership() 
         and membership.is_active is True
         for membership in memberships
     )
+    superadmin_users = [
+        call.args[0]
+        for call in session.add.call_args_list
+        if isinstance(call.args[0], AuthUserRow) and call.args[0].username == "superadmin"
+    ]
+    assert len(superadmin_users) == 1
+    assert superadmin_users[0].is_super_admin is True
+    assert verify_password("superadmin123", superadmin_users[0].password_hash)
+    business_groups = [
+        call.args[0]
+        for call in session.add.call_args_list
+        if isinstance(call.args[0], GroupRow)
+    ]
+    assert len(business_groups) == 8
+    assert {group.slug for group in business_groups} == {
+        "direction",
+        "administration",
+        "senior-management",
+        "project-managers",
+        "senior-technicians",
+        "junior-technicians",
+        "consultants",
+        "external-collaborators",
+    }
     session.commit.assert_awaited_once()
