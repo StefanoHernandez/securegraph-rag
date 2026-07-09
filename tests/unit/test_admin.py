@@ -337,3 +337,68 @@ async def test_get_graph_communities(
     assert body["communities"][0]["id"] == "comm-1"
     assert body["communities"][0]["level"] == 1
     assert body["communities"][0]["summary"] == "Detailed community summary text"
+
+
+async def test_grant_permission_writes_audit_event(
+    fastapi_app: FastAPI, client: AsyncClient
+) -> None:
+    """Permission grants must leave an application-level audit record."""
+    from securgraph.indexing.db import AdminAuditEventRow
+
+    mock_fga_client = AsyncMock()
+    mock_fga_client.write.return_value = None
+
+    async def mock_openfga() -> AsyncMock:
+        return mock_fga_client
+
+    added: list = []
+    session = AsyncMock()
+    session.add = MagicMock(side_effect=added.append)
+
+    async def capture_db():
+        yield session
+
+    fastapi_app.dependency_overrides[get_openfga_client] = mock_openfga
+    fastapi_app.dependency_overrides[get_db_session] = capture_db
+
+    payload = {"user": "user:stefano", "relation": "viewer", "object": "document:sec_doc_01"}
+    resp = await client.post("/admin/permissions/grant", json=payload)
+    assert resp.status_code == 200
+
+    events = [row for row in added if isinstance(row, AdminAuditEventRow)]
+    assert len(events) == 1
+    assert events[0].action == "permission.grant"
+    assert events[0].target_type == "fga_tuple"
+    assert events[0].target_id == "document:sec_doc_01"
+    assert events[0].event_metadata["user"] == "user:stefano"
+    session.commit.assert_awaited()
+
+
+async def test_revoke_permission_writes_audit_event(
+    fastapi_app: FastAPI, client: AsyncClient
+) -> None:
+    from securgraph.indexing.db import AdminAuditEventRow
+
+    mock_fga_client = AsyncMock()
+    mock_fga_client.write.return_value = None
+
+    async def mock_openfga() -> AsyncMock:
+        return mock_fga_client
+
+    added: list = []
+    session = AsyncMock()
+    session.add = MagicMock(side_effect=added.append)
+
+    async def capture_db():
+        yield session
+
+    fastapi_app.dependency_overrides[get_openfga_client] = mock_openfga
+    fastapi_app.dependency_overrides[get_db_session] = capture_db
+
+    payload = {"user": "user:stefano", "relation": "viewer", "object": "document:sec_doc_01"}
+    resp = await client.post("/admin/permissions/revoke", json=payload)
+    assert resp.status_code == 200
+
+    events = [row for row in added if isinstance(row, AdminAuditEventRow)]
+    assert len(events) == 1
+    assert events[0].action == "permission.revoke"

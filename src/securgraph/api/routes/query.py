@@ -12,7 +12,6 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from opentelemetry import trace
-from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.dependencies import get_db_session, get_graph_retriever, get_qdrant_retriever
@@ -43,6 +42,46 @@ from securgraph.policy.egress import EgressBlockedError
 
 router = APIRouter(tags=["query"])
 logger = get_logger(__name__)
+
+
+async def _persist_failure_trace(
+    session: AsyncSession,
+    trace_row: QueryTraceRow,
+    settings: Any,
+    *,
+    latency_ms: float,
+    error: str,
+) -> None:
+    """Persist the audit trace for a FAILED query.
+
+    The success path only inserts the trace after the workflow completes, so
+    on failure the row does not exist yet — an UPDATE would be a silent no-op
+    and the failed query would leave no audit record at all. Insert the row
+    here instead. A trace with ``completed_at`` set and ``answer`` NULL is a
+    failed query; the error itself goes to the log (there is no error column,
+    and putting it in ``answer`` would corrupt answer semantics).
+    """
+    try:
+        await session.rollback()
+        trace_row.completed_at = utcnow()
+        trace_row.latency_ms = latency_ms
+        if settings.audit_tamper_evident:
+            # Same chaining as the success path: hash the final row.
+            await chain_query_trace(session, trace_row)
+        session.add(trace_row)
+        await session.commit()
+        logger.warning(
+            "query_failed_trace_recorded",
+            trace_id=trace_row.trace_id,
+            tenant_id=trace_row.tenant_id,
+            error=error,
+        )
+    except Exception as audit_error:
+        logger.exception(
+            "Failed to persist query failure audit",
+            error=str(audit_error),
+            trace_id=trace_row.trace_id,
+        )
 
 
 def _graph_context_id(item: Any, attr: str) -> str | None:
@@ -360,22 +399,9 @@ async def query_pipeline(
             span.record_exception(he)
             span.set_status(trace.status.Status(trace.status.StatusCode.ERROR, str(he)))
 
-            try:
-                await session.rollback()
-                from sqlalchemy import update
-
-                await session.execute(
-                    update(QueryTraceRow)
-                    .where(QueryTraceRow.trace_id == trace_id)
-                    .values(completed_at=func.now(), latency_ms=latency_ms)
-                )
-                await session.commit()
-            except Exception as audit_error:
-                logger.exception(
-                    "Failed to persist HTTP query failure audit",
-                    error=str(audit_error),
-                    trace_id=trace_id,
-                )
+            await _persist_failure_trace(
+                session, trace_row, settings, latency_ms=latency_ms, error=str(he.detail)
+            )
             raise
         except Exception as e:
             # Increment failure metrics and set span error status
@@ -385,22 +411,9 @@ async def query_pipeline(
             span.record_exception(e)
             span.set_status(trace.status.Status(trace.status.StatusCode.ERROR, str(e)))
 
-            try:
-                await session.rollback()
-                from sqlalchemy import update
-
-                await session.execute(
-                    update(QueryTraceRow)
-                    .where(QueryTraceRow.trace_id == trace_id)
-                    .values(completed_at=func.now(), latency_ms=latency_ms)
-                )
-                await session.commit()
-            except Exception as audit_error:
-                logger.exception(
-                    "Failed to persist query failure audit",
-                    error=str(audit_error),
-                    trace_id=trace_id,
-                )
+            await _persist_failure_trace(
+                session, trace_row, settings, latency_ms=latency_ms, error=str(e)
+            )
             if isinstance(e, EgressBlockedError):
                 # Tenant egress policy blocked an outbound provider call:
                 # a policy outcome, not a server fault.

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -15,6 +15,7 @@ from httpx import AsyncClient
 
 from securgraph.api.dependencies import get_db_session
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
+from securgraph.domain import Chunk, Classification
 from securgraph.indexing.db import PolicyDecisionRow, QueryTraceRow, RetrievalEvidenceRow
 
 pytestmark = pytest.mark.unit
@@ -116,7 +117,22 @@ async def test_explain_route_success(
 
     fastapi_app.dependency_overrides[get_db_session] = mock_db_session
 
-    resp = await client.get("/explain/test-trace-123?tenant_id=mrd&user_id=user:stefano")
+    allowed_chunk = Chunk(
+        chunk_id="chunk_allow_1",
+        document_id="doc_1",
+        tenant_id="mrd",
+        text="Stefano is a software engineer working on SecurGraph.",
+        classification=Classification.INTERNAL,
+        policy_tags=(),
+        token_count=10,
+        ordinal=0,
+        text_hash="hash0001",
+    )
+    with patch(
+        "securgraph.api.routes.explain.fetch_chunks_by_ids",
+        new=AsyncMock(return_value=[allowed_chunk]),
+    ) as mock_fetch:
+        resp = await client.get("/explain/test-trace-123?tenant_id=mrd&user_id=user:stefano")
     assert resp.status_code == 200
 
     body = resp.json()
@@ -134,10 +150,15 @@ async def test_explain_route_success(
     assert len(body["prov_activities"]) == 1
     assert len(body["prov_entities"]) >= 2
 
-    # Verify evidence redaction behavior for denied chunks
+    # Allowed evidence must expose the REAL chunk text, not a placeholder.
     ev_allow = next(e for e in body["evidence"] if e["object_id"] == "chunk_allow_1")
     assert ev_allow["status"] == "allowed"
-    assert "CONFIDENTIAL" not in ev_allow["object_data"]
+    assert ev_allow["object_data"] == "Stefano is a software engineer working on SecurGraph."
+
+    # Only allowed chunk ids are ever fetched — denied chunk text must not be
+    # loaded at all, not merely hidden.
+    fetched_ids = mock_fetch.call_args.args[2]
+    assert fetched_ids == ["chunk_allow_1"]
 
     ev_deny = next(e for e in body["evidence"] if e["object_id"] == "chunk_deny_2")
     assert ev_deny["status"] == "redacted"

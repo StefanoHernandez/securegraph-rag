@@ -5,6 +5,7 @@ Provides ReBAC tuple editing, cryptographic chain verification, and Neo4j graph 
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 import structlog
@@ -21,6 +22,7 @@ from securgraph.api.routes.auth import (
     require_super_admin,
 )
 from securgraph.indexing.db import (
+    AdminAuditEventRow,
     PolicyDecisionRow,
     QueryTraceRow,
     RetrievalEvidenceRow,
@@ -36,6 +38,42 @@ class PermissionTupleRequest(BaseModel):
     user: str = Field(..., description="FGA user string, e.g. 'user:admin'")
     relation: str = Field(..., description="FGA relationship, e.g. 'viewer'")
     object: str = Field(..., description="FGA object string, e.g. 'document:doc_123'")
+
+
+async def _audit_permission_change(
+    session: AsyncSession,
+    principal: AuthenticatedPrincipal | None,
+    *,
+    action: str,
+    req: PermissionTupleRequest,
+) -> None:
+    """Persist an application-level audit event for an OpenFGA tuple change.
+
+    Permission mutations are the most sensitive admin operation; the OpenFGA
+    store alone does not record who changed what from the application's
+    perspective, so each grant/revoke also writes an AdminAuditEventRow.
+    Failures here must not mask a successful tuple write — log and continue.
+    """
+    try:
+        session.add(
+            AdminAuditEventRow(
+                id=f"adm_{uuid.uuid4().hex}",
+                tenant_id=None,
+                actor_user_id=principal.user_id if principal else "system:auth-disabled",
+                action=action,
+                target_type="fga_tuple",
+                target_id=req.object,
+                outcome="success",
+                event_metadata={
+                    "user": req.user,
+                    "relation": req.relation,
+                    "object": req.object,
+                },
+            )
+        )
+        await session.commit()
+    except Exception as exc:
+        logger.error("Failed to audit permission change", action=action, error=str(exc))
 
 
 def _ensure_tenant_scope(
@@ -195,7 +233,8 @@ async def list_permissions(
 async def grant_permission(
     req: PermissionTupleRequest,
     client: OpenFgaClient = Depends(get_openfga_client),
-    _admin: AuthenticatedPrincipal | None = Depends(require_super_admin),
+    admin: AuthenticatedPrincipal | None = Depends(require_super_admin),
+    session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Write a direct relationship tuple to OpenFGA (grant access)."""
     from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
@@ -206,6 +245,7 @@ async def grant_permission(
                 writes=[ClientTuple(user=req.user, relation=req.relation, object=req.object)]
             )
         )
+        await _audit_permission_change(session, admin, action="permission.grant", req=req)
         return {
             "status": "success",
             "message": f"Successfully granted {req.relation} on {req.object} to {req.user}",
@@ -222,7 +262,8 @@ async def grant_permission(
 async def revoke_permission(
     req: PermissionTupleRequest,
     client: OpenFgaClient = Depends(get_openfga_client),
-    _admin: AuthenticatedPrincipal | None = Depends(require_super_admin),
+    admin: AuthenticatedPrincipal | None = Depends(require_super_admin),
+    session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Delete a direct relationship tuple from OpenFGA (revoke access)."""
     from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
@@ -233,6 +274,7 @@ async def revoke_permission(
                 deletes=[ClientTuple(user=req.user, relation=req.relation, object=req.object)]
             )
         )
+        await _audit_permission_change(session, admin, action="permission.revoke", req=req)
         return {
             "status": "success",
             "message": f"Successfully revoked {req.relation} on {req.object} from {req.user}",

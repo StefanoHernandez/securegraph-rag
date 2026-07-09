@@ -21,8 +21,13 @@ from securgraph.indexing.db import (
     QueryTraceRow,
     RetrievalEvidenceRow,
 )
+from securgraph.indexing.postgres_writer import fetch_chunks_by_ids
 
 router = APIRouter(tags=["explainability"])
+
+# Evidence snippets in the explain report are capped so a single large chunk
+# cannot bloat the payload; the full text remains available via ingestion.
+_SNIPPET_MAX_CHARS = 500
 
 
 class ExplainReport(SGModel):
@@ -112,7 +117,39 @@ async def explain_query(
     # Map decisions by object_id to easily check permission statuses
     object_decisions = {d.object_id: d.decision.lower() for d in decision_rows}
 
-    # 3. Secure output: redact actual text/data of denied elements
+    # 3. Secure output: real snippets for allowed evidence, redaction for the
+    # rest. Chunk-backed evidence (vector/lexical) is resolved from Postgres;
+    # graph paths and community summaries are not persisted as text in the
+    # audit store, so they get an honest structural label instead of a fake
+    # "grounded data" placeholder.
+    chunk_ids = [
+        ev.object_id
+        for ev in evidence_rows
+        if ev.retriever_id not in ("graph", "community")
+        and object_decisions.get(ev.object_id) == "allow"
+    ]
+    chunk_texts: dict[str, str] = {}
+    if chunk_ids:
+        chunks = await fetch_chunks_by_ids(session, tenant_id, chunk_ids)
+        chunk_texts = {c.chunk_id: c.text for c in chunks}
+
+    def _object_data(ev: RetrievalEvidenceRow, is_allowed: bool) -> str:
+        if not is_allowed:
+            return "CONFIDENTIAL - ACCESS DENIED"
+        if ev.object_id in chunk_texts:
+            return chunk_texts[ev.object_id][:_SNIPPET_MAX_CHARS]
+        if ev.retriever_id == "graph":
+            return (
+                f"Authorized graph path {ev.object_id} "
+                "(traversal evidence; path text is not persisted in the audit store)"
+            )
+        if ev.retriever_id == "community":
+            return (
+                f"Authorized community summary {ev.object_id} "
+                "(summary text is not persisted in the audit store)"
+            )
+        return f"Authorized evidence {ev.object_id} (source text no longer available)"
+
     evidence_list: list[dict[str, Any]] = []
     for ev in evidence_rows:
         is_allowed = object_decisions.get(ev.object_id) == "allow"
@@ -126,9 +163,7 @@ async def explain_query(
                 "original_score": ev.original_score,
                 "included_in_prompt": ev.included_in_prompt,
                 "status": "allowed" if is_allowed else "redacted",
-                "object_data": "CONFIDENTIAL - ACCESS DENIED"
-                if not is_allowed
-                else f"Grounded data for {ev.object_id}",
+                "object_data": _object_data(ev, is_allowed),
             }
         )
 

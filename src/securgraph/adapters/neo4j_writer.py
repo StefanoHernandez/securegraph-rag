@@ -169,15 +169,27 @@ async def _repair_transaction(
             reason=reason or "Flagged due to RAG consensus contradiction.",
         )
     elif action == "update":
+        # Capture the replaced edge's source_chunk_ids before deleting it: the
+        # corrected edge inherits the original evidence chunks so the path-cut
+        # authorizer (graph_retriever) can still resolve them against OpenFGA.
+        # Writing a sentinel like ["self_healing"] instead would make every
+        # healed edge permanently unauthorized (the sentinel is not a real
+        # chunk id, so no principal is ever allowed to traverse it).
         delete_cypher = """
         MATCH (src:Entity {name: $source_name, tenant_id: $tenant_id})
               -[r:RELATED_TO]->
               (tgt:Entity {name: $target_name, tenant_id: $tenant_id})
+        WITH r, r.source_chunk_ids AS chunk_ids
         DELETE r
+        RETURN chunk_ids
         """
-        await tx.run(
+        result = await tx.run(
             delete_cypher, source_name=source_name, target_name=target_name, tenant_id=tenant_id
         )
+        inherited_chunk_ids: list[str] = []
+        record = await result.single()
+        if record is not None and record["chunk_ids"]:
+            inherited_chunk_ids = list(record["chunk_ids"])
 
         if new_target_name:
             update_cypher = """
@@ -187,11 +199,13 @@ async def _repair_transaction(
             MERGE (src)-[r:RELATED_TO]->(tgt)
             SET r.confidence = 0.9,
                 r.needs_review = false,
-                r.source_chunk_ids = ["self_healing"]
+                r.source_chunk_ids = $chunk_ids,
+                r.self_healed = true
             """
             await tx.run(
                 update_cypher,
                 source_name=source_name,
                 new_target_name=new_target_name,
                 tenant_id=tenant_id,
+                chunk_ids=inherited_chunk_ids,
             )

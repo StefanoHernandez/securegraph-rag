@@ -308,3 +308,48 @@ async def test_query_global_mode_reports_community_channel_and_evidence(
     assert len(community_rows) == 1
     assert community_rows[0].retriever_id == "community"
     assert community_rows[0].evidence_id.startswith("ev_community_comm_policy_restricted_")
+
+
+async def test_failed_query_persists_audit_trace(fastapi_app, client: AsyncClient) -> None:
+    """A query whose workflow blows up must still leave a QueryTraceRow.
+
+    The success path inserts the trace only after the workflow completes, so
+    the failure path must INSERT (not UPDATE) — an UPDATE on the never-inserted
+    row is a silent no-op and the failed query would vanish from the audit log.
+    """
+    from unittest.mock import MagicMock
+
+    from securgraph.api.dependencies import get_db_session
+    from securgraph.indexing.db import QueryTraceRow
+
+    session = AsyncMock()
+    added: list = []
+    session.add = MagicMock(side_effect=added.append)
+
+    async def override_db_session():
+        yield session
+
+    fastapi_app.dependency_overrides[get_db_session] = override_db_session
+    try:
+        boom = AsyncMock()
+        boom.ainvoke.side_effect = RuntimeError("LLM adapter exploded")
+        with patch("securgraph.api.routes.query.compile_workflow", return_value=boom):
+            response = await client.post(
+                "/query",
+                json={
+                    "tenant_id": "default",
+                    "user_id": "someone",
+                    "query": "will fail",
+                    "options": {},
+                },
+            )
+    finally:
+        fastapi_app.dependency_overrides.pop(get_db_session, None)
+
+    assert response.status_code == 500
+    traces = [row for row in added if isinstance(row, QueryTraceRow)]
+    assert len(traces) == 1
+    assert traces[0].completed_at is not None
+    assert traces[0].latency_ms is not None
+    assert traces[0].answer is None
+    session.commit.assert_awaited()
