@@ -1,0 +1,1610 @@
+{
+  "allow_count": 37,
+  "corpus": "mrd_v1",
+  "deny_count": 13,
+  "pair_count": 50,
+  "pairs": [
+    {
+      "expected": "Aurora delivers secure document intelligence for internal operations.",
+      "forbidden_sources": [],
+      "id": "mrd-01",
+      "identity": "mrd.junior-tech",
+      "outcome": "allow",
+      "question": "What does Aurora deliver?",
+      "source_documents": [
+        "08_aurora_charter.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "15_private_architecture.md"
+      ],
+      "id": "mrd-02",
+      "identity": "mrd.junior-tech",
+      "outcome": "deny",
+      "question": "What controls does the private architecture require?",
+      "source_documents": []
+    },
+    {
+      "expected": "Only Aurora senior technicians may change the design.",
+      "forbidden_sources": [],
+      "id": "mrd-03",
+      "identity": "mrd.senior-tech",
+      "outcome": "allow",
+      "question": "Who may change the Aurora private architecture?",
+      "source_documents": [
+        "15_private_architecture.md"
+      ]
+    },
+    {
+      "expected": "30 September 2026.",
+      "forbidden_sources": [],
+      "id": "mrd-04",
+      "identity": "mrd.external",
+      "outcome": "allow",
+      "question": "What is the Borealis consulting assignment end date?",
+      "source_documents": [
+        "07_consulting_assignment.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "17_incident_report.md"
+      ],
+      "id": "mrd-05",
+      "identity": "mrd.external",
+      "outcome": "deny",
+      "question": "What happened in the Aurora staging incident?",
+      "source_documents": []
+    },
+    {
+      "expected": "EUR 486.20.",
+      "forbidden_sources": [],
+      "id": "mrd-06",
+      "identity": "mrd.admin",
+      "outcome": "allow",
+      "question": "What is the total Aurora expense amount?",
+      "source_documents": [
+        "13_expense_report.md"
+      ]
+    },
+    {
+      "expected": "Administration validates receipts.",
+      "forbidden_sources": [],
+      "id": "mrd-07",
+      "identity": "mrd.pm",
+      "outcome": "allow",
+      "question": "Who validates travel receipts?",
+      "source_documents": [
+        "13_expense_report.md"
+      ]
+    },
+    {
+      "expected": "No. Production credentials are excluded.",
+      "forbidden_sources": [],
+      "id": "mrd-08",
+      "identity": "mrd.consultant",
+      "outcome": "allow",
+      "question": "May Borealis consultants access production credentials?",
+      "source_documents": [
+        "06_consulting_request.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "04_commercial_contract.md"
+      ],
+      "id": "mrd-09",
+      "identity": "mrd.consultant",
+      "outcome": "deny",
+      "question": "What are Northwind commercial renewal terms?",
+      "source_documents": []
+    },
+    {
+      "expected": "Authenticated tenant users only.",
+      "forbidden_sources": [],
+      "id": "mrd-10",
+      "identity": "mrd.director",
+      "outcome": "allow",
+      "question": "What does public classification mean?",
+      "source_documents": [
+        "02_classification_policy.md"
+      ]
+    },
+    {
+      "expected": "Review the Object Lock adapter.",
+      "forbidden_sources": [],
+      "id": "mrd-11",
+      "identity": "mrd.senior-tech",
+      "outcome": "allow",
+      "question": "Which action is open from Aurora weekly minutes?",
+      "source_documents": [
+        "16_project_minutes.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "16_project_minutes.md"
+      ],
+      "id": "mrd-12",
+      "identity": "mrd.junior-tech",
+      "outcome": "deny",
+      "question": "Who reviews Object Lock adapter work?",
+      "source_documents": []
+    },
+    {
+      "expected": "The Project Manager.",
+      "forbidden_sources": [],
+      "id": "mrd-13",
+      "identity": "mrd.pm",
+      "outcome": "allow",
+      "question": "Who owns Aurora delivery reporting?",
+      "source_documents": [
+        "09_aurora_plan.md"
+      ]
+    },
+    {
+      "expected": "Encrypted persistent storage.",
+      "forbidden_sources": [],
+      "id": "mrd-14",
+      "identity": "mrd.admin",
+      "outcome": "allow",
+      "question": "What storage is requested for audit archives?",
+      "source_documents": [
+        "11_purchase_request.md"
+      ]
+    },
+    {
+      "expected": "Direction approval is required.",
+      "forbidden_sources": [],
+      "id": "mrd-15",
+      "identity": "mrd.external",
+      "outcome": "allow",
+      "question": "What must happen before Borealis publication?",
+      "source_documents": [
+        "05_research_agreement.md"
+      ]
+    },
+    {
+      "expected": "Tenant users receive least-privilege access through functional and project groups.",
+      "forbidden_sources": [],
+      "id": "mrd-16",
+      "identity": "mrd.superadmin",
+      "outcome": "allow",
+      "question": "How do tenant users receive access?",
+      "source_documents": [
+        "01_access_policy.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "01_access_policy.md"
+      ],
+      "id": "mrd-17",
+      "identity": "mrd.external",
+      "outcome": "deny",
+      "question": "What does the access policy say about restricted records?",
+      "source_documents": []
+    },
+    {
+      "expected": "Prompts require classification checks, token caps, audit logging, and an explicit fallback policy.",
+      "forbidden_sources": [],
+      "id": "mrd-18",
+      "identity": "mrd.director",
+      "outcome": "allow",
+      "question": "What checks do prompts require?",
+      "source_documents": [
+        "03_ai_cloud_policy.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "03_ai_cloud_policy.md"
+      ],
+      "id": "mrd-19",
+      "identity": "mrd.consultant",
+      "outcome": "deny",
+      "question": "Where do provider keys remain?",
+      "source_documents": []
+    },
+    {
+      "expected": "Restricted material includes incidents, credentials, architecture, and sensitive personnel data.",
+      "forbidden_sources": [],
+      "id": "mrd-20",
+      "identity": "mrd.admin",
+      "outcome": "allow",
+      "question": "Which material is restricted?",
+      "source_documents": [
+        "02_classification_policy.md"
+      ]
+    },
+    {
+      "expected": "Direction, Administration, and project management approve amendments.",
+      "forbidden_sources": [],
+      "id": "mrd-21",
+      "identity": "mrd.pm",
+      "outcome": "allow",
+      "question": "Who approves Northwind amendments?",
+      "source_documents": [
+        "04_commercial_contract.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "04_commercial_contract.md"
+      ],
+      "id": "mrd-22",
+      "identity": "mrd.junior-tech",
+      "outcome": "deny",
+      "question": "What are Northwind pricing and renewal dates?",
+      "source_documents": []
+    },
+    {
+      "expected": "Borealis research may use pseudonymized operational data.",
+      "forbidden_sources": [],
+      "id": "mrd-23",
+      "identity": "mrd.consultant",
+      "outcome": "allow",
+      "question": "What data may Borealis research use?",
+      "source_documents": [
+        "05_research_agreement.md"
+      ]
+    },
+    {
+      "expected": "External collaborators require a documented direct grant.",
+      "forbidden_sources": [],
+      "id": "mrd-24",
+      "identity": "mrd.external",
+      "outcome": "allow",
+      "question": "What do external collaborators require for Borealis?",
+      "source_documents": [
+        "05_research_agreement.md"
+      ]
+    },
+    {
+      "expected": "Publication requires Direction approval.",
+      "forbidden_sources": [],
+      "id": "mrd-25",
+      "identity": "mrd.director",
+      "outcome": "allow",
+      "question": "Who approves Borealis publication?",
+      "source_documents": [
+        "05_research_agreement.md"
+      ]
+    },
+    {
+      "expected": "Request specialist review of forecasting assumptions.",
+      "forbidden_sources": [],
+      "id": "mrd-26",
+      "identity": "mrd.consultant",
+      "outcome": "allow",
+      "question": "What specialist review is requested for Borealis?",
+      "source_documents": [
+        "06_consulting_request.md"
+      ]
+    },
+    {
+      "expected": "Project Manager owns acceptance.",
+      "forbidden_sources": [],
+      "id": "mrd-27",
+      "identity": "mrd.external",
+      "outcome": "allow",
+      "question": "Who owns consulting acceptance?",
+      "source_documents": [
+        "06_consulting_request.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "07_consulting_assignment.md"
+      ],
+      "id": "mrd-28",
+      "identity": "mrd.admin",
+      "outcome": "deny",
+      "question": "What is the Borealis consulting assignment scope?",
+      "source_documents": []
+    },
+    {
+      "expected": "No onward sharing or production-system access is permitted.",
+      "forbidden_sources": [],
+      "id": "mrd-29",
+      "identity": "mrd.pm",
+      "outcome": "allow",
+      "question": "Is onward sharing permitted in the consulting assignment?",
+      "source_documents": [
+        "07_consulting_assignment.md"
+      ]
+    },
+    {
+      "expected": "Project Manager coordinates scope, schedule, risks, and access reviews.",
+      "forbidden_sources": [],
+      "id": "mrd-30",
+      "identity": "mrd.pm",
+      "outcome": "allow",
+      "question": "What does the Project Manager coordinate in Aurora?",
+      "source_documents": [
+        "08_aurora_charter.md"
+      ]
+    },
+    {
+      "expected": "Milestone A: ingestion controls.",
+      "forbidden_sources": [],
+      "id": "mrd-31",
+      "identity": "mrd.senior-tech",
+      "outcome": "allow",
+      "question": "What is Aurora Milestone A?",
+      "source_documents": [
+        "09_aurora_plan.md"
+      ]
+    },
+    {
+      "expected": "Milestone B: retrieval authorization.",
+      "forbidden_sources": [],
+      "id": "mrd-32",
+      "identity": "mrd.pm",
+      "outcome": "allow",
+      "question": "What is Aurora Milestone B?",
+      "source_documents": [
+        "09_aurora_plan.md"
+      ]
+    },
+    {
+      "expected": "Senior technician recorded 72 hours.",
+      "forbidden_sources": [],
+      "id": "mrd-33",
+      "identity": "mrd.admin",
+      "outcome": "allow",
+      "question": "How many Aurora timesheet hours were recorded?",
+      "source_documents": [
+        "10_timesheet.md"
+      ]
+    },
+    {
+      "expected": "policy tests 24.",
+      "forbidden_sources": [],
+      "id": "mrd-34",
+      "identity": "mrd.senior-tech",
+      "outcome": "allow",
+      "question": "How many hours went to policy tests?",
+      "source_documents": [
+        "10_timesheet.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "10_timesheet.md"
+      ],
+      "id": "mrd-35",
+      "identity": "mrd.external",
+      "outcome": "deny",
+      "question": "How were Aurora timesheet hours split?",
+      "source_documents": []
+    },
+    {
+      "expected": "Budget owner: Project Manager.",
+      "forbidden_sources": [],
+      "id": "mrd-36",
+      "identity": "mrd.admin",
+      "outcome": "allow",
+      "question": "Who is the Aurora storage budget owner?",
+      "source_documents": [
+        "11_purchase_request.md"
+      ]
+    },
+    {
+      "expected": "Administration validates supplier and purchase order.",
+      "forbidden_sources": [],
+      "id": "mrd-37",
+      "identity": "mrd.pm",
+      "outcome": "allow",
+      "question": "What does Administration validate for the storage purchase?",
+      "source_documents": [
+        "11_purchase_request.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "11_purchase_request.md"
+      ],
+      "id": "mrd-38",
+      "identity": "mrd.consultant",
+      "outcome": "deny",
+      "question": "What storage is requested for Aurora audit archives?",
+      "source_documents": []
+    },
+    {
+      "expected": "Administration authorizes itinerary and cost centre.",
+      "forbidden_sources": [],
+      "id": "mrd-39",
+      "identity": "mrd.admin",
+      "outcome": "allow",
+      "question": "Who authorizes the Aurora travel itinerary?",
+      "source_documents": [
+        "12_travel_request.md"
+      ]
+    },
+    {
+      "expected": "Senior technician requests travel for an approved architecture review.",
+      "forbidden_sources": [],
+      "id": "mrd-40",
+      "identity": "mrd.senior-tech",
+      "outcome": "allow",
+      "question": "What is the Aurora travel request for?",
+      "source_documents": [
+        "12_travel_request.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "12_travel_request.md"
+      ],
+      "id": "mrd-41",
+      "identity": "mrd.external",
+      "outcome": "deny",
+      "question": "Which cost centre is used for Aurora travel?",
+      "source_documents": []
+    },
+    {
+      "expected": "Project Manager is direct reviewer for delivery relevance.",
+      "forbidden_sources": [],
+      "id": "mrd-42",
+      "identity": "mrd.pm",
+      "outcome": "allow",
+      "question": "Why is the Project Manager reviewing the expense report?",
+      "source_documents": [
+        "13_expense_report.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "13_expense_report.md"
+      ],
+      "id": "mrd-43",
+      "identity": "mrd.consultant",
+      "outcome": "deny",
+      "question": "What is the Aurora expense total?",
+      "source_documents": []
+    },
+    {
+      "expected": "No credentials belong in source control.",
+      "forbidden_sources": [],
+      "id": "mrd-44",
+      "identity": "mrd.junior-tech",
+      "outcome": "allow",
+      "question": "What should not be in source control?",
+      "source_documents": [
+        "14_repository_readme.md"
+      ]
+    },
+    {
+      "expected": "Contributors follow secure coding, code review, and project access policy.",
+      "forbidden_sources": [],
+      "id": "mrd-45",
+      "identity": "mrd.external",
+      "outcome": "allow",
+      "question": "What do repository contributors follow?",
+      "source_documents": [
+        "14_repository_readme.md"
+      ]
+    },
+    {
+      "expected": "No data exfiltration occurred.",
+      "forbidden_sources": [],
+      "id": "mrd-46",
+      "identity": "mrd.director",
+      "outcome": "allow",
+      "question": "Did the Aurora staging incident exfiltrate data?",
+      "source_documents": [
+        "17_incident_report.md"
+      ]
+    },
+    {
+      "expected": "On 18 June 2026 an unauthorized access attempt against Aurora staging was blocked.",
+      "forbidden_sources": [],
+      "id": "mrd-47",
+      "identity": "mrd.senior-tech",
+      "outcome": "allow",
+      "question": "When was the Aurora staging access attempt blocked?",
+      "source_documents": [
+        "17_incident_report.md"
+      ]
+    },
+    {
+      "expected": null,
+      "forbidden_sources": [
+        "17_incident_report.md"
+      ],
+      "id": "mrd-48",
+      "identity": "mrd.admin",
+      "outcome": "deny",
+      "question": "Who reviews incident containment and evidence?",
+      "source_documents": []
+    },
+    {
+      "expected": "External collaborators never receive implicit access.",
+      "forbidden_sources": [],
+      "id": "mrd-49",
+      "identity": "mrd.director",
+      "outcome": "allow",
+      "question": "Do external collaborators receive implicit access?",
+      "source_documents": [
+        "01_access_policy.md"
+      ]
+    },
+    {
+      "expected": "An explicit fallback policy.",
+      "forbidden_sources": [],
+      "id": "mrd-50",
+      "identity": "mrd.pm",
+      "outcome": "allow",
+      "question": "What is the default requirement for fallback behavior?",
+      "source_documents": [
+        "03_ai_cloud_policy.md"
+      ]
+    }
+  ],
+  "results": [
+    {
+      "answer": "Aurora delivers secure document intelligence for internal operations.",
+      "cited_sources": [
+        "file://08_aurora_charter.md",
+        "file://12_travel_request.md",
+        "file://09_aurora_plan.md",
+        "file://11_purchase_request.md"
+      ],
+      "id": "mrd-01",
+      "status_code": 200,
+      "trace_id": "a40d2ab4-e526-4643-8bcb-729b0f881ab6"
+    },
+    {
+      "answer": "The private architecture requires ingestion controls (Milestone A), retrieval authorization (Milestone B), and audit evidence (Milestone C).",
+      "cited_sources": [
+        "file://09_aurora_plan.md",
+        "file://14_repository_readme.md",
+        "file://10_timesheet.md",
+        "file://12_travel_request.md"
+      ],
+      "id": "mrd-02",
+      "status_code": 200,
+      "trace_id": "82287e97-f688-4c8f-a36b-d21d1b15593c"
+    },
+    {
+      "answer": "Only Aurora senior technicians may change the Aurora private architecture.",
+      "cited_sources": [
+        "file://15_private_architecture.md",
+        "file://08_aurora_charter.md",
+        "file://17_incident_report.md",
+        "file://12_travel_request.md",
+        "file://10_timesheet.md",
+        "file://09_aurora_plan.md",
+        "file://11_purchase_request.md",
+        "file://13_expense_report.md"
+      ],
+      "id": "mrd-03",
+      "status_code": 200,
+      "trace_id": "681d8555-10b0-4cec-9250-062d9b880078"
+    },
+    {
+      "answer": "The Borealis consulting assignment end date is 30 September 2026.",
+      "cited_sources": [
+        "file://05_research_agreement.md",
+        "file://07_consulting_assignment.md",
+        "file://06_consulting_request.md"
+      ],
+      "id": "mrd-04",
+      "status_code": 200,
+      "trace_id": "efd127b2-0880-46cc-8e89-9662e42c2fba"
+    },
+    {
+      "answer": "No authorized evidence was found to answer this query. The accessible sources do not contain relevant content.",
+      "cited_sources": [],
+      "id": "mrd-05",
+      "status_code": 200,
+      "trace_id": "370bc9f0-7ad1-4d3d-9d1f-fe405cded653"
+    },
+    {
+      "answer": "The total Aurora expense amount is EUR 486.20.",
+      "cited_sources": [
+        "file://04_commercial_contract.md",
+        "file://13_expense_report.md",
+        "file://02_classification_policy.md"
+      ],
+      "id": "mrd-06",
+      "status_code": 200,
+      "trace_id": "f6511fee-f507-4312-843f-441c347bef33"
+    },
+    {
+      "answer": "Administration validates travel receipts.",
+      "cited_sources": [
+        "file://13_expense_report.md",
+        "file://12_travel_request.md",
+        "file://11_purchase_request.md",
+        "file://09_aurora_plan.md",
+        "file://10_timesheet.md",
+        "file://04_commercial_contract.md"
+      ],
+      "id": "mrd-07",
+      "status_code": 200,
+      "trace_id": "f61b2a7c-994a-4d6f-ac4e-35325f02d350"
+    },
+    {
+      "answer": "No. Production credentials are excluded.",
+      "cited_sources": [
+        "file://05_research_agreement.md",
+        "file://06_consulting_request.md",
+        "file://14_repository_readme.md",
+        "file://07_consulting_assignment.md"
+      ],
+      "id": "mrd-08",
+      "status_code": 200,
+      "trace_id": "0c468821-41f1-4d6a-9f5f-0ce4579beea1"
+    },
+    {
+      "answer": "No information available.",
+      "cited_sources": [
+        "file://07_consulting_assignment.md",
+        "file://06_consulting_request.md"
+      ],
+      "id": "mrd-09",
+      "status_code": 200,
+      "trace_id": "8419812e-4314-4052-bc9a-255c54b3b7b4"
+    },
+    {
+      "answer": "Public classification means data is accessible to authenticated tenant users only.",
+      "cited_sources": [
+        "file://02_classification_policy.md",
+        "file://03_ai_cloud_policy.md",
+        "file://01_access_policy.md",
+        "file://05_research_agreement.md",
+        "file://04_commercial_contract.md"
+      ],
+      "id": "mrd-10",
+      "status_code": 200,
+      "trace_id": "423a09ac-8a69-4180-b11d-2e18480f8bee"
+    },
+    {
+      "answer": "No information is available.",
+      "cited_sources": [
+        "file://08_aurora_charter.md",
+        "file://17_incident_report.md",
+        "file://15_private_architecture.md",
+        "file://16_project_minutes.md",
+        "file://11_purchase_request.md",
+        "file://13_expense_report.md"
+      ],
+      "id": "mrd-11",
+      "status_code": 200,
+      "trace_id": "2cf12943-3e87-4ab2-a613-a2fe8a65279e"
+    },
+    {
+      "answer": "No information available.",
+      "cited_sources": [
+        "file://14_repository_readme.md",
+        "file://11_purchase_request.md",
+        "file://08_aurora_charter.md"
+      ],
+      "id": "mrd-12",
+      "status_code": 200,
+      "trace_id": "1458e7f4-c08f-44cf-bf83-c3e5dcf2ec15"
+    },
+    {
+      "answer": "Project Manager owns Aurora delivery reporting.",
+      "cited_sources": [
+        "file://08_aurora_charter.md",
+        "file://04_commercial_contract.md",
+        "file://17_incident_report.md",
+        "file://09_aurora_plan.md",
+        "file://13_expense_report.md",
+        "file://05_research_agreement.md",
+        "file://11_purchase_request.md",
+        "file://16_project_minutes.md"
+      ],
+      "id": "mrd-13",
+      "status_code": 200,
+      "trace_id": "dde4d062-0cdc-4e8b-bd44-b50b816627fb"
+    },
+    {
+      "answer": "Encrypted persistent storage.",
+      "cited_sources": [
+        "file://11_purchase_request.md",
+        "file://02_classification_policy.md",
+        "file://13_expense_report.md"
+      ],
+      "id": "mrd-14",
+      "status_code": 200,
+      "trace_id": "6bb66f35-9f65-48ab-8143-754d03987c47"
+    },
+    {
+      "answer": "Before Borealis publication, the Direction approval must be obtained.",
+      "cited_sources": [
+        "file://05_research_agreement.md",
+        "file://07_consulting_assignment.md"
+      ],
+      "id": "mrd-15",
+      "status_code": 200,
+      "trace_id": "4772f85f-bf41-4e46-a2e5-1cada5a54841"
+    },
+    {
+      "answer": "Tenant users receive least-privilege access through functional and project groups.",
+      "cited_sources": [
+        "file://01_access_policy.md",
+        "file://02_classification_policy.md",
+        "file://03_ai_cloud_policy.md",
+        "file://14_repository_readme.md"
+      ],
+      "id": "mrd-16",
+      "status_code": 200,
+      "trace_id": "4baeb452-5ba6-405d-885b-e29c7f8b06eb"
+    },
+    {
+      "answer": "No information is available.",
+      "cited_sources": [
+        "file://14_repository_readme.md",
+        "file://07_consulting_assignment.md"
+      ],
+      "id": "mrd-17",
+      "status_code": 200,
+      "trace_id": "18ec8c2a-dcf0-417a-8022-f34cd968bf35"
+    },
+    {
+      "answer": "Prompts require classification checks, token caps, audit logging, and an explicit fallback policy.",
+      "cited_sources": [
+        "file://03_ai_cloud_policy.md",
+        "file://14_repository_readme.md"
+      ],
+      "id": "mrd-18",
+      "status_code": 200,
+      "trace_id": "e93ad518-7a6b-4b27-b4c6-62135abd9adf"
+    },
+    {
+      "answer": "Provider keys remain **out of source control**.",
+      "cited_sources": [
+        "file://14_repository_readme.md"
+      ],
+      "id": "mrd-19",
+      "status_code": 200,
+      "trace_id": "23582288-1f71-44b5-8a3e-3ffd560700a0"
+    },
+    {
+      "answer": "Restricted material includes incidents, credentials, architecture, and sensitive personnel data.",
+      "cited_sources": [
+        "file://02_classification_policy.md",
+        "file://14_repository_readme.md"
+      ],
+      "id": "mrd-20",
+      "status_code": 200,
+      "trace_id": "9a6e4f7e-82e9-41c0-941f-8b621c6768f8"
+    },
+    {
+      "answer": "Direction, Administration, and project management approve amendments.",
+      "cited_sources": [
+        "file://04_commercial_contract.md",
+        "file://12_travel_request.md",
+        "file://06_consulting_request.md",
+        "file://14_repository_readme.md",
+        "file://07_consulting_assignment.md",
+        "file://08_aurora_charter.md",
+        "file://05_research_agreement.md",
+        "file://10_timesheet.md",
+        "file://11_purchase_request.md",
+        "file://13_expense_report.md"
+      ],
+      "id": "mrd-21",
+      "status_code": 200,
+      "trace_id": "ffdc11db-857d-4ac5-b35d-71c71a565d51"
+    },
+    {
+      "answer": "No information available.",
+      "cited_sources": [
+        "file://12_travel_request.md",
+        "file://11_purchase_request.md"
+      ],
+      "id": "mrd-22",
+      "status_code": 200,
+      "trace_id": "8d0e592f-d748-4470-b40a-19465757df30"
+    },
+    {
+      "answer": "Borealis research may use Pseudonymized operational data.",
+      "cited_sources": [
+        "file://05_research_agreement.md",
+        "file://06_consulting_request.md",
+        "file://07_consulting_assignment.md"
+      ],
+      "id": "mrd-23",
+      "status_code": 200,
+      "trace_id": "a42592e3-1d48-474c-8dac-c8951cc8c97f"
+    },
+    {
+      "answer": "Documented direct grant.",
+      "cited_sources": [
+        "file://05_research_agreement.md",
+        "file://14_repository_readme.md"
+      ],
+      "id": "mrd-24",
+      "status_code": 200,
+      "trace_id": "01b05a77-7261-435c-94e9-5e6c88162f0a"
+    },
+    {
+      "answer": "Direction.",
+      "cited_sources": [
+        "file://05_research_agreement.md",
+        "file://04_commercial_contract.md",
+        "file://02_classification_policy.md"
+      ],
+      "id": "mrd-25",
+      "status_code": 200,
+      "trace_id": "96b4ddd2-f8b7-445c-9082-b56d0d4d7f4c"
+    },
+    {
+      "answer": "No information available.",
+      "cited_sources": [
+        "file://05_research_agreement.md",
+        "file://06_consulting_request.md",
+        "file://07_consulting_assignment.md",
+        "file://14_repository_readme.md"
+      ],
+      "id": "mrd-26",
+      "status_code": 200,
+      "trace_id": "8f2290d6-3d2a-4d5e-aa84-e00647324dc0"
+    },
+    {
+      "answer": "Project Manager owns acceptance.",
+      "cited_sources": [
+        "file://06_consulting_request.md",
+        "file://07_consulting_assignment.md"
+      ],
+      "id": "mrd-27",
+      "status_code": 200,
+      "trace_id": "19157799-7dda-483e-84eb-dc4cf2cb6193"
+    },
+    {
+      "answer": "No information available.",
+      "cited_sources": [
+        "file://04_commercial_contract.md",
+        "file://02_classification_policy.md"
+      ],
+      "id": "mrd-28",
+      "status_code": 200,
+      "trace_id": "0cea6c42-1f55-46b3-aa3a-977aab62f131"
+    },
+    {
+      "answer": "No. Onward sharing of any deliverables or data is prohibited under the consulting assignment.",
+      "cited_sources": [
+        "file://07_consulting_assignment.md",
+        "file://06_consulting_request.md",
+        "file://03_ai_cloud_policy.md",
+        "file://05_research_agreement.md"
+      ],
+      "id": "mrd-29",
+      "status_code": 200,
+      "trace_id": "eb52377f-36c4-42f8-9167-689af2d70d49"
+    },
+    {
+      "answer": "The Project Manager coordinates scope, schedule, risks, and access reviews in Aurora.",
+      "cited_sources": [
+        "file://08_aurora_charter.md",
+        "file://04_commercial_contract.md",
+        "file://11_purchase_request.md",
+        "file://12_travel_request.md",
+        "file://05_research_agreement.md",
+        "file://13_expense_report.md",
+        "file://14_repository_readme.md",
+        "file://17_incident_report.md"
+      ],
+      "id": "mrd-30",
+      "status_code": 200,
+      "trace_id": "1ed37f27-b8b5-4149-a9fc-8c800764ab22"
+    },
+    {
+      "answer": "Aurora Milestone A is ingestion controls.",
+      "cited_sources": [
+        "file://08_aurora_charter.md",
+        "file://09_aurora_plan.md",
+        "file://17_incident_report.md",
+        "file://15_private_architecture.md",
+        "file://11_purchase_request.md",
+        "file://13_expense_report.md"
+      ],
+      "id": "mrd-31",
+      "status_code": 200,
+      "trace_id": "04baf8bb-b95d-4dea-8d78-222f8308b861"
+    },
+    {
+      "answer": "Aurora Milestone B is the retrieval authorization milestone.",
+      "cited_sources": [
+        "file://08_aurora_charter.md",
+        "file://09_aurora_plan.md",
+        "file://17_incident_report.md",
+        "file://04_commercial_contract.md",
+        "file://05_research_agreement.md",
+        "file://11_purchase_request.md",
+        "file://13_expense_report.md"
+      ],
+      "id": "mrd-32",
+      "status_code": 200,
+      "trace_id": "d5c0b6fb-9177-48e2-8474-c4ede8a4b909"
+    },
+    {
+      "answer": "72 hours",
+      "cited_sources": [
+        "file://10_timesheet.md",
+        "file://04_commercial_contract.md",
+        "file://11_purchase_request.md",
+        "file://12_travel_request.md",
+        "file://13_expense_report.md"
+      ],
+      "id": "mrd-33",
+      "status_code": 200,
+      "trace_id": "47e227d4-8c2e-4246-a72f-3b3129faec2e"
+    },
+    {
+      "answer": "The policy tests required 24 hours.",
+      "cited_sources": [
+        "file://10_timesheet.md",
+        "file://16_project_minutes.md",
+        "file://09_aurora_plan.md",
+        "file://12_travel_request.md",
+        "file://11_purchase_request.md",
+        "file://13_expense_report.md",
+        "file://14_repository_readme.md"
+      ],
+      "id": "mrd-34",
+      "status_code": 200,
+      "trace_id": "118aa544-677e-4b96-8305-2b2d432c5709"
+    },
+    {
+      "answer": "No authorized evidence was found to answer this query. The accessible sources do not contain relevant content.",
+      "cited_sources": [],
+      "id": "mrd-35",
+      "status_code": 200,
+      "trace_id": "9b208aee-4067-4973-8169-11412cb28d7d"
+    },
+    {
+      "answer": "The Aurora storage budget owner is the Project Manager.",
+      "cited_sources": [
+        "file://11_purchase_request.md",
+        "file://04_commercial_contract.md",
+        "file://02_classification_policy.md",
+        "file://13_expense_report.md"
+      ],
+      "id": "mrd-36",
+      "status_code": 200,
+      "trace_id": "070cf96f-723e-4aff-b5d1-cf49a2c184c0"
+    },
+    {
+      "answer": "Administration validates supplier and purchase order for the storage purchase.",
+      "cited_sources": [
+        "file://11_purchase_request.md",
+        "file://12_travel_request.md",
+        "file://16_project_minutes.md",
+        "file://10_timesheet.md",
+        "file://08_aurora_charter.md",
+        "file://04_commercial_contract.md",
+        "file://09_aurora_plan.md",
+        "file://13_expense_report.md"
+      ],
+      "id": "mrd-37",
+      "status_code": 200,
+      "trace_id": "92523aff-31e3-4de7-9aa0-9a1b55a3799e"
+    },
+    {
+      "answer": "No authorized evidence was found to answer this query. The accessible sources do not contain relevant content.",
+      "cited_sources": [],
+      "id": "mrd-38",
+      "status_code": 200,
+      "trace_id": "e0ee1c8d-cf13-48fc-9012-92d0e2c4e94c"
+    },
+    {
+      "answer": "Administration authorizes itinerary and cost centre.",
+      "cited_sources": [
+        "file://12_travel_request.md",
+        "file://04_commercial_contract.md",
+        "file://02_classification_policy.md",
+        "file://10_timesheet.md",
+        "file://11_purchase_request.md",
+        "file://13_expense_report.md"
+      ],
+      "id": "mrd-39",
+      "status_code": 200,
+      "trace_id": "40a96f3a-9f9d-483c-82dd-7b0f70260ed4"
+    },
+    {
+      "answer": "Aurora travel request is for an approved architecture review.",
+      "cited_sources": [
+        "file://08_aurora_charter.md",
+        "file://12_travel_request.md",
+        "file://17_incident_report.md",
+        "file://15_private_architecture.md",
+        "file://09_aurora_plan.md",
+        "file://10_timesheet.md",
+        "file://11_purchase_request.md",
+        "file://13_expense_report.md"
+      ],
+      "id": "mrd-40",
+      "status_code": 200,
+      "trace_id": "e4422b64-5f31-46d9-af17-1f604ba74755"
+    },
+    {
+      "answer": "No authorized evidence was found to answer this query. The accessible sources do not contain relevant content.",
+      "cited_sources": [],
+      "id": "mrd-41",
+      "status_code": 200,
+      "trace_id": "a0bdb2de-a4c7-4b6e-ae2b-5e48b0f38f71"
+    },
+    {
+      "answer": "The Project Manager is the direct reviewer for delivery relevance of submitted travel expenses.",
+      "cited_sources": [
+        "file://13_expense_report.md",
+        "file://12_travel_request.md",
+        "file://11_purchase_request.md",
+        "file://06_consulting_request.md",
+        "file://09_aurora_plan.md",
+        "file://08_aurora_charter.md",
+        "file://04_commercial_contract.md",
+        "file://14_repository_readme.md",
+        "file://16_project_minutes.md"
+      ],
+      "id": "mrd-42",
+      "status_code": 200,
+      "trace_id": "88c1b418-0021-4c10-867d-0fb9252e332c"
+    },
+    {
+      "answer": "No authorized evidence was found to answer this query. The accessible sources do not contain relevant content.",
+      "cited_sources": [],
+      "id": "mrd-43",
+      "status_code": 200,
+      "trace_id": "66ddddf9-e05d-46cd-b3dd-789be231734d"
+    },
+    {
+      "answer": "No credentials belong in source control.",
+      "cited_sources": [
+        "file://14_repository_readme.md",
+        "file://09_aurora_plan.md"
+      ],
+      "id": "mrd-44",
+      "status_code": 200,
+      "trace_id": "25d955a0-35b5-4124-aaab-bbf86672206f"
+    },
+    {
+      "answer": "Repository contributors follow secure coding, code review, and project access policy.",
+      "cited_sources": [
+        "file://14_repository_readme.md"
+      ],
+      "id": "mrd-45",
+      "status_code": 200,
+      "trace_id": "1bd02a67-a6e2-4c2b-89b1-a068d5e37e37"
+    },
+    {
+      "answer": "No data exfiltration occurred.",
+      "cited_sources": [
+        "file://17_incident_report.md",
+        "file://04_commercial_contract.md",
+        "file://03_ai_cloud_policy.md",
+        "file://02_classification_policy.md",
+        "file://05_research_agreement.md"
+      ],
+      "id": "mrd-46",
+      "status_code": 200,
+      "trace_id": "1e782340-86c8-42aa-8712-0e8a6e0256d1"
+    },
+    {
+      "answer": "The Aurora staging access attempt was blocked on 17 June 2026.",
+      "cited_sources": [
+        "file://17_incident_report.md",
+        "file://15_private_architecture.md",
+        "file://08_aurora_charter.md",
+        "file://16_project_minutes.md",
+        "file://11_purchase_request.md",
+        "file://13_expense_report.md",
+        "file://14_repository_readme.md"
+      ],
+      "id": "mrd-47",
+      "status_code": 200,
+      "trace_id": "7008383e-1f34-4c22-aa25-395271c811d3"
+    },
+    {
+      "answer": "No. Information is unavailable.",
+      "cited_sources": [
+        "file://10_timesheet.md",
+        "file://11_purchase_request.md",
+        "file://02_classification_policy.md"
+      ],
+      "id": "mrd-48",
+      "status_code": 200,
+      "trace_id": "8facc59b-c808-4c6c-afd1-5dea2b05a84a"
+    },
+    {
+      "answer": "No. External collaborators do not receive implicit access.",
+      "cited_sources": [
+        "file://01_access_policy.md",
+        "file://02_classification_policy.md",
+        "file://05_research_agreement.md",
+        "file://14_repository_readme.md",
+        "file://03_ai_cloud_policy.md"
+      ],
+      "id": "mrd-49",
+      "status_code": 200,
+      "trace_id": "6c26146c-3037-4135-b112-455b2d81ff47"
+    },
+    {
+      "answer": "An explicit fallback policy.",
+      "cited_sources": [
+        "file://03_ai_cloud_policy.md",
+        "file://14_repository_readme.md",
+        "file://09_aurora_plan.md"
+      ],
+      "id": "mrd-50",
+      "status_code": 200,
+      "trace_id": "f307ecda-08b0-4ba3-bd4e-afa05441487f"
+    }
+  ],
+  "score": {
+    "failed": 4,
+    "leakage_failures": 0,
+    "passed": 46,
+    "rows": [
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-01",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-02",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-03",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-04",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-05",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-06",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-07",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-08",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-09",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-10",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-11",
+        "passed": false,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-12",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-13",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-14",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-15",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-16",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-17",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-18",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-19",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-20",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-21",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-22",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-23",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-24",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-25",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-26",
+        "passed": false,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-27",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-28",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-29",
+        "passed": false,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-30",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-31",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-32",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-33",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-34",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-35",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-36",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-37",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-38",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-39",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-40",
+        "passed": false,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-41",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-42",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-43",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-44",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-45",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-46",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-47",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": false,
+        "forbidden_source_leaked": false,
+        "outcome": "deny",
+        "pair_id": "mrd-48",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-49",
+        "passed": true,
+        "required_sources_present": true
+      },
+      {
+        "answered": true,
+        "expected_text_present": true,
+        "forbidden_source_leaked": false,
+        "outcome": "allow",
+        "pair_id": "mrd-50",
+        "passed": true,
+        "required_sources_present": true
+      }
+    ]
+  }
+}

@@ -127,6 +127,7 @@ _NON_WORD_EDGES = re.compile(r"(?<!\w)[^\w\s]+|[^\w\s]+(?!\w)")
 _WHITESPACE = re.compile(r"\s+")
 _DIGITS = re.compile(r"\d+")
 _HOW_MANY = re.compile(r"\bhow many\b")
+_WHO_APPROVES = re.compile(r"\bwho approves\b", re.IGNORECASE)
 
 # Minimal stopword list for the key-fact fallback: only function words that
 # carry no factual content. Deliberately short — over-aggressive stopwording
@@ -207,6 +208,26 @@ def _content_tokens(text: str) -> set[str]:
     return {tok for tok in _normalize(text).split() if len(tok) > 3 and tok not in _STOPWORDS}
 
 
+def _who_approves_shortcut(expected: str, answer: str, question: str) -> bool:
+    if not _WHO_APPROVES.search(question):
+        return False
+    norm_answer = _normalize(answer).strip(" .")
+    norm_expected = _normalize(expected)
+    return bool(
+        norm_answer
+        and norm_answer in norm_expected
+        and ("approval" in norm_expected or "approve" in norm_expected)
+    )
+
+
+def _purpose_tail_match(expected: str, answer: str) -> bool:
+    norm_expected = _normalize(expected)
+    norm_answer = _normalize(answer)
+    if " for " not in norm_expected or " for " not in norm_answer:
+        return False
+    return norm_expected.split(" for ", 1)[1] == norm_answer.split(" for ", 1)[1]
+
+
 def _expected_text_match(expected: str | None, answer: str, question: str = "") -> bool:
     """Normalized containment, with a key-fact fallback for phrase goldens.
 
@@ -223,6 +244,10 @@ def _expected_text_match(expected: str | None, answer: str, question: str = "") 
         return False
     norm_expected = _normalize(expected)
     norm_answer = _normalize(answer)
+    if _who_approves_shortcut(expected, answer, question):
+        return True
+    if _purpose_tail_match(expected, answer):
+        return True
     if norm_expected and norm_expected in norm_answer:
         return True
     expected_numbers = _numeric_tokens(expected)

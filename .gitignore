@@ -79,6 +79,10 @@ eval/results/*
 !eval/results/mrd-qa-smoke-20260709T145548Z.md
 !eval/results/mrd-qa-smoke-20260709T171931Z.json
 !eval/results/mrd-qa-smoke-20260709T171931Z.md
+!eval/results/mrd-qa-smoke-20260709T175947Z.json
+!eval/results/mrd-qa-smoke-20260709T175947Z.md
+!eval/results/mrd-qa-smoke-20260709T180522Z.json
+!eval/results/mrd-qa-smoke-20260709T180522Z.md
 
 # Frontend
 web/node_modules/

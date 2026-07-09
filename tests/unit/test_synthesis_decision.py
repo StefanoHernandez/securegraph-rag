@@ -92,3 +92,54 @@ def test_high_score_never_reaches_cautious() -> None:
         report=_report(1.0), threshold=0.7,
     )
     assert plan["branch"] == "direct"
+
+
+def test_deterministic_minutes_open_action() -> None:
+    from securgraph.orchestration.workflow import try_deterministic_synthesis
+
+    draft = (
+        "PM recorded progress. Open action: senior technician to review "
+        "Object Lock adapter. Next review: 10 July 2026."
+    )
+    answer = try_deterministic_synthesis(
+        "Which action is open from Aurora weekly minutes?",
+        draft,
+        None,
+    )
+    assert answer == "Review the Object Lock adapter."
+
+
+def test_deterministic_or_prohibition() -> None:
+    from securgraph.orchestration.workflow import try_deterministic_synthesis
+
+    draft = (
+        "Consultant receives access to approved research package only. "
+        "No onward sharing or production-system access is permitted."
+    )
+    answer = try_deterministic_synthesis(
+        "Is onward sharing permitted in the consulting assignment?",
+        draft,
+        None,
+    )
+    assert answer == "No onward sharing or production-system access is permitted."
+
+
+def test_deterministic_travel_authorization() -> None:
+    from securgraph.orchestration.workflow import try_deterministic_synthesis
+
+    draft = (
+        "Senior technician requests travel for an approved architecture review. "
+        "Administration authorizes itinerary and cost centre."
+    )
+    assert try_deterministic_synthesis(
+        "Who authorizes the Aurora travel itinerary?",
+        None,
+        None,
+        vector_context=[draft],
+    ) == "Administration authorizes itinerary and cost centre."
+    assert try_deterministic_synthesis(
+        "What is the Aurora travel request for?",
+        "Aurora travel request is for an approved architecture review.",
+        None,
+        vector_context=[draft],
+    ) == "Senior technician requests travel for an approved architecture review."

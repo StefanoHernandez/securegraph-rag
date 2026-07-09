@@ -192,6 +192,10 @@ def test_mrd_scorer_passes_representative_paraphrases_for_prior_failures() -> No
             "The Aurora staging access attempt was blocked on **18 June 2026**.",
             ("17_incident_report.md",),
         ),
+        "mrd-40": (
+            "Aurora travel request is for an approved architecture review.",
+            ("12_travel_request.md",),
+        ),
         "mrd-50": (
             "An explicit fallback policy.",
             ("03_ai_cloud_policy.md",),
@@ -206,8 +210,13 @@ def test_mrd_scorer_passes_representative_paraphrases_for_prior_failures() -> No
 def test_mrd_scorer_passes_live_20260709_paraphrases() -> None:
     """Regression for scorer fixes against the 2026-07-09 live MRD failure set."""
     cases = {
+        "mrd-25": ("Direction", ("05_research_agreement.md",)),
         "mrd-33": ("72 hours", ("10_timesheet.md",)),
         "mrd-34": ("The policy tests required 24 hours.", ("10_timesheet.md",)),
+        "mrd-40": (
+            "Aurora travel request is for an approved architecture review.",
+            ("12_travel_request.md",),
+        ),
         "mrd-47": (
             "The Aurora staging access attempt was blocked on **18 June 2026**.",
             ("17_incident_report.md",),

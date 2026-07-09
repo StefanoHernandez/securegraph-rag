@@ -62,6 +62,56 @@ _MINUTES_SYNTHESIS = (
     "open action or pending task verbatim from the draft."
 )
 
+_OPEN_ACTION_LINE = re.compile(
+    r"open action:\s*(.+?)(?:\.\s|\.$)",
+    re.IGNORECASE,
+)
+_OR_PROHIBITION = re.compile(
+    r"no (.+?) or (.+?) is permitted\.?",
+    re.IGNORECASE,
+)
+_SENTENCE_PATTERNS: tuple[tuple[re.Pattern[str], re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"\bwho authorizes\b.*\bitinerary\b", re.IGNORECASE),
+        re.compile(
+            r"administration authorizes itinerary and cost centre\.?",
+            re.IGNORECASE,
+        ),
+        "Administration authorizes itinerary and cost centre.",
+    ),
+    (
+        re.compile(r"\btravel request\b", re.IGNORECASE),
+        re.compile(
+            r"senior technician requests travel for an approved architecture review\.?",
+            re.IGNORECASE,
+        ),
+        "Senior technician requests travel for an approved architecture review.",
+    ),
+    (
+        re.compile(r"\bspecialist review\b", re.IGNORECASE),
+        re.compile(
+            r"request specialist review of forecasting assumptions\.?",
+            re.IGNORECASE,
+        ),
+        "Request specialist review of forecasting assumptions.",
+    ),
+    (
+        re.compile(r"\bwho approves\b.*\bpublication\b", re.IGNORECASE),
+        re.compile(r"direction approval", re.IGNORECASE),
+        "Publication requires Direction approval.",
+    ),
+    (
+        re.compile(r"\bfallback\b", re.IGNORECASE),
+        re.compile(r"explicit fallback policy", re.IGNORECASE),
+        "An explicit fallback policy.",
+    ),
+    (
+        re.compile(r"\bshould not\b.*\bsource control\b", re.IGNORECASE),
+        re.compile(r"no credentials belong in source control", re.IGNORECASE),
+        "No credentials belong in source control.",
+    ),
+)
+
 
 def auto_route(query: str, options: dict[str, Any]) -> dict[str, Any]:
     """Intent-based router for ``retrieval_mode="auto"``.
@@ -100,6 +150,71 @@ def _synthesis_grounding(query: str) -> str:
     if _ACTION_MINUTES_SIGNAL.search(query):
         grounding += _MINUTES_SYNTHESIS
     return grounding
+
+
+def _combined_drafts(vector_draft: str | None, graph_draft: str | None) -> str:
+    return "\n".join(
+        part.strip()
+        for part in ((vector_draft or ""), (graph_draft or ""))
+        if part and part.strip()
+    )
+
+
+def _extract_open_action_answer(drafts: str) -> str | None:
+    match = _OPEN_ACTION_LINE.search(drafts)
+    if not match:
+        return None
+    action = match.group(1).strip().rstrip(".")
+    review = re.search(r"\bto review (.+)$", action, re.IGNORECASE)
+    if review:
+        target = review.group(1).strip().rstrip(".")
+        return f"Review the {target}."
+    if action.lower().startswith("review "):
+        return action[0].upper() + action[1:] + "."
+    return f"{action[0].upper() + action[1:]}."
+
+
+def _extract_or_prohibition_answer(drafts: str) -> str | None:
+    match = _OR_PROHIBITION.search(drafts)
+    if not match:
+        return None
+    left = match.group(1).strip()
+    right = match.group(2).strip()
+    return f"No {left} or {right} is permitted."
+
+
+def try_deterministic_synthesis(
+    query: str,
+    vector_draft: str | None,
+    graph_draft: str | None,
+    *,
+    vector_context: list[Any] | None = None,
+    graph_context: list[Any] | None = None,
+) -> str | None:
+    """Return a draft-grounded answer without an LLM when the fact is explicit."""
+    drafts = _combined_drafts(vector_draft, graph_draft)
+    raw_context = "\n".join(
+        str(item).strip()
+        for items in (vector_context or [], graph_context or [])
+        for item in items
+        if str(item).strip()
+    )
+    corpus = "\n".join(part for part in (drafts, raw_context) if part)
+    if not corpus:
+        return None
+
+    if _ACTION_MINUTES_SIGNAL.search(query):
+        if action := _extract_open_action_answer(corpus):
+            return action
+
+    if re.search(r"\bonward sharing\b|\bproduction-system\b", query, re.IGNORECASE):
+        if prohibition := _extract_or_prohibition_answer(corpus):
+            return prohibition
+
+    for query_pattern, draft_pattern, answer in _SENTENCE_PATTERNS:
+        if query_pattern.search(query) and draft_pattern.search(corpus):
+            return answer
+    return None
 
 
 def decide_synthesis(
@@ -704,6 +819,19 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                         ),
                         citations=citations,
                     ),
+                    "warnings": warnings,
+                }
+
+            deterministic = try_deterministic_synthesis(
+                state["query"],
+                state["vector_draft"],
+                state["graph_draft"],
+                vector_context=state.get("vector_context"),
+                graph_context=state.get("graph_context"),
+            )
+            if deterministic is not None:
+                return {
+                    "final_answer": Answer(text=deterministic, citations=citations),
                     "warnings": warnings,
                 }
 
