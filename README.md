@@ -24,6 +24,12 @@ Active delivery tracks:
 
 Production readiness still requires durable cross-store ingestion, PostgreSQL RLS, S3 Object Lock Merkle anchoring, and unified job control. See [`wiki/project/status.md`](wiki/project/status.md) for the live milestone register.
 
+## Documentation
+
+- **[Technical documentation](docs/technical/README.md)** — architecture, data model, API reference, query/ingestion pipelines, security model, deployment, development, evaluation.
+- [Operator Deployment Guide](docs/operator-deployment-guide.md) — step-by-step operations.
+- `wiki/` — internal engineering wiki (working notes; the technical docs above are the stable reference).
+
 ## Architecture
 
 ```
