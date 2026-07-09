@@ -163,6 +163,10 @@ _REFUSAL_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"\baccess (?:is )?denied\b",
         r"\bpermission (?:is )?denied\b",
         r"\bmust refuse\b",
+        r"\bno authorized evidence\b",
+        r"\bdoes not contain relevant content\b",
+        r"\bno information(?: is)? available\b",
+        r"\bno information\b",
     )
 )
 

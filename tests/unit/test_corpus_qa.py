@@ -289,6 +289,23 @@ def test_authorization_denial_passes_for_clean_refusal() -> None:
     assert score.passed
 
 
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "No authorized evidence was found to answer this query. "
+        "The accessible sources do not contain relevant content.",
+        "No information available.",
+        "No information is available.",
+        "No information.",
+    ],
+)
+def test_system_refusal_phrases_are_detected(answer: str) -> None:
+    score = score_qa_result(_deny_pair(), answer=answer, cited_sources=[])
+
+    assert score.refusal_detected
+    assert score.passed
+
+
 def test_authorization_denial_fails_when_refusal_leaks_protected_claim() -> None:
     score = score_qa_result(
         _deny_pair(),
