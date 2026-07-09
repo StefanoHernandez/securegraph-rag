@@ -56,12 +56,12 @@ function loadStoredJobs(): IngestionTrackerJob[] {
 
 function loadStoredIdentity(): { tenantId: string; ownerId: string } {
   if (typeof window === "undefined") {
-    return { tenantId: "default", ownerId: "user:admin" };
+    return { tenantId: "default", ownerId: "user:anonymous" };
   }
   const storedTenant = localStorage.getItem("securgraph_tenant");
   const storedUser = localStorage.getItem("securgraph_user");
   if (!storedUser) {
-    return { tenantId: storedTenant || "default", ownerId: "user:admin" };
+    return { tenantId: storedTenant || "default", ownerId: "user:anonymous" };
   }
   try {
     const user = JSON.parse(storedUser) as {
@@ -71,10 +71,10 @@ function loadStoredIdentity(): { tenantId: string; ownerId: string } {
     };
     return {
       tenantId: storedTenant || user.tenant_id || "default",
-      ownerId: `user:${user.id || user.username || "admin"}`,
+      ownerId: `user:${user.id || user.username || "anonymous"}`,
     };
   } catch {
-    return { tenantId: storedTenant || "default", ownerId: "user:admin" };
+    return { tenantId: storedTenant || "default", ownerId: "user:anonymous" };
   }
 }
 

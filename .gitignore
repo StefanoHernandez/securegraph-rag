@@ -109,3 +109,5 @@ docker/postgres-init/
 
 # Codex CLI local state
 .codex/
+# Playwright output
+web/test-results/

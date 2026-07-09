@@ -7,6 +7,7 @@ import { Panel, TamperChain, TrustVerdict, type ChainStatus } from "@/components
 import { MessageSquare, UploadCloud, ArrowUpRight } from "lucide-react";
 import { adminApi, healthApi, configApi, type ActiveConfig } from "@/lib/api";
 import { useTenantSelection } from "@/lib/useTenantSelection";
+import { displayName, useSessionUser } from "@/lib/session";
 
 interface TraceRow {
   trace_id: string;
@@ -19,6 +20,7 @@ interface TraceRow {
 
 export default function DashboardPage() {
   const { tenantId } = useTenantSelection();
+  const sessionUser = useSessionUser();
   const [stats, setStats] = useState({
     totalDocuments: 0,
     totalQueries: 0,
@@ -141,7 +143,7 @@ export default function DashboardPage() {
         <div>
           <p className="mono-meta">case file · operator briefing</p>
           <h1 className="mt-2 font-display text-2xl md:text-3xl font-bold tracking-tight text-bone">
-            Stefano, the vault is{" "}
+            {displayName(sessionUser)}, the vault is{" "}
             <span className="text-signal-amber">{stats.healthStatus}</span>
           </h1>
         </div>

@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { localizePath, stripLocale } from "@/lib/i18n";
 import { useTenantSelection } from "@/lib/useTenantSelection";
+import { displayName, initials, useSessionUser } from "@/lib/session";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -57,6 +58,7 @@ export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   const pathname = usePathname();
   const activePath = stripLocale(pathname);
   const { tenantId } = useTenantSelection();
+  const sessionUser = useSessionUser();
   const homeHref = localizePath("/", pathname);
 
   return (
@@ -139,14 +141,14 @@ export default function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
         {!collapsed ? (
           <div className="space-y-1.5">
             <p className="mono-meta">{shell("operator")}</p>
-            <p className="text-sm text-bone truncate">Stefano H.</p>
+            <p className="text-sm text-bone truncate">{displayName(sessionUser)}</p>
             <p className="mono-meta">
               {shell("tenant")} · {tenantId ?? shell("none")}
             </p>
           </div>
         ) : (
           <div className="mx-auto h-7 w-7 border border-hairline flex items-center justify-center font-mono text-xs text-bone">
-            SH
+            {initials(sessionUser)}
           </div>
         )}
       </div>

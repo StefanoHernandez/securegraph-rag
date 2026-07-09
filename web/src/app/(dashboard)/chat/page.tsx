@@ -54,15 +54,18 @@ export default function ChatPage() {
       return storedTenant || "default";
     }
   });
+  // Display/request parameter only: the backend derives the effective
+  // identity from the session cookie (SGH-01). "anonymous" mirrors the
+  // backend's own no-auth fallback instead of masquerading as admin.
   const [userId] = useState(() => {
-    if (typeof window === "undefined") return "admin";
+    if (typeof window === "undefined") return "anonymous";
     const storedUser = localStorage.getItem("securgraph_user");
-    if (!storedUser) return "admin";
+    if (!storedUser) return "anonymous";
     try {
       const parsed = JSON.parse(storedUser) as { id?: string; username?: string };
-      return parsed.id || parsed.username || "admin";
+      return parsed.id || parsed.username || "anonymous";
     } catch {
-      return "admin";
+      return "anonymous";
     }
   });
 

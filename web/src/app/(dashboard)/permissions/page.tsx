@@ -24,8 +24,6 @@ interface FGATuple {
   object: string;
 }
 
-const DEMO_USERS = ["user:admin", "user:analyst", "user:viewer"];
-
 export default function PermissionsPage() {
   const t = useTranslations("permissionsPage");
   const [tuples, setTuples] = useState<FGATuple[]>([]);
@@ -133,11 +131,10 @@ export default function PermissionsPage() {
     }
   };
 
-  // Check if a user has access to a document (based on tuples)
+  // Relation shown in the matrix: strictly what the live tuples say.
+  // No client-side special cases — OpenFGA is the only source of truth,
+  // and inherited/indirect access is deliberately not simulated here.
   const checkAccess = (user: string, doc: string) => {
-    // Admin always has owner/viewer access in the mock/actual tuples
-    if (user === "user:admin") return "owner";
-
     const matched = tuples.find(t => t.user === user && t.object === doc);
     return matched ? matched.relation : null;
   };
@@ -203,8 +200,8 @@ export default function PermissionsPage() {
                     required
                   />
                 </div>
-                <div className="flex gap-2 pt-1">
-                  {DEMO_USERS.map((usr) => (
+                <div className="flex gap-2 pt-1 flex-wrap">
+                  {matrixUsers.slice(0, 5).map((usr) => (
                     <Button
                       key={usr}
                       type="button"

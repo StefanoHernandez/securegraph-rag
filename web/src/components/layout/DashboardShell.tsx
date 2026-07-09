@@ -31,7 +31,10 @@ export default function DashboardShell({
       })
       .catch(() => {
         if (active) {
-          router.push("/login");
+          // Preserve the page the user was on so login can return there.
+          const path = window.location.pathname + window.location.search;
+          const next = path && path !== "/login" ? `?next=${encodeURIComponent(path)}` : "";
+          router.push(`/login${next}`);
         }
       });
     return () => {

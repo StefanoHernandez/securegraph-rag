@@ -196,7 +196,8 @@ export const explainApi = {
 };
 
 export const healthApi = {
-  getHealth: () => api.get<HealthResponse>("/health"),
+  // /health is deprecated; /health/ready returns the identical payload.
+  getHealth: () => api.get<HealthResponse>("/health/ready"),
 };
 
 export interface ActiveConfig {

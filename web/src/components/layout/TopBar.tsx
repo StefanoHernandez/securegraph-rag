@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ClassificationStamp } from "@/components/forensic";
 import { authApi } from "@/lib/api";
 import { useTenantSelection } from "@/lib/useTenantSelection";
+import { displayName, useSessionUser } from "@/lib/session";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +51,7 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
   const activePath = stripLocale(pathname);
   const router = useRouter();
   const { tenants, tenantId, loadingTenants, selectTenant } = useTenantSelection();
+  const sessionUser = useSessionUser();
 
   const meta =
     TITLES[activePath] ??
@@ -147,7 +149,7 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
             <DropdownMenuGroup>
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col gap-1">
-                  <p className="text-sm text-bone">Stefano Hernandez</p>
+                  <p className="text-sm text-bone">{displayName(sessionUser)}</p>
                   <p className="mono-meta">
                     {shell("operator")} · {shell("clearanceRestricted")}
                   </p>

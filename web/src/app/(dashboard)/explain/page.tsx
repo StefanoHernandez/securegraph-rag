@@ -29,11 +29,11 @@ function ExplainContent() {
     try {
       const storedUser = localStorage.getItem("securgraph_user");
       const storedTenant = localStorage.getItem("securgraph_tenant");
-      let uId = "admin";
+      let uId = "anonymous";
       let tId = "default";
       if (storedUser) {
         const parsed = JSON.parse(storedUser);
-        uId = parsed.id || parsed.username || "admin";
+        uId = parsed.id || parsed.username || "anonymous";
         tId = storedTenant || parsed.tenant_id || "default";
       }
       const res = await explainApi.getReport(tid, tId, uId);
