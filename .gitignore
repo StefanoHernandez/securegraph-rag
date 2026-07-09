@@ -23,8 +23,7 @@ coverage.xml
 venv/
 env/
 
-# uv
-uv.lock
+# uv — lockfiles are tracked for reproducible installs (paper/eval branches).
 
 # IDE
 .vscode/
@@ -76,6 +75,8 @@ docs/eval/REPORT-*.json
 eval/results/*
 !eval/results/.gitkeep
 !eval/results/c3-ablation-live-20260701T154455Z.json
+!eval/results/mrd-qa-smoke-20260709T145548Z.json
+!eval/results/mrd-qa-smoke-20260709T145548Z.md
 
 # Frontend
 web/node_modules/

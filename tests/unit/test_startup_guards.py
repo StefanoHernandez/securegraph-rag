@@ -39,6 +39,32 @@ def test_test_env_with_default_jwt_secret_allowed() -> None:
     enforce_secret_hygiene(_settings("test", DEFAULT_JWT_SECRET))
 
 
+def test_prod_with_auth_disabled_refuses_startup() -> None:
+    from securgraph.api.main import enforce_auth_hygiene
+
+    with pytest.raises(RuntimeError, match="AUTH_ENABLED=false"):
+        enforce_auth_hygiene(Settings(env="prod", auth_enabled=False))
+
+
+def test_stage_with_auth_disabled_refuses_startup() -> None:
+    from securgraph.api.main import enforce_auth_hygiene
+
+    with pytest.raises(RuntimeError, match="AUTH_ENABLED=false"):
+        enforce_auth_hygiene(Settings(env="stage", auth_enabled=False))
+
+
+def test_dev_with_auth_disabled_allowed() -> None:
+    from securgraph.api.main import enforce_auth_hygiene
+
+    enforce_auth_hygiene(Settings(env="dev", auth_enabled=False))
+
+
+def test_test_env_with_auth_disabled_allowed() -> None:
+    from securgraph.api.main import enforce_auth_hygiene
+
+    enforce_auth_hygiene(Settings(env="test", auth_enabled=False))
+
+
 def test_master_key_too_short_raises() -> None:
     from unittest.mock import patch
 

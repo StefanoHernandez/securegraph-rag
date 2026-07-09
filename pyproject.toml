@@ -6,7 +6,7 @@ name = "securgraph"
 version = "0.1.0a0"
 description = "Trustworthy hybrid vector-graph RAG with verifiable access control and cross-retriever consensus."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "Meridian Labs Foundation", email = "service@meridianlabs.org" },
@@ -50,7 +50,7 @@ dependencies = [
     "redis>=5.1",
 
     # Vector + Graph
-    "qdrant-client>=1.12",
+    "qdrant-client>=1.12,<1.13",
     "neo4j>=5.25",
     "neo4j-graphrag>=1.5",
 

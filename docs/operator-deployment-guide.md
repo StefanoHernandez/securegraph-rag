@@ -122,10 +122,25 @@ Then run live scoring:
   --output-dir eval/results
 ```
 
+## MRD live scoring
+
+```sh
+make up && make migrate
+# Terminal 1 — disable rate limits for batch seed/scoring:
+SECURGRAPH_AUTH_ENABLED=false SECURGRAPH_EVAL_IDENTITY_MODE=true \
+  SECURGRAPH_RATELIMIT_QUERY=0 SECURGRAPH_RATELIMIT_INGEST=0 make api
+# Terminal 2:
+make mrd-seed-live
+make mrd-live
+```
+
+Latest report: `eval/results/mrd-qa-smoke-20260709T145548Z.*` (31/50 pass, 0 leakage, 13/13 deny).
+
 ## Production Checklist
 
 - [ ] `SECURGRAPH_ENV=prod` in `.env`
-- [ ] `SECURGRAPH_AUTH_ENABLED=true` (never disable in production)
+- [ ] `SECURGRAPH_AUTH_ENABLED=true` (never disable in production; startup
+      refuses `auth_enabled=false` in stage/prod)
 - [ ] `AUDIT_HMAC_KEY` set to a strong random secret
 - [ ] `SECURGRAPH_MASTER_KEY` set to a strong random secret
 - [ ] `SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET` set to a real S3 Object Lock bucket

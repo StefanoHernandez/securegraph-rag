@@ -20,8 +20,7 @@ jobs:
 
       - name: Create venv and install deps
         run: |
-          uv venv .venv --python 3.11
-          uv pip install --python .venv/bin/python -e ".[dev,parsers]"
+          uv sync --python 3.11 --frozen --extra dev --extra parsers
 
       - name: Lint (ruff)
         run: make lint

@@ -52,7 +52,21 @@ def enforce_secret_hygiene(settings: Settings) -> None:
     if len(jwt_secret) < 32:
         raise RuntimeError(
             f"SECURGRAPH_JWT_SECRET is too short ({len(jwt_secret)} chars); refusing "
-            f"to start in env={settings.env}. Use at least 32 characters."
+            f"in env={settings.env}. Use at least 32 characters."
+        )
+
+
+def enforce_auth_hygiene(settings: Settings) -> None:
+    """Fail closed at startup when authentication is disabled in stage/prod.
+
+    With ``auth_enabled=False``, ``require_user`` returns None and protected
+    routes become effectively public. Dev/test may disable auth for hermetic
+    tests and MRD eval seeding; stage/prod must never boot without auth.
+    """
+    if settings.env in ("stage", "prod") and not settings.auth_enabled:
+        raise RuntimeError(
+            "SECURGRAPH_AUTH_ENABLED=false; refusing to start "
+            f"in env={settings.env}. Authentication must remain enabled."
         )
 
 
@@ -106,6 +120,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(level=settings.log_level, json_logs=settings.env != "dev")
     log = get_logger(__name__)
     enforce_secret_hygiene(settings)
+    enforce_auth_hygiene(settings)
     if (
         settings.env in ("dev", "test")
         and settings.jwt_secret.get_secret_value() == DEFAULT_JWT_SECRET

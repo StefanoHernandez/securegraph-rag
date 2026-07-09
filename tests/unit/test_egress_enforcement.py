@@ -113,11 +113,16 @@ def test_get_llm_adapter_blocked_by_policy() -> None:
         get_llm_adapter("generation", tenant_id="acme")
 
 
-def test_get_llm_adapter_unaffected_tenant_still_resolves() -> None:
+def test_get_llm_adapter_unaffected_tenant_still_resolves(monkeypatch) -> None:
+    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER", "ollama")
+    from securgraph.config import get_settings
+
+    get_settings.cache_clear()
     set_runtime_override("acme", "egress_policy", {"default": "block", "rules": []})
     # A different tenant without a policy must still get an adapter.
     adapter = get_llm_adapter("generation", tenant_id="other-tenant")
     assert adapter is not None
+    get_settings.cache_clear()
 
 
 # ---------------------------------------------------------------------------

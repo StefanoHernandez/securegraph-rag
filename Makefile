@@ -33,14 +33,13 @@ $(ENV_FILE):
 	fi
 
 .PHONY: venv
-venv: ## Create .venv and install deps via uv.
+venv: ## Create .venv and install deps via uv (frozen lockfile).
 	@command -v $(UV) >/dev/null 2>&1 || { echo "uv not installed. Install: https://docs.astral.sh/uv/"; exit 1; }
-	$(UV) venv $(VENV) --python 3.11
-	$(UV) pip install --python $(VENV)/bin/python -e ".[dev,parsers]"
+	$(UV) sync --python 3.11 --frozen --extra dev --extra parsers --extra llm_openai
 
 .PHONY: sync
-sync: ## Sync deps from pyproject.toml.
-	$(UV) pip install --python $(VENV)/bin/python -e ".[dev,parsers]"
+sync: ## Sync deps from uv.lock (frozen).
+	$(UV) sync --python 3.11 --frozen --extra dev --extra parsers --extra llm_openai
 
 ##@ Backends
 
@@ -121,6 +120,29 @@ test-unit: ## Run unit tests only.
 test-adversarial: ## Run adversarial property-based tests (security gate).
 	$(VENV)/bin/pytest -m "adversarial" -v --hypothesis-seed=0
 
+.PHONY: test-rls-live
+test-rls-live: ## Live PostgreSQL RLS gate (requires `make up` + `make migrate`).
+	$(VENV)/bin/pytest tests/integration/test_postgres_rls.py -q
+
+.PHONY: test-s3-anchor-live
+test-s3-anchor-live: ## Live S3 Object Lock anchor gate (requires `--profile anchor` + env vars).
+	$(VENV)/bin/pytest tests/integration/test_s3_object_lock_anchor.py -q
+
+.PHONY: mrd-seed-live
+mrd-seed-live: ## Seed MRD corpus into a live stack (auth disabled + eval identity mode).
+	SECURGRAPH_EVAL_IDENTITY_MODE=true SECURGRAPH_AUTH_ENABLED=false \
+		$(VENV)/bin/python eval/mrd_seed_live.py --corpus corpus/mrd_v1
+
+.PHONY: mrd-live
+mrd-live: ## Run MRD QA smoke against a live /query endpoint (writes eval/results/).
+	$(VENV)/bin/python eval/mrd_qa_smoke.py \
+		--live-query-url http://localhost:8000/api/v1/query \
+		--tenant-id mrd-lab \
+		--output-dir eval/results
+
+.PHONY: test-live-gates
+test-live-gates: test-rls-live test-s3-anchor-live ## Run RLS + S3 live gates (MRD run separately via mrd-live).
+
 .PHONY: cov
 cov: ## Test coverage report.
 	$(VENV)/bin/pytest --cov=securgraph --cov-report=term-missing --cov-report=html
@@ -171,7 +193,7 @@ ci: lint type test-unit ## Run the same checks as GitHub Actions CI (Docker-free
 
 .PHONY: eval-venv
 eval-venv: ## Set up the isolated eval environment (ragas + langchain stack).
-	cd eval && $(UV) sync
+	cd eval && $(UV) sync --python 3.11 --frozen
 
 .PHONY: eval
 eval: ## Run KPI evaluation against golden set (uses isolated eval/.venv).
