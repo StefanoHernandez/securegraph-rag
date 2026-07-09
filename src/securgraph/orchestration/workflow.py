@@ -47,9 +47,19 @@ _ACTION_MINUTES_SIGNAL = re.compile(
 
 _SYNTHESIS_GROUNDING = (
     " Include exact amounts, dates, and named roles when they appear in the draft. "
-    "When the draft states something is excluded or prohibited, answer No definitively. "
+    "When the draft states something is excluded or prohibited, answer with 'No' "
+    "followed by the stated reason (for example: 'No. Production credentials are "
+    "excluded.'). Never answer only 'No.' when the draft contains the reason. "
     "When a rule lists multiple conditions joined by 'or' or 'and', include every part. "
-    "For policy questions, state the governing phrase rather than answering only 'No.'"
+    "For policy and requirement questions, quote the governing phrase from the draft; "
+    "do not invent operational details absent from the draft. "
+    "When the draft records open actions or weekly minutes items, quote the action text. "
+    "Do not say information is unavailable when the draft contains the answer."
+)
+
+_MINUTES_SYNTHESIS = (
+    " This question concerns meeting minutes or open actions. Extract and quote the "
+    "open action or pending task verbatim from the draft."
 )
 
 
@@ -85,6 +95,13 @@ class SynthesisPlan(TypedDict):
     warnings: list[str]
 
 
+def _synthesis_grounding(query: str) -> str:
+    grounding = _SYNTHESIS_GROUNDING
+    if _ACTION_MINUTES_SIGNAL.search(query):
+        grounding += _MINUTES_SYNTHESIS
+    return grounding
+
+
 def decide_synthesis(
     query: str,
     vector_draft: str | None,
@@ -111,6 +128,8 @@ def decide_synthesis(
             warnings=["no_evidence: both retrieval channels returned no authorized content"],
         )
 
+    grounding = _synthesis_grounding(query)
+
     if not v or not g:
         populated = v or g
         empty_channel = "graph" if v else "vector"
@@ -120,7 +139,7 @@ def decide_synthesis(
                 "You are a synthesis agent. Produce a secure, unified answer grounded "
                 "strictly in the draft below. Do not extrapolate beyond it. "
                 "Answer the query directly and completely from the draft content."
-                + _SYNTHESIS_GROUNDING
+                + grounding
             ),
             user_prompt=f"Draft:\n{populated}\n\nQuery: {query}",
             warnings=[
@@ -136,7 +155,7 @@ def decide_synthesis(
                 "You are a synthesis agent. The two independent retrieval channels "
                 "agree. Produce a secure, unified answer grounded strictly in both "
                 "drafts. Do not extrapolate. Answer the query directly and completely."
-                + _SYNTHESIS_GROUNDING
+                + grounding
             ),
             user_prompt=(f"Vector Draft: {v}\nGraph Draft: {g}\n\nQuery: {query}"),
             warnings=[],
@@ -154,7 +173,7 @@ def decide_synthesis(
             "guessing. Do not refuse to answer, do not say information is "
             "unavailable if either draft contains it, and do not add "
             "disclaimers — caveats are handled separately. Do not extrapolate."
-            + _SYNTHESIS_GROUNDING
+            + grounding
         ),
         user_prompt=(
             f"Vector Draft: {v}\n"

@@ -125,6 +125,8 @@ def _normalize_sources(cited_sources: list[str] | tuple[str, ...]) -> set[str]:
 _MARKDOWN_CHARS = re.compile(r"[*_`#]+")
 _NON_WORD_EDGES = re.compile(r"(?<!\w)[^\w\s]+|[^\w\s]+(?!\w)")
 _WHITESPACE = re.compile(r"\s+")
+_DIGITS = re.compile(r"\d+")
+_HOW_MANY = re.compile(r"\bhow many\b")
 
 # Minimal stopword list for the key-fact fallback: only function words that
 # carry no factual content. Deliberately short — over-aggressive stopwording
@@ -136,7 +138,7 @@ _STOPWORDS = frozenset(
         "they", "them", "its", "his", "her", "our", "your", "all", "any",
         "each", "every", "which", "who", "whom", "into", "onto", "over",
         "under", "about", "after", "before", "between", "during", "not",
-        "only", "may", "can",
+        "only", "may", "can", "against",
     }
 )
 
@@ -147,17 +149,27 @@ _SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
     frozenset({"reviewer", "reviewing", "review"}),
     frozenset({"request", "requested", "requesting"}),
     frozenset({"requires", "require", "required"}),
-    frozenset({"unauthorized", "unauthorised"}),
+    frozenset({"unauthorized", "unauthorised", "blocked"}),
     frozenset({"approves", "approval", "approve", "approved"}),
     frozenset({"publication", "publish", "published"}),
+    frozenset({"explicit", "explicitly"}),
+    frozenset({"excluded", "exclude", "prohibited", "permitted"}),
+    frozenset({"exfiltration", "exfiltrate", "exfiltrated"}),
+    frozenset({"never", "implicit"}),
+    frozenset({"production-system", "production", "system"}),
+    frozenset({"centre", "center", "cost"}),
 )
 
 
 def _stem_token(token: str) -> str:
-    for suffix in ("ing", "ers", "er", "ed", "es", "s"):
+    for suffix in ("ingly", "ing", "ers", "er", "edly", "ed", "ly", "es", "s"):
         if len(token) > len(suffix) + 3 and token.endswith(suffix):
             return token[: -len(suffix)]
     return token
+
+
+def _numeric_tokens(text: str) -> tuple[str, ...]:
+    return tuple(_DIGITS.findall(_normalize(text)))
 
 
 def _answer_token_set(answer: str) -> set[str]:
@@ -213,8 +225,15 @@ def _expected_text_match(expected: str | None, answer: str, question: str = "") 
     norm_answer = _normalize(answer)
     if norm_expected and norm_expected in norm_answer:
         return True
+    expected_numbers = _numeric_tokens(expected)
+    if _HOW_MANY.search(_normalize(question)) and expected_numbers:
+        if all(number in norm_answer for number in expected_numbers):
+            return True
+
     expected_tokens = _content_tokens(expected) - _content_tokens(question)
     if not expected_tokens:
+        if expected_numbers and all(number in norm_answer for number in expected_numbers):
+            return True
         return False
     answer_tokens = _answer_token_set(norm_answer)
     return all(_token_satisfied(token, answer_tokens) for token in expected_tokens)

@@ -77,6 +77,8 @@ eval/results/*
 !eval/results/c3-ablation-live-20260701T154455Z.json
 !eval/results/mrd-qa-smoke-20260709T145548Z.json
 !eval/results/mrd-qa-smoke-20260709T145548Z.md
+!eval/results/mrd-qa-smoke-20260709T171931Z.json
+!eval/results/mrd-qa-smoke-20260709T171931Z.md
 
 # Frontend
 web/node_modules/

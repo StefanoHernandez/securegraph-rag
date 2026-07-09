@@ -172,6 +172,14 @@ def test_mrd_scorer_passes_representative_paraphrases_for_prior_failures() -> No
             "Requested specialist review of forecasting assumptions.",
             ("06_consulting_request.md",),
         ),
+        "mrd-33": (
+            "72 hours",
+            ("10_timesheet.md",),
+        ),
+        "mrd-34": (
+            "The policy tests required 24 hours.",
+            ("10_timesheet.md",),
+        ),
         "mrd-42": (
             "Project Manager is direct reviewer for delivery relevance.",
             ("13_expense_report.md",),
@@ -180,8 +188,33 @@ def test_mrd_scorer_passes_representative_paraphrases_for_prior_failures() -> No
             "No credentials should be in source control.",
             ("14_repository_readme.md",),
         ),
+        "mrd-47": (
+            "The Aurora staging access attempt was blocked on **18 June 2026**.",
+            ("17_incident_report.md",),
+        ),
         "mrd-50": (
             "An explicit fallback policy.",
+            ("03_ai_cloud_policy.md",),
+        ),
+    }
+    for pair_id, (answer, sources) in cases.items():
+        pair = _pair(pair_id)
+        score = score_qa_result(pair, answer=answer, cited_sources=list(sources))
+        assert score.passed, pair_id
+
+
+def test_mrd_scorer_passes_live_20260709_paraphrases() -> None:
+    """Regression for scorer fixes against the 2026-07-09 live MRD failure set."""
+    cases = {
+        "mrd-33": ("72 hours", ("10_timesheet.md",)),
+        "mrd-34": ("The policy tests required 24 hours.", ("10_timesheet.md",)),
+        "mrd-47": (
+            "The Aurora staging access attempt was blocked on **18 June 2026**.",
+            ("17_incident_report.md",),
+        ),
+        "mrd-50": (
+            "The default requirement for fallback behavior is explicitly defined "
+            "in the fallback policy.",
             ("03_ai_cloud_policy.md",),
         ),
     }
