@@ -8,6 +8,7 @@
   identity: mrd.junior-tech
   question: What controls does the private architecture require?
   forbidden_sources: [15_private_architecture.md]
+  case_type: source_isolation
   outcome: deny
 - id: mrd-03
   identity: mrd.senior-tech
@@ -25,6 +26,10 @@
   identity: mrd.external
   question: What happened in the Aurora staging incident?
   forbidden_sources: [17_incident_report.md]
+  case_type: authorization_denial
+  forbidden_claims:
+    - On 18 June 2026 an unauthorized access attempt against Aurora staging was blocked.
+    - No data exfiltration occurred.
   outcome: deny
 - id: mrd-06
   identity: mrd.admin
@@ -48,6 +53,9 @@
   identity: mrd.consultant
   question: What are Northwind commercial renewal terms?
   forbidden_sources: [04_commercial_contract.md]
+  case_type: authorization_denial
+  forbidden_claims:
+    - Northwind commercial terms, pricing, and renewal dates are confidential.
   outcome: deny
 - id: mrd-10
   identity: mrd.director
@@ -65,6 +73,9 @@
   identity: mrd.junior-tech
   question: Who reviews Object Lock adapter work?
   forbidden_sources: [16_project_minutes.md]
+  case_type: authorization_denial
+  forbidden_claims:
+    - A senior technician reviews the Object Lock adapter.
   outcome: deny
 - id: mrd-13
   identity: mrd.pm
@@ -94,6 +105,9 @@
   identity: mrd.external
   question: What does the access policy say about restricted records?
   forbidden_sources: [01_access_policy.md]
+  case_type: authorization_denial
+  forbidden_claims:
+    - Restricted records require an explicit owner, group assignment, or direct grant.
   outcome: deny
 - id: mrd-18
   identity: mrd.director
@@ -105,6 +119,7 @@
   identity: mrd.consultant
   question: Where do provider keys remain?
   forbidden_sources: [03_ai_cloud_policy.md]
+  case_type: source_isolation
   outcome: deny
 - id: mrd-20
   identity: mrd.admin
@@ -122,6 +137,9 @@
   identity: mrd.junior-tech
   question: What are Northwind pricing and renewal dates?
   forbidden_sources: [04_commercial_contract.md]
+  case_type: authorization_denial
+  forbidden_claims:
+    - Northwind pricing and renewal dates are confidential.
   outcome: deny
 - id: mrd-23
   identity: mrd.consultant
@@ -157,6 +175,10 @@
   identity: mrd.admin
   question: What is the Borealis consulting assignment scope?
   forbidden_sources: [07_consulting_assignment.md]
+  case_type: authorization_denial
+  forbidden_claims:
+    - The consultant receives access to the approved Borealis research package only.
+    - The consulting assignment ends on 30 September 2026.
   outcome: deny
 - id: mrd-29
   identity: mrd.pm
@@ -198,6 +220,9 @@
   identity: mrd.external
   question: How were Aurora timesheet hours split?
   forbidden_sources: [10_timesheet.md]
+  case_type: authorization_denial
+  forbidden_claims:
+    - Senior technician recorded 72 hours split across ingestion hardening, policy tests, and architecture review.
   outcome: deny
 - id: mrd-36
   identity: mrd.admin
@@ -215,6 +240,9 @@
   identity: mrd.consultant
   question: What storage is requested for Aurora audit archives?
   forbidden_sources: [11_purchase_request.md]
+  case_type: authorization_denial
+  forbidden_claims:
+    - Aurora requests encrypted persistent storage for audit archives.
   outcome: deny
 - id: mrd-39
   identity: mrd.admin
@@ -232,6 +260,9 @@
   identity: mrd.external
   question: Which cost centre is used for Aurora travel?
   forbidden_sources: [12_travel_request.md]
+  case_type: authorization_denial
+  forbidden_claims:
+    - Administration authorizes the Aurora travel itinerary and cost centre.
   outcome: deny
 - id: mrd-42
   identity: mrd.pm
@@ -243,6 +274,10 @@
   identity: mrd.consultant
   question: What is the Aurora expense total?
   forbidden_sources: [13_expense_report.md]
+  case_type: authorization_denial
+  forbidden_claims:
+    - Aurora travel expenses total EUR 486.20.
+  canary_tokens: ["486.20"]
   outcome: deny
 - id: mrd-44
   identity: mrd.junior-tech
@@ -272,6 +307,9 @@
   identity: mrd.admin
   question: Who reviews incident containment and evidence?
   forbidden_sources: [17_incident_report.md]
+  case_type: authorization_denial
+  forbidden_claims:
+    - Direction and senior technical staff review incident containment and evidence.
   outcome: deny
 - id: mrd-49
   identity: mrd.director

@@ -124,7 +124,7 @@ def test_deterministic_or_prohibition() -> None:
     assert answer == "No onward sharing or production-system access is permitted."
 
 
-def test_deterministic_travel_authorization() -> None:
+def test_suite_specific_travel_phrases_are_not_hard_coded() -> None:
     from securgraph.orchestration.workflow import try_deterministic_synthesis
 
     draft = (
@@ -136,10 +136,10 @@ def test_deterministic_travel_authorization() -> None:
         None,
         None,
         vector_context=[draft],
-    ) == "Administration authorizes itinerary and cost centre."
+    ) is None
     assert try_deterministic_synthesis(
         "What is the Aurora travel request for?",
         "Aurora travel request is for an approved architecture review.",
         None,
         vector_context=[draft],
-    ) == "Senior technician requests travel for an approved architecture review."
+    ) is None

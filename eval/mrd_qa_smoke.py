@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
+import shutil
+import subprocess
 import sys
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
@@ -23,6 +26,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from securgraph.adapters.llm import get_llm_adapter_for  # noqa: E402
 from securgraph.corpus.qa import (  # noqa: E402
     CorpusQaPair,
     QaScore,
@@ -32,6 +36,66 @@ from securgraph.corpus.qa import (  # noqa: E402
 
 DEFAULT_CORPUS_ROOT = REPO_ROOT / "corpus" / "mrd_v1"
 DEFAULT_RESULTS_DIR = Path(__file__).resolve().parent / "results"
+
+
+class SemanticJudge(Protocol):
+    async def judge_nli(self, claim: str, reference: str) -> Any: ...
+
+
+def _hash_corpus(root: Path) -> str:
+    """Return a stable SHA-256 over corpus paths and file contents."""
+    digest = hashlib.sha256()
+    for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _git_value(*args: str) -> str:
+    git = shutil.which("git")
+    if git is None:
+        raise RuntimeError("git executable is required to build an evaluation manifest")
+    completed = subprocess.run(  # noqa: S603 - executable resolved from trusted PATH
+        [git, *args],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _build_run_manifest(
+    *,
+    corpus_root: Path,
+    generation_provider: str,
+    generation_model: str,
+    extraction_provider: str,
+    extraction_model: str,
+    judge_provider: str,
+    judge_model: str,
+    prompt_version: str,
+    seed: int,
+    configuration: dict[str, Any],
+) -> dict[str, Any]:
+    """Capture the inputs needed to reproduce an evaluation run."""
+    return {
+        "schema_version": 2,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "git_commit": _git_value("rev-parse", "HEAD"),
+        "git_dirty": bool(_git_value("status", "--porcelain")),
+        "corpus_sha256": _hash_corpus(corpus_root),
+        "models": {
+            "generation": {"provider": generation_provider, "model": generation_model},
+            "extraction": {"provider": extraction_provider, "model": extraction_model},
+            "judge": {"provider": judge_provider, "model": judge_model},
+        },
+        "prompt_version": prompt_version,
+        "seed": seed,
+        "configuration": configuration,
+    }
 
 
 def _load_result_rows(path: Path) -> dict[str, dict[str, Any]]:
@@ -120,6 +184,38 @@ async def _run_live_queries(
     return rows
 
 
+async def _annotate_semantic_leakage(
+    pairs: tuple[CorpusQaPair, ...],
+    result_rows: dict[str, dict[str, Any]],
+    judge: SemanticJudge,
+) -> None:
+    """Record secondary NLI leakage evidence without changing deterministic gates."""
+    for pair in pairs:
+        if pair.case_type != "authorization_denial" or not pair.forbidden_claims:
+            continue
+        row = result_rows.get(pair.id)
+        if row is None:
+            continue
+        answer = row.get("answer")
+        if not isinstance(answer, str) or not answer.strip():
+            continue
+        judgments: list[dict[str, object]] = []
+        leak_scores: list[float] = []
+        for claim in pair.forbidden_claims:
+            result = await judge.judge_nli(claim, answer)
+            judgments.append(
+                {
+                    "claim": claim,
+                    "label": result.label,
+                    "confidence": result.confidence,
+                    "reason": result.reason,
+                }
+            )
+            leak_scores.append(result.confidence if result.label == "entailment" else 0.0)
+        row["semantic_leak_score"] = max(leak_scores, default=0.0)
+        row["semantic_judgments"] = judgments
+
+
 def _score_pairs(
     pairs: tuple[CorpusQaPair, ...],
     result_rows: dict[str, dict[str, Any]],
@@ -135,7 +231,22 @@ def _score_pairs(
             isinstance(source, str) for source in cited_sources
         ):
             cited_sources = []
-        scores.append(score_qa_result(pair, answer=answer, cited_sources=cited_sources))
+        raw_semantic_score = row.get("semantic_leak_score")
+        semantic_leak_score = (
+            float(raw_semantic_score)
+            if isinstance(raw_semantic_score, (int, float))
+            and not isinstance(raw_semantic_score, bool)
+            and 0.0 <= float(raw_semantic_score) <= 1.0
+            else None
+        )
+        scores.append(
+            score_qa_result(
+                pair,
+                answer=answer,
+                cited_sources=cited_sources,
+                semantic_leak_score=semantic_leak_score,
+            )
+        )
     return tuple(scores)
 
 
@@ -144,6 +255,7 @@ def _write_report(
     scores: tuple[QaScore, ...] | None,
     result_rows: dict[str, dict[str, Any]] | None,
     output_dir: Path,
+    run_manifest: dict[str, Any],
 ) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -156,6 +268,7 @@ def _write_report(
         "pair_count": len(pairs),
         "allow_count": allow_count,
         "deny_count": deny_count,
+        "run": run_manifest,
         "pairs": [asdict(pair) for pair in pairs],
     }
     if scores is not None:
@@ -163,7 +276,20 @@ def _write_report(
         payload["score"] = {
             "passed": passed,
             "failed": len(scores) - passed,
-            "leakage_failures": sum(1 for score in scores if score.forbidden_source_leaked),
+            "forbidden_source_leaks": sum(
+                1 for score in scores if score.forbidden_source_leaked
+            ),
+            "forbidden_claim_leaks": sum(
+                1 for score in scores if score.forbidden_claim_leaked
+            ),
+            "refusal_failures": sum(
+                1
+                for score in scores
+                if score.outcome == "deny"
+                and not score.refusal_detected
+                and next(pair for pair in pairs if pair.id == score.pair_id).case_type
+                == "authorization_denial"
+            ),
             "rows": [asdict(score) for score in scores],
         }
     if result_rows is not None:
@@ -187,10 +313,12 @@ def _write_report(
             [
                 f"- Passed: {passed}",
                 f"- Failed: {len(scores) - passed}",
-                f"- Leakage failures: {sum(1 for s in scores if s.forbidden_source_leaked)}",
+                f"- Forbidden-source leaks: {sum(1 for s in scores if s.forbidden_source_leaked)}",
+                f"- Forbidden-claim leaks: {sum(1 for s in scores if s.forbidden_claim_leaked)}",
                 "",
-                "| id | outcome | passed | expected | sources | forbidden leak |",
-                "| --- | --- | --- | --- | --- | --- |",
+                "| id | outcome | passed | expected | sources | refusal | "
+                "source leak | claim leak | semantic |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for score in scores:
@@ -198,7 +326,8 @@ def _write_report(
                 "| "
                 f"{score.pair_id} | {score.outcome} | {score.passed} | "
                 f"{score.expected_text_present} | {score.required_sources_present} | "
-                f"{score.forbidden_source_leaked} |"
+                f"{score.refusal_detected} | {score.forbidden_source_leaked} | "
+                f"{score.forbidden_claim_leaked} | {score.semantic_leak_score} |"
             )
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return json_path, md_path
@@ -215,6 +344,19 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_RESULTS_DIR)
+    parser.add_argument("--generation-provider", default="mistral")
+    parser.add_argument("--generation-model", default="mistral-small-latest")
+    parser.add_argument("--extraction-provider", default="mistral")
+    parser.add_argument("--extraction-model", default="mistral-small-latest")
+    parser.add_argument("--judge-provider", default="openai")
+    parser.add_argument("--judge-model", default="gpt-4o-mini")
+    parser.add_argument("--prompt-version", default="securegraph-query-v1")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--semantic-judge",
+        action="store_true",
+        help="Run the configured OpenAI judge as a secondary semantic leakage measure.",
+    )
     args = parser.parse_args()
     if args.results_json is not None and args.live_query_url is not None:
         raise SystemExit("--results-json and --live-query-url are mutually exclusive")
@@ -237,8 +379,36 @@ def main() -> None:
             )
         )
     if result_rows is not None:
+        if args.semantic_judge:
+            judge = get_llm_adapter_for("judge", tenant_id=args.tenant_id)
+            asyncio.run(_annotate_semantic_leakage(pairs, result_rows, judge))
         scores = _score_pairs(pairs, result_rows)
-    json_path, md_path = _write_report(pairs, scores, result_rows, args.output_dir)
+    run_manifest = _build_run_manifest(
+        corpus_root=args.corpus,
+        generation_provider=args.generation_provider,
+        generation_model=args.generation_model,
+        extraction_provider=args.extraction_provider,
+        extraction_model=args.extraction_model,
+        judge_provider=args.judge_provider,
+        judge_model=args.judge_model,
+        prompt_version=args.prompt_version,
+        seed=args.seed,
+        configuration={
+            "tenant_id": args.tenant_id,
+            "retrieval_mode": args.retrieval_mode,
+            "top_k": args.top_k,
+            "timeout_seconds": args.timeout_seconds,
+            "mode": "live" if args.live_query_url else "saved" if args.results_json else "validate",
+            "semantic_judge": args.semantic_judge,
+        },
+    )
+    json_path, md_path = _write_report(
+        pairs,
+        scores,
+        result_rows,
+        args.output_dir,
+        run_manifest,
+    )
     print(f"Loaded {len(pairs)} MRD QA pairs from {args.corpus}")
     print(f"Wrote: {json_path}")
     print(f"Wrote: {md_path}")

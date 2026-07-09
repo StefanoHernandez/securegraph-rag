@@ -48,8 +48,8 @@ _ACTION_MINUTES_SIGNAL = re.compile(
 _SYNTHESIS_GROUNDING = (
     " Include exact amounts, dates, and named roles when they appear in the draft. "
     "When the draft states something is excluded or prohibited, answer with 'No' "
-    "followed by the stated reason (for example: 'No. Production credentials are "
-    "excluded.'). Never answer only 'No.' when the draft contains the reason. "
+    "followed by the stated reason. Never answer only 'No.' when the draft contains "
+    "the reason. "
     "When a rule lists multiple conditions joined by 'or' or 'and', include every part. "
     "For policy and requirement questions, quote the governing phrase from the draft; "
     "do not invent operational details absent from the draft. "
@@ -70,49 +70,6 @@ _OR_PROHIBITION = re.compile(
     r"no (.+?) or (.+?) is permitted\.?",
     re.IGNORECASE,
 )
-_SENTENCE_PATTERNS: tuple[tuple[re.Pattern[str], re.Pattern[str], str], ...] = (
-    (
-        re.compile(r"\bwho authorizes\b.*\bitinerary\b", re.IGNORECASE),
-        re.compile(
-            r"administration authorizes itinerary and cost centre\.?",
-            re.IGNORECASE,
-        ),
-        "Administration authorizes itinerary and cost centre.",
-    ),
-    (
-        re.compile(r"\btravel request\b", re.IGNORECASE),
-        re.compile(
-            r"senior technician requests travel for an approved architecture review\.?",
-            re.IGNORECASE,
-        ),
-        "Senior technician requests travel for an approved architecture review.",
-    ),
-    (
-        re.compile(r"\bspecialist review\b", re.IGNORECASE),
-        re.compile(
-            r"request specialist review of forecasting assumptions\.?",
-            re.IGNORECASE,
-        ),
-        "Request specialist review of forecasting assumptions.",
-    ),
-    (
-        re.compile(r"\bwho approves\b.*\bpublication\b", re.IGNORECASE),
-        re.compile(r"direction approval", re.IGNORECASE),
-        "Publication requires Direction approval.",
-    ),
-    (
-        re.compile(r"\bfallback\b", re.IGNORECASE),
-        re.compile(r"explicit fallback policy", re.IGNORECASE),
-        "An explicit fallback policy.",
-    ),
-    (
-        re.compile(r"\bshould not\b.*\bsource control\b", re.IGNORECASE),
-        re.compile(r"no credentials belong in source control", re.IGNORECASE),
-        "No credentials belong in source control.",
-    ),
-)
-
-
 def auto_route(query: str, options: dict[str, Any]) -> dict[str, Any]:
     """Intent-based router for ``retrieval_mode="auto"``.
 
@@ -203,17 +160,14 @@ def try_deterministic_synthesis(
     if not corpus:
         return None
 
-    if _ACTION_MINUTES_SIGNAL.search(query):
-        if action := _extract_open_action_answer(corpus):
-            return action
+    if _ACTION_MINUTES_SIGNAL.search(query) and (action := _extract_open_action_answer(corpus)):
+        return action
 
-    if re.search(r"\bonward sharing\b|\bproduction-system\b", query, re.IGNORECASE):
-        if prohibition := _extract_or_prohibition_answer(corpus):
-            return prohibition
+    if re.search(
+        r"\bonward sharing\b|\bproduction-system\b", query, re.IGNORECASE
+    ) and (prohibition := _extract_or_prohibition_answer(corpus)):
+        return prohibition
 
-    for query_pattern, draft_pattern, answer in _SENTENCE_PATTERNS:
-        if query_pattern.search(query) and draft_pattern.search(corpus):
-            return answer
     return None
 
 
@@ -227,10 +181,8 @@ def decide_synthesis(
     """Decide the synthesis strategy in code, from evidence and consensus.
 
     The refusal/caution verdict is made HERE — never delegated to the LLM.
-    Leaving it to the prompt made the model refuse even at agreement score
-    1.0 (observed on the MRD eval: 14/50 answers lost to self-triggered
-    refusals). Disagreement is disclosed via warnings, not by replacing the
-    answer with refusal boilerplate.
+    Disagreement is disclosed via warnings, not by replacing the answer with
+    refusal boilerplate.
     """
     v = (vector_draft or "").strip()
     g = (graph_draft or "").strip()

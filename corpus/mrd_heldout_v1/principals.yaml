@@ -1,0 +1,36 @@
+users:
+  - id: helios.director
+    role: tenant_admin
+    groups: [direction, governance]
+  - id: helios.compliance
+    role: analyst
+    groups: [governance, records]
+  - id: helios.orion-lead
+    role: analyst
+    groups: [orion-program, operations]
+  - id: helios.orion-engineer
+    role: analyst
+    groups: [orion-program, engineering]
+  - id: helios.data-steward
+    role: analyst
+    groups: [operations, records]
+  - id: helios.observatory-analyst
+    role: viewer
+    groups: [analytics, observatory]
+  - id: helios.public-liaison
+    role: viewer
+    groups: [communications]
+  - id: helios.contractor
+    role: viewer
+    groups: [contractors]
+groups:
+  - id: direction
+  - id: governance
+  - id: records
+  - id: orion-program
+  - id: operations
+  - id: engineering
+  - id: analytics
+  - id: observatory
+  - id: communications
+  - id: contractors

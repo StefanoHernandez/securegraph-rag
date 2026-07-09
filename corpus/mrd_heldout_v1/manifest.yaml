@@ -1,0 +1,14 @@
+tenant_id: helios-orion-lab
+documents:
+  - {path: documents/01_public_service_brief.md, owner: helios.public-liaison, classification: public, groups: [communications], direct_viewers: []}
+  - {path: documents/02_public_station_catalog.md, owner: helios.observatory-analyst, classification: public, groups: [observatory, analytics], direct_viewers: []}
+  - {path: documents/03_internal_operations_playbook.md, owner: helios.orion-lead, classification: internal, groups: [orion-program, operations], direct_viewers: []}
+  - {path: documents/04_internal_release_calendar.md, owner: helios.public-liaison, classification: internal, groups: [communications, orion-program], direct_viewers: []}
+  - {path: documents/05_confidential_partner_roster.md, owner: helios.data-steward, classification: confidential, groups: [operations, records], direct_viewers: []}
+  - {path: documents/06_confidential_budget_forecast.md, owner: helios.compliance, classification: confidential, groups: [governance, direction], direct_viewers: []}
+  - {path: documents/07_restricted_sensor_keys.md, owner: helios.orion-engineer, classification: restricted, groups: [engineering], direct_viewers: []}
+  - {path: documents/08_restricted_incident_review.md, owner: helios.compliance, classification: restricted, groups: [governance, direction], direct_viewers: []}
+  - {path: documents/09_restricted_personnel_notes.md, owner: helios.director, classification: restricted, groups: [direction, governance], direct_viewers: []}
+  - {path: documents/10_confidential_vendor_negotiation.md, owner: helios.director, classification: confidential, groups: [direction, governance], direct_viewers: []}
+  - {path: documents/11_restricted_calibration_notes.md, owner: helios.orion-engineer, classification: restricted, groups: [engineering, orion-program], direct_viewers: []}
+  - {path: documents/12_confidential_membership_report.md, owner: helios.compliance, classification: confidential, groups: [governance, records], direct_viewers: []}
