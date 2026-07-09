@@ -9,6 +9,7 @@ Application wiring:
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -55,6 +56,46 @@ def enforce_secret_hygiene(settings: Settings) -> None:
         )
 
 
+# Model names that only exist on a local Ollama daemon. Sending one of these
+# to a cloud provider is always a misconfiguration (the request 404s at query
+# time with no obvious cause) — catch it at startup instead.
+_OLLAMA_SHAPED_MODEL = re.compile(r"^(gemma|qwen|granite|llama|phi|deepseek)|.+:", re.I)
+_CLOUD_PROVIDERS = frozenset({"openai", "mistral", "anthropic", "google"})
+
+
+def check_provider_model_coherence(settings: Settings) -> list[str]:
+    """Return a warning per (provider, model) pair that cannot work together.
+
+    Raises RuntimeError in stage/prod (fail-closed); the caller logs the
+    warnings in dev/test.
+    """
+    pairs = [
+        ("generation", settings.llm_provider, settings.llm_model),
+        # Empty per-stage provider means "inherit the main provider".
+        (
+            "extract",
+            settings.llm_provider_extract or settings.llm_provider,
+            settings.llm_model_extract,
+        ),
+        (
+            "judge",
+            settings.llm_provider_judge or settings.llm_provider,
+            settings.llm_model_judge,
+        ),
+    ]
+    problems: list[str] = []
+    for stage, provider, model in pairs:
+        if provider in _CLOUD_PROVIDERS and _OLLAMA_SHAPED_MODEL.match(model):
+            problems.append(
+                f"LLM {stage} stage: provider '{provider}' with model '{model}' — "
+                "this looks like a local Ollama model name and will 404 on the "
+                "cloud API. Set the matching SECURGRAPH_LLM_MODEL* variable."
+            )
+    if problems and settings.env in ("stage", "prod"):
+        raise RuntimeError("; ".join(problems))
+    return problems
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Process-level startup/shutdown.
@@ -70,6 +111,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         and settings.jwt_secret.get_secret_value() == DEFAULT_JWT_SECRET
     ):
         log.warning("jwt_secret_default_in_use", env=settings.env)
+    for problem in check_provider_model_coherence(settings):
+        log.warning("llm_provider_model_mismatch", detail=problem)
     log.info(
         "securgraph_starting",
         version=__version__,

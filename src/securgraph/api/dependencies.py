@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 from arq.connections import ArqRedis, RedisSettings, create_pool
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from openfga_sdk import ClientConfiguration, OpenFgaClient
 from openfga_sdk.models import CreateStoreRequest, TypeDefinition, WriteAuthorizationModelRequest
 from sqlalchemy import text
@@ -336,3 +336,24 @@ async def get_redis_pool() -> ArqRedis:
         _settings = get_settings()
         _redis_pool = await create_pool(RedisSettings.from_dsn(_settings.redis_url))
     return _redis_pool
+
+
+async def get_redis_pool_optional() -> ArqRedis | None:
+    """Redis pool for routes that only need it when async workers are enabled.
+
+    With ``feature_workers_enabled=False`` (the default) ingestion runs
+    in-process and Redis is not part of the stack (compose profile
+    ``workers`` is opt-in) — connecting eagerly would turn every upload into
+    a 500. Returns None without touching the network in that case; when the
+    flag is ON, a down Redis surfaces as an explicit 503 instead of a
+    generic connection error.
+    """
+    if not get_settings().feature_workers_enabled:
+        return None
+    try:
+        return await get_redis_pool()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Async ingestion workers are enabled but the Redis queue is unreachable.",
+        ) from exc

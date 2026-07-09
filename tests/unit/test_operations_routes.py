@@ -351,3 +351,35 @@ async def test_cancel_rejects_wrong_tenant(
     response = await client.post("/tenants/mrd/operation-jobs/op-other-1/cancel")
 
     assert response.status_code == 403
+
+
+async def test_cancel_audit_records_true_previous_status(
+    fastapi_app: FastAPI, client: AsyncClient, operations_session: AsyncMock
+) -> None:
+    """The cancel audit event must record the status BEFORE cancellation."""
+    from securgraph.indexing.db import AdminAuditEventRow
+
+    fastapi_app.dependency_overrides[require_user] = lambda: principal()
+    job = OperationJobRow(
+        id="op-cancel-2",
+        tenant_id="mrd",
+        kind="community.recompute",
+        status="running",
+        parameters={},
+        progress=10,
+        result={},
+        requested_by="admin",
+        idempotency_key="mrd:community.recompute:cancel-2",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    operations_session.get = AsyncMock(return_value=job)
+    added: list = []
+    operations_session.add = MagicMock(side_effect=added.append)
+
+    response = await client.post("/tenants/mrd/operation-jobs/op-cancel-2/cancel")
+    assert response.status_code == 200
+
+    events = [row for row in added if isinstance(row, AdminAuditEventRow)]
+    assert len(events) == 1
+    assert events[0].event_metadata["previous_status"] == "running"

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.adapters.community_generator import generate_hierarchical_communities
 from securgraph.adapters.neo4j import get_neo4j_driver
-from securgraph.api.dependencies import get_db_session, get_redis_pool
+from securgraph.api.dependencies import get_db_session, get_redis_pool_optional
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.domain import Classification, DocumentType
 from securgraph.indexing.anchors import (
@@ -563,7 +563,7 @@ async def retry_ingestion_job(
     job_id: str,
     principal: AuthenticatedPrincipal | None = Depends(require_user),
     session: AsyncSession = Depends(get_db_session),
-    redis: ArqRedis = Depends(get_redis_pool),
+    redis: ArqRedis | None = Depends(get_redis_pool_optional),
 ) -> IngestionJobSummary:
     """Requeue a failed job using its encrypted persisted source."""
     _ensure_tenant_admin(principal, tenant_id)
@@ -579,6 +579,13 @@ async def retry_ingestion_job(
     source = source_result.scalar_one_or_none()
     if source is None:
         raise HTTPException(status_code=409, detail="No durable source is available for this job.")
+    if redis is None:
+        # Retry requeues through arq: it is only meaningful with async
+        # workers enabled (feature_workers_enabled + Redis in the stack).
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Retry requires async ingestion workers (feature_workers_enabled).",
+        )
     try:
         data = decrypt_bytes(
             source.encrypted_data,
@@ -692,6 +699,7 @@ async def cancel_operation_job(
             status_code=409,
             detail=f"Job is already in terminal state: {job.status}.",
         )
+    previous_status = job.status
     job.status = "cancelled"
     job.completed_at = datetime.now(UTC)
     _audit(
@@ -700,7 +708,7 @@ async def cancel_operation_job(
         tenant_id=tenant_id,
         action="operation.cancel",
         job_id=job_id,
-        metadata={"previous_status": job.status},
+        metadata={"previous_status": previous_status},
     )
     await session.commit()
     return _operation_summary(job)

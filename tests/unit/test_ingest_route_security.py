@@ -12,7 +12,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
-from securgraph.api.dependencies import get_db_session, get_redis_pool
+from securgraph.api.dependencies import get_db_session, get_redis_pool_optional
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.config import get_settings
 from securgraph.indexing.db import IngestionJobRow
@@ -153,7 +153,7 @@ async def test_tenant_admin_retries_failed_job_from_encrypted_source(
         return redis
 
     fastapi_app.dependency_overrides[get_db_session] = override_db
-    fastapi_app.dependency_overrides[get_redis_pool] = override_redis
+    fastapi_app.dependency_overrides[get_redis_pool_optional] = override_redis
     monkeypatch.setattr(
         "securgraph.api.routes.operations.decrypt_bytes",
         lambda _payload, *, associated_data: b"# policy",
@@ -276,3 +276,41 @@ def test_supported_extensions_accepted() -> None:
 
     for name in ("a.md", "b.txt", "c.pdf", "d.docx", "e.xlsx", "f.MARKDOWN"):
         _ensure_supported_upload(name)
+
+
+@pytest.mark.unit
+async def test_sync_ingest_does_not_touch_redis() -> None:
+    """With workers disabled (default), the redis dependency must return None
+    without opening any connection — otherwise every upload 500s on stacks
+    without Redis (the compose `workers` profile is opt-in)."""
+    from unittest.mock import patch
+
+    from securgraph.api.dependencies import get_redis_pool_optional
+
+    with patch(
+        "securgraph.api.dependencies.get_redis_pool",
+        side_effect=AssertionError("must not connect to Redis in sync mode"),
+    ):
+        assert await get_redis_pool_optional() is None
+
+
+@pytest.mark.unit
+async def test_workers_enabled_with_redis_down_raises_503(monkeypatch) -> None:
+    from unittest.mock import patch
+
+    from fastapi import HTTPException
+
+    from securgraph.api import dependencies as deps
+    from securgraph.config import get_settings
+
+    monkeypatch.setenv("SECURGRAPH_FEATURE_WORKERS_ENABLED", "true")
+    get_settings.cache_clear()
+    try:
+        with patch.object(
+            deps, "get_redis_pool", side_effect=ConnectionError("redis down")
+        ), pytest.raises(HTTPException) as exc:
+            await deps.get_redis_pool_optional()
+        assert exc.value.status_code == 503
+    finally:
+        monkeypatch.delenv("SECURGRAPH_FEATURE_WORKERS_ENABLED", raising=False)
+        get_settings.cache_clear()

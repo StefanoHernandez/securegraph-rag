@@ -17,7 +17,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from securgraph.api.dependencies import get_db_session, get_redis_pool
+from securgraph.api.dependencies import get_db_session, get_redis_pool_optional
 from securgraph.domain import Classification, DocumentType, IngestionStatus
 from securgraph.domain.graph import ExtractedGraphSlice
 from securgraph.indexing.db import AccessTemplateRow, ChunkRow, DocumentRow
@@ -547,7 +547,7 @@ async def test_ingest_route_applies_active_access_template(
         return object()
 
     fastapi_app.dependency_overrides[get_db_session] = test_db_session
-    fastapi_app.dependency_overrides[get_redis_pool] = test_redis_pool
+    fastapi_app.dependency_overrides[get_redis_pool_optional] = test_redis_pool
     monkeypatch.setattr(ingest_route, "ingest_document", capture_ingest)
 
     files = {"file": ("policy.md", io.BytesIO(b"# Policy\nAccess rules."), "text/markdown")}

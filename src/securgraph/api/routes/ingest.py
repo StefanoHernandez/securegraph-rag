@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from securgraph.api.dependencies import get_db_session, get_redis_pool
+from securgraph.api.dependencies import get_db_session, get_redis_pool_optional
 from securgraph.api.ratelimit import enforce_rate
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.config import get_settings
@@ -176,7 +176,7 @@ async def ingest_file(
     policy_tags: Annotated[str, Form(description="Comma-separated policy tags for ReBAC")] = "",
     title_override: Annotated[str | None, Form(description="Optional custom title")] = None,
     session: AsyncSession = Depends(get_db_session),
-    redis: ArqRedis = Depends(get_redis_pool),
+    redis: ArqRedis | None = Depends(get_redis_pool_optional),
     current_user: AuthenticatedPrincipal | None = Depends(require_user),
 ) -> IngestResponse:
     """Run full ingestion pipeline: parse, chunk, bind policy, and index."""
@@ -308,7 +308,14 @@ async def ingest_file(
             "source_format": None,
         }
 
-        # Enqueue the background task
+        # Enqueue the background task. redis is None only when workers are
+        # disabled, and this branch runs only when they are enabled — the
+        # guard keeps the invariant explicit.
+        if redis is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Async ingestion workers are enabled but the Redis queue is unavailable.",
+            )
         await redis.enqueue_job("async_ingest_task", request_dict, job_id, trace_id)
 
         return IngestResponse(

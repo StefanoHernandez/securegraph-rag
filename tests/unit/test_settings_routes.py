@@ -92,13 +92,18 @@ async def test_superadmin_upserts_verified_provider_credential(
     fastapi_app.dependency_overrides[get_db_session] = override_db
     fastapi_app.dependency_overrides[settings_routes.require_user] = override_user
 
-    with patch(
-        "securgraph.api.routes.settings.fetch_provider_models",
-        new=AsyncMock(
-            return_value=[
-                ProviderModel(provider="openai", model_id="gpt-test", capabilities=["chat"])
-            ]
+    with (
+        patch(
+            "securgraph.api.routes.settings.fetch_provider_models",
+            new=AsyncMock(
+                return_value=[
+                    ProviderModel(provider="openai", model_id="gpt-test", capabilities=["chat"])
+                ]
+            ),
         ),
+        # The SSRF guard resolves the hostname via real DNS; patch it so the
+        # unit suite stays hermetic and passes offline.
+        patch("securgraph.api.routes.settings.validate_egress_url"),
     ):
         response = await client.post(
             "/api/v1/tenants/mrd-lab/settings/providers/openai/credential",
