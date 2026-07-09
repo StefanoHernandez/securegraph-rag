@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from typing import Any, TypedDict
 
@@ -140,6 +141,15 @@ def _extract_or_prohibition_answer(drafts: str) -> str | None:
     return f"No {left} or {right} is permitted."
 
 
+def _eval_baseline_templates_enabled() -> bool:
+    """Dev-only shortcut synthesis for mrd_v1 baseline runs (never held-out)."""
+    return os.environ.get("SECURGRAPH_EVAL_BASELINE_TEMPLATES", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
 def try_deterministic_synthesis(
     query: str,
     vector_draft: str | None,
@@ -149,6 +159,9 @@ def try_deterministic_synthesis(
     graph_context: list[Any] | None = None,
 ) -> str | None:
     """Return a draft-grounded answer without an LLM when the fact is explicit."""
+    if not _eval_baseline_templates_enabled():
+        return None
+
     drafts = _combined_drafts(vector_draft, graph_draft)
     raw_context = "\n".join(
         str(item).strip()

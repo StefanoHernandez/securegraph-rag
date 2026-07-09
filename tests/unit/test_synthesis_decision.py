@@ -94,9 +94,10 @@ def test_high_score_never_reaches_cautious() -> None:
     assert plan["branch"] == "direct"
 
 
-def test_deterministic_minutes_open_action() -> None:
+def test_deterministic_minutes_open_action(monkeypatch: pytest.MonkeyPatch) -> None:
     from securgraph.orchestration.workflow import try_deterministic_synthesis
 
+    monkeypatch.setenv("SECURGRAPH_EVAL_BASELINE_TEMPLATES", "1")
     draft = (
         "PM recorded progress. Open action: senior technician to review "
         "Object Lock adapter. Next review: 10 July 2026."
@@ -109,9 +110,10 @@ def test_deterministic_minutes_open_action() -> None:
     assert answer == "Review the Object Lock adapter."
 
 
-def test_deterministic_or_prohibition() -> None:
+def test_deterministic_or_prohibition(monkeypatch: pytest.MonkeyPatch) -> None:
     from securgraph.orchestration.workflow import try_deterministic_synthesis
 
+    monkeypatch.setenv("SECURGRAPH_EVAL_BASELINE_TEMPLATES", "1")
     draft = (
         "Consultant receives access to approved research package only. "
         "No onward sharing or production-system access is permitted."
@@ -124,9 +126,22 @@ def test_deterministic_or_prohibition() -> None:
     assert answer == "No onward sharing or production-system access is permitted."
 
 
-def test_suite_specific_travel_phrases_are_not_hard_coded() -> None:
+def test_deterministic_synthesis_disabled_without_baseline_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from securgraph.orchestration.workflow import try_deterministic_synthesis
 
+    monkeypatch.delenv("SECURGRAPH_EVAL_BASELINE_TEMPLATES", raising=False)
+    draft = "Open action: senior technician to review Object Lock adapter."
+    assert try_deterministic_synthesis("Which action is open?", draft, None) is None
+
+
+def test_suite_specific_travel_phrases_are_not_hard_coded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from securgraph.orchestration.workflow import try_deterministic_synthesis
+
+    monkeypatch.setenv("SECURGRAPH_EVAL_BASELINE_TEMPLATES", "1")
     draft = (
         "Senior technician requests travel for an approved architecture review. "
         "Administration authorizes itinerary and cost centre."

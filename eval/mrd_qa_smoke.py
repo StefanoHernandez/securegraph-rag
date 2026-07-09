@@ -250,21 +250,33 @@ def _score_pairs(
     return tuple(scores)
 
 
+def _report_slug(corpus_root: Path) -> str:
+    name = corpus_root.name
+    if name == "mrd_heldout_v1":
+        return "mrd-heldout"
+    if name == "mrd_v1":
+        return "mrd-qa-smoke"
+    return f"mrd-qa-smoke-{name}"
+
+
 def _write_report(
     pairs: tuple[CorpusQaPair, ...],
     scores: tuple[QaScore, ...] | None,
     result_rows: dict[str, dict[str, Any]] | None,
     output_dir: Path,
     run_manifest: dict[str, Any],
+    *,
+    corpus_root: Path,
 ) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    json_path = output_dir / f"mrd-qa-smoke-{stamp}.json"
-    md_path = output_dir / f"mrd-qa-smoke-{stamp}.md"
+    slug = _report_slug(corpus_root)
+    json_path = output_dir / f"{slug}-{stamp}.json"
+    md_path = output_dir / f"{slug}-{stamp}.md"
     allow_count = sum(1 for pair in pairs if pair.outcome == "allow")
     deny_count = sum(1 for pair in pairs if pair.outcome == "deny")
     payload: dict[str, Any] = {
-        "corpus": "mrd_v1",
+        "corpus": corpus_root.name,
         "pair_count": len(pairs),
         "allow_count": allow_count,
         "deny_count": deny_count,
@@ -295,9 +307,15 @@ def _write_report(
     if result_rows is not None:
         payload["results"] = [result_rows[pair.id] for pair in pairs if pair.id in result_rows]
 
-    json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    canonical = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    payload["results_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    json_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    title = "MRD held-out QA report" if slug == "mrd-heldout" else "MRD QA smoke report"
     lines = [
-        "# MRD QA smoke report",
+        f"# {title}",
         "",
         "> Metric: expected-text matching is *normalized containment* "
         "(lowercase, markdown/punctuation stripped, key-fact token fallback), "
@@ -408,6 +426,7 @@ def main() -> None:
         result_rows,
         args.output_dir,
         run_manifest,
+        corpus_root=args.corpus,
     )
     print(f"Loaded {len(pairs)} MRD QA pairs from {args.corpus}")
     print(f"Wrote: {json_path}")

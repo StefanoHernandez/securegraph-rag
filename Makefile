@@ -136,10 +136,30 @@ mrd-seed-live: ## Seed MRD corpus into a live stack (auth disabled + eval identi
 
 .PHONY: mrd-live
 mrd-live: ## Run MRD QA smoke against a live /query endpoint (writes eval/results/).
+	@echo "NOTE: start the API with SECURGRAPH_EVAL_BASELINE_TEMPLATES=1 for mrd_v1 dev baseline runs."
 	$(VENV)/bin/python eval/mrd_qa_smoke.py \
 		--live-query-url http://localhost:8000/api/v1/query \
 		--tenant-id mrd-lab \
+		--corpus corpus/mrd_v1 \
 		--output-dir eval/results
+
+.PHONY: heldout-seed-live
+heldout-seed-live: ## Seed Helios held-out corpus (never enable baseline templates for scoring).
+	SECURGRAPH_EVAL_IDENTITY_MODE=true SECURGRAPH_AUTH_ENABLED=false \
+		$(VENV)/bin/python eval/mrd_seed_live.py --corpus corpus/mrd_heldout_v1
+
+.PHONY: heldout-live
+heldout-live: ## Run held-out QA smoke (API must NOT have SECURGRAPH_EVAL_BASELINE_TEMPLATES).
+	$(VENV)/bin/python eval/mrd_qa_smoke.py \
+		--live-query-url http://localhost:8000/api/v1/query \
+		--tenant-id helios-orion-lab \
+		--corpus corpus/mrd_heldout_v1 \
+		--output-dir eval/results
+
+.PHONY: eval-repro
+eval-repro: ## Validate corpus contract and score a saved JSON (--results-json=...).
+	$(VENV)/bin/python eval/mrd_qa_smoke.py --corpus corpus/mrd_v1
+	@echo "Optional live re-run: make mrd-seed-live && SECURGRAPH_EVAL_BASELINE_TEMPLATES=1 make api (separate terminal) && make mrd-live"
 
 .PHONY: test-live-gates
 test-live-gates: test-rls-live test-s3-anchor-live ## Run RLS + S3 live gates (MRD run separately via mrd-live).

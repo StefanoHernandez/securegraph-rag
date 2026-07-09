@@ -176,7 +176,7 @@ async def _seed_fga_document_tuples(
     await fga.close()  # type: ignore[attr-defined]
 
 
-async def _ensure_tenant(tenant_id: str) -> None:
+async def _ensure_tenant(tenant_id: str, groups: list[str]) -> None:
     """Create the tenant in PostgreSQL if it does not exist."""
     from uuid import uuid4
 
@@ -185,47 +185,35 @@ async def _ensure_tenant(tenant_id: str) -> None:
     from securgraph.api.dependencies import AsyncSessionLocal
     from securgraph.indexing.db import GroupRow, TenantRow
 
+    display_name = "Helios Orion Lab" if tenant_id == "helios-orion-lab" else "MRD Lab"
+
     async with AsyncSessionLocal() as session:
         existing = await session.get(TenantRow, tenant_id)
         if existing is not None:
             print(f"  tenant {tenant_id} already exists")
-            # Ensure business + project groups exist.
             result = await session.execute(
                 select(GroupRow).where(GroupRow.tenant_id == tenant_id)
             )
             existing_slugs = {g.slug for g in result.scalars().all()}
-            needed = [
-                ("direction", "Direction", "functional"),
-                ("administration", "Administration", "functional"),
-                ("senior-management", "Senior Management", "functional"),
-                ("project-managers", "Project Managers", "functional"),
-                ("senior-technicians", "Senior Technicians", "functional"),
-                ("junior-technicians", "Junior Technicians", "functional"),
-                ("consultants", "Consultants", "functional"),
-                ("external-collaborators", "External Collaborators", "functional"),
-                ("project-aurora", "Project Aurora", "project"),
-                ("project-borealis", "Project Borealis", "project"),
-            ]
-            for slug, display_name, kind in needed:
+            for slug in groups:
                 if slug not in existing_slugs:
                     session.add(
                         GroupRow(
                             id=f"grp_{uuid4().hex}",
                             tenant_id=tenant_id,
                             slug=slug,
-                            display_name=display_name,
-                            kind=kind,
+                            display_name=slug.replace("-", " ").title(),
+                            kind="functional",
                             is_active=True,
                         )
                     )
             await session.commit()
             return
 
-        # Create tenant first, commit, then add groups (FK constraint).
         session.add(
             TenantRow(
                 id=tenant_id,
-                display_name="MRD Lab",
+                display_name=display_name,
                 status="active",
                 tenant_admin_settings_enabled=False,
             )
@@ -233,31 +221,19 @@ async def _ensure_tenant(tenant_id: str) -> None:
         await session.commit()
         print(f"  created tenant {tenant_id}")
 
-        all_groups = [
-            ("direction", "Direction", "functional"),
-            ("administration", "Administration", "functional"),
-            ("senior-management", "Senior Management", "functional"),
-            ("project-managers", "Project Managers", "functional"),
-            ("senior-technicians", "Senior Technicians", "functional"),
-            ("junior-technicians", "Junior Technicians", "functional"),
-            ("consultants", "Consultants", "functional"),
-            ("external-collaborators", "External Collaborators", "functional"),
-            ("project-aurora", "Project Aurora", "project"),
-            ("project-borealis", "Project Borealis", "project"),
-        ]
-        for slug, display_name, kind in all_groups:
+        for slug in groups:
             session.add(
                 GroupRow(
                     id=f"grp_{uuid4().hex}",
                     tenant_id=tenant_id,
                     slug=slug,
-                    display_name=display_name,
-                    kind=kind,
+                    display_name=slug.replace("-", " ").title(),
+                    kind="functional",
                     is_active=True,
                 )
             )
         await session.commit()
-        print(f"  created {len(all_groups)} groups for tenant {tenant_id}")
+        print(f"  created {len(groups)} groups for tenant {tenant_id}")
 
 
 async def _ingest_documents(manifest: CorpusManifest, *, api_base_url: str) -> list[str]:
@@ -343,7 +319,7 @@ async def main() -> None:
     )
 
     print("1. Ensuring tenant exists...")
-    await _ensure_tenant(tenant_id)
+    await _ensure_tenant(tenant_id, groups)
 
     print("2. Seeding FGA group memberships...")
     await _seed_fga_group_memberships(users, groups, tenant_id)

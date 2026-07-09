@@ -65,12 +65,16 @@ def test_heldout_terms_and_canaries_do_not_leak_into_workflow_rules() -> None:
     workflow = (
         REPO_ROOT / "src" / "securgraph" / "orchestration" / "workflow.py"
     ).read_text(encoding="utf-8").lower()
+    qa_module = (
+        REPO_ROOT / "src" / "securgraph" / "corpus" / "qa.py"
+    ).read_text(encoding="utf-8").lower()
     pairs = load_corpus_qa_pairs(CORPUS_ROOT)
 
-    assert "helios" not in workflow
-    assert "orion" not in workflow
-    assert all(
-        canary.lower() not in workflow
-        for pair in pairs
-        for canary in pair.canary_tokens
-    )
+    for source in (workflow, qa_module):
+        assert "helios" not in source
+        assert "orion" not in source
+        assert all(
+            canary.lower() not in source
+            for pair in pairs
+            for canary in pair.canary_tokens
+        )
