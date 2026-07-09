@@ -316,6 +316,8 @@ async def write_policy_decisions(session: AsyncSession, decisions: list[PolicyDe
             reason_code=d.reason_code,
             policy_engine=d.policy_engine,
             evaluated_at=d.evaluated_at,
+            retriever_id=d.retriever_id,
+            resource_hash=d.resource_hash,
             tamper_hash=None,
             chain_sequence=None,
         )
@@ -329,6 +331,20 @@ async def write_policy_decisions(session: AsyncSession, decisions: list[PolicyDe
     # Use ON CONFLICT DO NOTHING to keep inserts idempotent
     stmt = stmt.on_conflict_do_nothing(index_elements=[PolicyDecisionRow.decision_id])
     await session.execute(stmt)
+
+
+async def fetch_chunk_text_hashes(
+    session: AsyncSession, tenant_id: str, chunk_ids: list[str]
+) -> dict[str, str]:
+    """Return chunk_id -> text_hash for denied-candidate audit metadata."""
+    if not chunk_ids:
+        return {}
+    stmt = select(ChunkRow.chunk_id, ChunkRow.text_hash).where(
+        ChunkRow.tenant_id == tenant_id,
+        ChunkRow.chunk_id.in_(chunk_ids),
+    )
+    res = await session.execute(stmt)
+    return {row.chunk_id: row.text_hash for row in res.all()}
 
 
 async def fetch_chunks_by_ids(

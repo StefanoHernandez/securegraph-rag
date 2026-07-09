@@ -144,6 +144,10 @@ async def test_explain_route_success(
     # Verify policy summary pings
     assert body["policy_summary"]["allowed"] == 1
     assert body["policy_summary"]["denied"] == 1
+    assert body["authorization_status"] == "mixed"
+    assert body["integrity_status"] == "legacy_unverified"
+    assert len(body["denied_candidates"]) == 1
+    assert body["denied_candidates"][0]["resource_id"] == "chunk_deny_2"
 
     # Verify W3C PROV-O structure is present
     assert len(body["prov_agents"]) == 2
@@ -163,6 +167,47 @@ async def test_explain_route_success(
     ev_deny = next(e for e in body["evidence"] if e["object_id"] == "chunk_deny_2")
     assert ev_deny["status"] == "redacted"
     assert ev_deny["object_data"] == "CONFIDENTIAL - ACCESS DENIED"
+
+
+async def test_explain_route_reports_intact_v2_integrity(
+    fastapi_app: FastAPI,
+    client: AsyncClient,
+    mock_query_trace: QueryTraceRow,
+    mock_retrieval_evidence: list[RetrievalEvidenceRow],
+    mock_policy_decisions: list[PolicyDecisionRow],
+) -> None:
+    """V2 sealed traces report intact when chain verification succeeds."""
+    mock_query_trace.tamper_version = "v2"
+    mock_query_trace.tamper_hash = "abc123"
+    mock_session = AsyncMock()
+    mock_session.get.return_value = mock_query_trace
+
+    mock_execute_res_evidence = MagicMock()
+    mock_execute_res_evidence.scalars.return_value.all.return_value = mock_retrieval_evidence
+    mock_execute_res_decisions = MagicMock()
+    mock_execute_res_decisions.scalars.return_value.all.return_value = mock_policy_decisions
+    mock_session.execute.side_effect = [mock_execute_res_evidence, mock_execute_res_decisions]
+
+    async def mock_db_session() -> AsyncIterator[AsyncMock]:
+        yield mock_session
+
+    fastapi_app.dependency_overrides[get_db_session] = mock_db_session
+
+    with (
+        patch(
+            "securgraph.api.routes.explain.fetch_chunks_by_ids",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "securgraph.api.routes.explain.verify_table_chain",
+            new=AsyncMock(return_value=(True, [])),
+        ),
+    ):
+        resp = await client.get("/explain/test-trace-123?tenant_id=mrd&user_id=user:stefano")
+
+    assert resp.status_code == 200
+    assert resp.json()["integrity_status"] == "intact"
+    assert resp.json()["authorization_status"] == "mixed"
 
 
 async def test_explain_route_not_found(

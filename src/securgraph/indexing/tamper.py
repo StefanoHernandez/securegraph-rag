@@ -36,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -55,6 +56,86 @@ from securgraph.indexing.db import (
 logger = logging.getLogger(__name__)
 
 _INSECURE_WARNED: bool = False  # emit the WARNING only once per process
+
+
+def _query_payload_v1(row: QueryTraceRow) -> dict[str, Any]:
+    """Return the original query-trace payload used by v1 chains."""
+    return {
+        "trace_id": row.trace_id,
+        "tenant_id": row.tenant_id,
+        "user_id": row.user_id,
+        "query": row.query,
+        "answer": row.answer,
+        "started_at": row.started_at,
+        "completed_at": row.completed_at,
+        "latency_ms": row.latency_ms,
+    }
+
+
+def _query_payload_v2(row: QueryTraceRow) -> dict[str, Any]:
+    """Return the v2 query-trace payload, including the consensus snapshot."""
+    return {
+        **_query_payload_v1(row),
+        "agreement_score": row.agreement_score,
+        "high_trust": row.high_trust,
+        "entity_overlap": row.entity_overlap,
+        "claim_nli_score": row.claim_nli_score,
+        "consensus_threshold": row.consensus_threshold,
+        "consensus_verdict": row.consensus_verdict,
+        "generation_model": row.generation_model,
+        "judge_model": row.judge_model,
+    }
+
+
+def _evidence_payload(row: RetrievalEvidenceRow) -> dict[str, Any]:
+    """Return the retrieval-evidence payload shared by audit versions v1 and v2."""
+    return {
+        "evidence_id": row.evidence_id,
+        "trace_id": row.trace_id,
+        "tenant_id": row.tenant_id,
+        "object_id": row.object_id,
+        "retriever_id": row.retriever_id,
+        "original_rank": row.original_rank,
+        "original_score": row.original_score,
+        "included_in_prompt": row.included_in_prompt,
+    }
+
+
+def _audit_value(row: Mapping[str, Any] | PolicyDecisionRow, key: str) -> Any:
+    if isinstance(row, Mapping):
+        return row.get(key)
+    return getattr(row, key)
+
+
+def _policy_payload_v1(row: Mapping[str, Any] | PolicyDecisionRow) -> dict[str, Any]:
+    """Return the original policy-decision payload used by v1 chains."""
+    return {
+        "decision_id": _audit_value(row, "decision_id"),
+        "trace_id": _audit_value(row, "trace_id"),
+        "tenant_id": _audit_value(row, "tenant_id"),
+        "user_id": _audit_value(row, "user_id"),
+        "object_type": _audit_value(row, "object_type"),
+        "object_id": _audit_value(row, "object_id"),
+        "action": _audit_value(row, "action"),
+        "decision": _audit_value(row, "decision"),
+        "reason_code": _audit_value(row, "reason_code"),
+        "policy_engine": _audit_value(row, "policy_engine"),
+        "evaluated_at": _audit_value(row, "evaluated_at"),
+    }
+
+
+def _policy_payload_v2(row: Mapping[str, Any] | PolicyDecisionRow) -> dict[str, Any]:
+    """Return the v2 policy-decision payload with denied candidate metadata."""
+    return {
+        **_policy_payload_v1(row),
+        "retriever_id": _audit_value(row, "retriever_id"),
+        "resource_hash": _audit_value(row, "resource_hash"),
+    }
+
+
+def _row_version(row: Any) -> str:
+    """Treat absent version markers as v1 to retain legacy verification support."""
+    return getattr(row, "tamper_version", None) or "v1"
 
 
 def _get_audit_key() -> bytes | None:
@@ -166,17 +247,8 @@ async def chain_query_trace(session: AsyncSession, row: QueryTraceRow) -> None:
     prev_hash = head.last_hash
     row.chain_sequence = head.sequence + 1
 
-    data = {
-        "trace_id": row.trace_id,
-        "tenant_id": row.tenant_id,
-        "user_id": row.user_id,
-        "query": row.query,
-        "answer": row.answer,
-        "started_at": row.started_at,
-        "completed_at": row.completed_at,
-        "latency_ms": row.latency_ms,
-    }
-    row.tamper_hash = compute_payload_hmac(data, prev_hash)
+    row.tamper_version = "v2"
+    row.tamper_hash = compute_payload_hmac(_query_payload_v2(row), prev_hash)
     head.last_hash = row.tamper_hash
     head.sequence = row.chain_sequence
 
@@ -206,17 +278,8 @@ async def chain_evidence_batch(session: AsyncSession, rows: list[RetrievalEviden
 
     for r in rows:
         r.chain_sequence = head.sequence + 1
-        data = {
-            "evidence_id": r.evidence_id,
-            "trace_id": r.trace_id,
-            "tenant_id": r.tenant_id,
-            "object_id": r.object_id,
-            "retriever_id": r.retriever_id,
-            "original_rank": r.original_rank,
-            "original_score": r.original_score,
-            "included_in_prompt": r.included_in_prompt,
-        }
-        r.tamper_hash = compute_payload_hmac(data, prev_hash)
+        r.tamper_version = "v2"
+        r.tamper_hash = compute_payload_hmac(_evidence_payload(r), prev_hash)
         prev_hash = r.tamper_hash
         head.last_hash = r.tamper_hash
         head.sequence = r.chain_sequence
@@ -244,20 +307,8 @@ async def chain_policy_decisions(
 
     for r in rows:
         r["chain_sequence"] = head.sequence + 1
-        data = {
-            "decision_id": r["decision_id"],
-            "trace_id": r["trace_id"],
-            "tenant_id": r["tenant_id"],
-            "user_id": r["user_id"],
-            "object_type": r["object_type"],
-            "object_id": r["object_id"],
-            "action": r["action"],
-            "decision": r["decision"],
-            "reason_code": r["reason_code"],
-            "policy_engine": r["policy_engine"],
-            "evaluated_at": r["evaluated_at"],
-        }
-        r["tamper_hash"] = compute_payload_hmac(data, prev_hash)
+        r["tamper_version"] = "v2"
+        r["tamper_hash"] = compute_payload_hmac(_policy_payload_v2(r), prev_hash)
         prev_hash = r["tamper_hash"]
         head.last_hash = r["tamper_hash"]
         head.sequence = r["chain_sequence"]
@@ -277,14 +328,7 @@ async def backfill_unsealed_chains(session: AsyncSession, tenant_id: str) -> dic
             "trace_id",
             "started_at",
             lambda row: {
-                "trace_id": row.trace_id,
-                "tenant_id": row.tenant_id,
-                "user_id": row.user_id,
-                "query": row.query,
-                "answer": row.answer,
-                "started_at": row.started_at,
-                "completed_at": row.completed_at,
-                "latency_ms": row.latency_ms,
+                **_query_payload_v1(row),
             },
         ),
         (
@@ -293,16 +337,7 @@ async def backfill_unsealed_chains(session: AsyncSession, tenant_id: str) -> dic
             "genesis_evidence",
             "evidence_id",
             "evidence_id",
-            lambda row: {
-                "evidence_id": row.evidence_id,
-                "trace_id": row.trace_id,
-                "tenant_id": row.tenant_id,
-                "object_id": row.object_id,
-                "retriever_id": row.retriever_id,
-                "original_rank": row.original_rank,
-                "original_score": row.original_score,
-                "included_in_prompt": row.included_in_prompt,
-            },
+            _evidence_payload,
         ),
         (
             PolicyDecisionRow,
@@ -310,19 +345,7 @@ async def backfill_unsealed_chains(session: AsyncSession, tenant_id: str) -> dic
             "genesis_decision",
             "decision_id",
             "evaluated_at",
-            lambda row: {
-                "decision_id": row.decision_id,
-                "trace_id": row.trace_id,
-                "tenant_id": row.tenant_id,
-                "user_id": row.user_id,
-                "object_type": row.object_type,
-                "object_id": row.object_id,
-                "action": row.action,
-                "decision": row.decision,
-                "reason_code": row.reason_code,
-                "policy_engine": row.policy_engine,
-                "evaluated_at": row.evaluated_at,
-            },
+            _policy_payload_v1,
         ),
     ]
     loaded: list[tuple[tuple[type[Base], str, str, str, str, Any], list[Any]]] = []
@@ -349,6 +372,7 @@ async def backfill_unsealed_chains(session: AsyncSession, tenant_id: str) -> dic
         previous_hash = genesis
         for sequence, row in enumerate(rows, start=1):
             row.chain_sequence = sequence
+            row.tamper_version = "v1"
             row.tamper_hash = compute_payload_hmac(row_data(row), previous_hash)
             previous_hash = row.tamper_hash
         head.sequence = len(rows)
@@ -409,16 +433,11 @@ async def verify_table_chain(
         pk_field = "trace_id"
 
         def _row_data(row: QueryTraceRow) -> dict[str, Any]:
-            return {
-                "trace_id": row.trace_id,
-                "tenant_id": row.tenant_id,
-                "user_id": row.user_id,
-                "query": row.query,
-                "answer": row.answer,
-                "started_at": row.started_at,
-                "completed_at": row.completed_at,
-                "latency_ms": row.latency_ms,
-            }
+            if _row_version(row) == "v1":
+                return _query_payload_v1(row)
+            if _row_version(row) == "v2":
+                return _query_payload_v2(row)
+            raise ValueError(f"Unsupported tamper version: {_row_version(row)}")
 
     elif table_class == RetrievalEvidenceRow:
         stmt = (
@@ -430,16 +449,9 @@ async def verify_table_chain(
         pk_field = "evidence_id"
 
         def _row_data(row: RetrievalEvidenceRow) -> dict[str, Any]:  # type: ignore[misc]
-            return {
-                "evidence_id": row.evidence_id,
-                "trace_id": row.trace_id,
-                "tenant_id": row.tenant_id,
-                "object_id": row.object_id,
-                "retriever_id": row.retriever_id,
-                "original_rank": row.original_rank,
-                "original_score": row.original_score,
-                "included_in_prompt": row.included_in_prompt,
-            }
+            if _row_version(row) in {"v1", "v2"}:
+                return _evidence_payload(row)
+            raise ValueError(f"Unsupported tamper version: {_row_version(row)}")
 
     elif table_class == PolicyDecisionRow:
         stmt = (
@@ -451,19 +463,11 @@ async def verify_table_chain(
         pk_field = "decision_id"
 
         def _row_data(row: PolicyDecisionRow) -> dict[str, Any]:  # type: ignore[misc]
-            return {
-                "decision_id": row.decision_id,
-                "trace_id": row.trace_id,
-                "tenant_id": row.tenant_id,
-                "user_id": row.user_id,
-                "object_type": row.object_type,
-                "object_id": row.object_id,
-                "action": row.action,
-                "decision": row.decision,
-                "reason_code": row.reason_code,
-                "policy_engine": row.policy_engine,
-                "evaluated_at": row.evaluated_at,
-            }
+            if _row_version(row) == "v1":
+                return _policy_payload_v1(row)
+            if _row_version(row) == "v2":
+                return _policy_payload_v2(row)
+            raise ValueError(f"Unsupported tamper version: {_row_version(row)}")
 
     else:
         raise ValueError(f"Unsupported table class for tamper chaining: {table_class}")

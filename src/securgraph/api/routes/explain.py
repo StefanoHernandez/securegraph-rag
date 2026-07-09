@@ -22,6 +22,7 @@ from securgraph.indexing.db import (
     RetrievalEvidenceRow,
 )
 from securgraph.indexing.postgres_writer import fetch_chunks_by_ids
+from securgraph.indexing.tamper import verify_table_chain
 
 router = APIRouter(tags=["explainability"])
 
@@ -54,6 +55,78 @@ class ExplainReport(SGModel):
     consensus: dict[str, Any] | None = None
     authorization_status: str
     integrity_status: str
+    denied_candidates: list[dict[str, Any]] = []
+
+
+def _authorization_status(
+    *,
+    allowed_count: int,
+    denied_count: int,
+    evidence_rows: list[RetrievalEvidenceRow],
+    object_decisions: dict[str, str],
+) -> str:
+    """Derive authorized | denied | mixed from policy counts and evidence mix."""
+    allowed_evidence = sum(
+        1 for ev in evidence_rows if object_decisions.get(ev.object_id) == "allow"
+    )
+    denied_evidence = len(evidence_rows) - allowed_evidence
+
+    if allowed_count > 0 and denied_count > 0:
+        return "mixed"
+    if denied_count > 0 and allowed_count == 0:
+        return "denied"
+    if allowed_evidence > 0 and denied_evidence > 0:
+        return "mixed"
+    if denied_evidence > 0 and allowed_evidence == 0:
+        return "denied"
+    return "authorized"
+
+
+async def _integrity_status(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    trace: QueryTraceRow,
+    evidence_rows: list[RetrievalEvidenceRow],
+    decision_rows: list[PolicyDecisionRow],
+) -> str:
+    """Map tamper version + chain verification to intact | failed | legacy_unverified."""
+    if trace.tamper_hash is None or (trace.tamper_version or "v1") == "v1":
+        return "legacy_unverified"
+
+    trace_ok, trace_tampered = await verify_table_chain(session, tenant_id, QueryTraceRow)
+    evidence_ok, evidence_tampered = await verify_table_chain(
+        session, tenant_id, RetrievalEvidenceRow
+    )
+    decision_ok, decision_tampered = await verify_table_chain(session, tenant_id, PolicyDecisionRow)
+
+    evidence_ids = {ev.evidence_id for ev in evidence_rows}
+    decision_ids = {dec.decision_id for dec in decision_rows}
+
+    if trace.trace_id in trace_tampered:
+        return "failed"
+    if evidence_ids & set(evidence_tampered):
+        return "failed"
+    if decision_ids & set(decision_tampered):
+        return "failed"
+    if not (trace_ok and evidence_ok and decision_ok):
+        return "failed"
+    return "intact"
+
+
+def _denied_candidates(decision_rows: list[PolicyDecisionRow]) -> list[dict[str, Any]]:
+    """Return denied retrieval metadata without restricted text."""
+    return [
+        {
+            "resource_id": decision.object_id,
+            "resource_type": decision.object_type,
+            "retriever_id": decision.retriever_id,
+            "reason_code": decision.reason_code,
+            "content_hash": decision.resource_hash,
+        }
+        for decision in decision_rows
+        if decision.decision.lower() == "deny"
+    ]
 
 
 @router.get(
@@ -232,9 +305,27 @@ async def explain_query(
             "high_trust": trace.high_trust,
             "entity_overlap": trace.entity_overlap,
             "claim_nli_score": trace.claim_nli_score,
+            "consensus_threshold": trace.consensus_threshold,
+            "consensus_verdict": trace.consensus_verdict,
+            "generation_model": trace.generation_model,
+            "judge_model": trace.judge_model,
         }
         if trace.agreement_score is not None or trace.high_trust is not None
         else None
+    )
+
+    authorization_status = _authorization_status(
+        allowed_count=allowed_count,
+        denied_count=denied_count,
+        evidence_rows=evidence_rows,
+        object_decisions=object_decisions,
+    )
+    integrity_status = await _integrity_status(
+        session,
+        tenant_id=tenant_id,
+        trace=trace,
+        evidence_rows=evidence_rows,
+        decision_rows=decision_rows,
     )
 
     return ExplainReport(
@@ -250,6 +341,7 @@ async def explain_query(
         evidence=evidence_list,
         policy_summary={"allowed": allowed_count, "denied": denied_count},
         consensus=consensus,
-        authorization_status="authorized",
-        integrity_status="unverified" if trace.tamper_hash is None else "sealed_unverified",
+        authorization_status=authorization_status,
+        integrity_status=integrity_status,
+        denied_candidates=_denied_candidates(decision_rows),
     )

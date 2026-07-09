@@ -303,6 +303,10 @@ async def query_pipeline(
             trace_row.high_trust = high_trust
             trace_row.entity_overlap = entity_overlap
             trace_row.claim_nli_score = confidence.claim_nli_score
+            trace_row.consensus_threshold = request.options.consensus_threshold
+            trace_row.consensus_verdict = result.get("synthesis_branch")
+            trace_row.generation_model = settings.llm_model
+            trace_row.judge_model = settings.llm_model_judge or settings.llm_model
 
             evidence_rows = []
             for ev in vector_context:

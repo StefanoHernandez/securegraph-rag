@@ -426,6 +426,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             denied_count = 0
             if fga is not None and fused:
                 chunk_ids = [ev.object_id for ev in fused if getattr(ev, "object_id", None)]
+                ev_map = {ev.object_id: ev.retriever_id.value for ev in fused}
                 authorized_ids, decisions = await fga.filter_chunk_ids(
                     subject=subject,
                     chunk_ids=chunk_ids,
@@ -434,6 +435,37 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                 filtered = [ev for ev in fused if ev.object_id in authorized_ids]
                 denied_count = len(fused) - len(filtered)
                 fused = filtered
+
+                if decisions:
+                    from securgraph.domain.policy import PolicyDecisionValue
+                    from securgraph.indexing.postgres_writer import (
+                        fetch_chunk_text_hashes,
+                        write_policy_decisions,
+                    )
+
+                    denied_ids = [
+                        decision.object_id
+                        for decision in decisions
+                        if decision.decision == PolicyDecisionValue.DENY
+                    ]
+                    ev_map = {ev.object_id: ev.retriever_id.value for ev in fused}
+                    hash_map: dict[str, str] = {}
+                    if denied_ids:
+                        async with AsyncSessionLocal() as hash_session:
+                            hash_map = await fetch_chunk_text_hashes(
+                                hash_session, subject.tenant_id, denied_ids
+                            )
+                    decisions = [
+                        decision.model_copy(
+                            update={
+                                "retriever_id": ev_map.get(decision.object_id, "vector"),
+                                "resource_hash": hash_map.get(decision.object_id),
+                            }
+                        )
+                        if decision.decision == PolicyDecisionValue.DENY
+                        else decision
+                        for decision in decisions
+                    ]
 
                 # Audit persistence is part of the authorization decision. If
                 # it cannot be committed, abort before evidence reaches synthesis.
@@ -761,7 +793,10 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     keep_alive=300,
                 )
                 citations = await _build_citations_for_state(state)
-                return {"final_answer": Answer(text=content, citations=citations)}
+                return {
+                    "final_answer": Answer(text=content, citations=citations),
+                    "synthesis_branch": "global",
+                }
 
             plan = decide_synthesis(
                 query=state["query"],
@@ -785,6 +820,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                         citations=citations,
                     ),
                     "warnings": warnings,
+                    "synthesis_branch": plan["branch"],
                 }
 
             deterministic = try_deterministic_synthesis(
@@ -798,6 +834,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                 return {
                     "final_answer": Answer(text=deterministic, citations=citations),
                     "warnings": warnings,
+                    "synthesis_branch": "deterministic",
                 }
 
             content = await adapter.chat(
@@ -809,6 +846,7 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             return {
                 "final_answer": Answer(text=content, citations=citations),
                 "warnings": warnings,
+                "synthesis_branch": plan["branch"],
             }
 
     # Add all nodes

@@ -63,6 +63,14 @@ class PolicyDecision(SGModel):
         description="Which engine produced the decision. Stable across versions.",
     )
     evaluated_at: datetime = Field(default_factory=utcnow)
+    retriever_id: str | None = Field(
+        default=None,
+        description="Retriever that surfaced the denied candidate (audit v2).",
+    )
+    resource_hash: str | None = Field(
+        default=None,
+        description="Content hash of the denied resource; no restricted text stored.",
+    )
 
 
 class OpenFGAPolicyAdapter:

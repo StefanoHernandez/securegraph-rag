@@ -133,6 +133,11 @@ class PolicyDecisionRow(Base):
     )
     tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     chain_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tamper_version: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="v2", server_default="v2"
+    )
+    retriever_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resource_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "chain_sequence", name="uq_policy_chain_sequence"),
@@ -228,15 +233,19 @@ class QueryTraceRow(Base):
     latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     chain_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tamper_version: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="v2", server_default="v2"
+    )
 
-    # Consensus snapshot (C2) — recorded so the verdict is auditable from the
-    # trace alone. Deliberately NOT part of the tamper-hash payload (see
-    # tamper.chain_query_trace / verify_table_chain field lists), so adding
-    # these columns does not invalidate existing chained rows.
+    # v1 chains excluded this snapshot. v2 chains seal it with the trace payload.
     agreement_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     high_trust: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     entity_overlap: Mapped[float | None] = mapped_column(Float, nullable=True)
     claim_nli_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    consensus_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    consensus_verdict: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    generation_model: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    judge_model: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     evidence: Mapped[list[RetrievalEvidenceRow]] = relationship(
         back_populates="trace", cascade="all, delete-orphan"
@@ -267,6 +276,9 @@ class RetrievalEvidenceRow(Base):
     included_in_prompt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     chain_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tamper_version: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="v2", server_default="v2"
+    )
 
     trace: Mapped[QueryTraceRow] = relationship(back_populates="evidence")
 
