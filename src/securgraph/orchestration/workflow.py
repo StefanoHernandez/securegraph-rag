@@ -40,6 +40,17 @@ _RELATIONAL_SIGNAL = re.compile(
     r"|collega|collegat[oaie]|conness[oaie]|relazion|con chi|chi \w+ con)\b",
     re.IGNORECASE,
 )
+_ACTION_MINUTES_SIGNAL = re.compile(
+    r"\b(action|minutes|minute|open|pending|follow[- ]?up|task)\b",
+    re.IGNORECASE,
+)
+
+_SYNTHESIS_GROUNDING = (
+    " Include exact amounts, dates, and named roles when they appear in the draft. "
+    "When the draft states something is excluded or prohibited, answer No definitively. "
+    "When a rule lists multiple conditions joined by 'or' or 'and', include every part. "
+    "For policy questions, state the governing phrase rather than answering only 'No.'"
+)
 
 
 def auto_route(query: str, options: dict[str, Any]) -> dict[str, Any]:
@@ -57,7 +68,7 @@ def auto_route(query: str, options: dict[str, Any]) -> dict[str, Any]:
         return options
     routed = dict(options)
     routed["retrieval_mode"] = "hybrid"
-    if _LEXICAL_SIGNAL.search(query):
+    if _LEXICAL_SIGNAL.search(query) or _ACTION_MINUTES_SIGNAL.search(query):
         routed["top_k"] = max(int(options.get("top_k", 10)), 15)
     elif _RELATIONAL_SIGNAL.search(query):
         current_depth = int(options.get("max_graph_depth", 2))
@@ -109,6 +120,7 @@ def decide_synthesis(
                 "You are a synthesis agent. Produce a secure, unified answer grounded "
                 "strictly in the draft below. Do not extrapolate beyond it. "
                 "Answer the query directly and completely from the draft content."
+                + _SYNTHESIS_GROUNDING
             ),
             user_prompt=f"Draft:\n{populated}\n\nQuery: {query}",
             warnings=[
@@ -124,6 +136,7 @@ def decide_synthesis(
                 "You are a synthesis agent. The two independent retrieval channels "
                 "agree. Produce a secure, unified answer grounded strictly in both "
                 "drafts. Do not extrapolate. Answer the query directly and completely."
+                + _SYNTHESIS_GROUNDING
             ),
             user_prompt=(f"Vector Draft: {v}\nGraph Draft: {g}\n\nQuery: {query}"),
             warnings=[],
@@ -141,6 +154,7 @@ def decide_synthesis(
             "guessing. Do not refuse to answer, do not say information is "
             "unavailable if either draft contains it, and do not add "
             "disclaimers — caveats are handled separately. Do not extrapolate."
+            + _SYNTHESIS_GROUNDING
         ),
         user_prompt=(
             f"Vector Draft: {v}\n"
@@ -445,8 +459,10 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             content = await adapter.chat(
                 system=(
                     "You are a secure factual RAG assistant. Output a concise answer "
-                    "based ONLY on the context. If no context matches or is provided, "
-                    "state that there is no available information."
+                    "based ONLY on the context. Extract exact numbers, dates, and "
+                    "obligations when present. If the context excludes something, "
+                    "answer No definitively. Only state that no information is available "
+                    "when the context is empty or truly unrelated to the query."
                 ),
                 user=prompt,
                 think=settings.llm_thinking,
@@ -474,8 +490,10 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             content = await adapter.chat(
                 system=(
                     "You are a secure factual RAG assistant. Output a concise answer "
-                    "based ONLY on the context. If no context matches or is provided, "
-                    "state that there is no available information."
+                    "based ONLY on the context. Extract exact numbers, dates, and "
+                    "obligations when present. If the context excludes something, "
+                    "answer No definitively. Only state that no information is available "
+                    "when the context is empty or truly unrelated to the query."
                 ),
                 user=prompt,
                 think=settings.llm_thinking,

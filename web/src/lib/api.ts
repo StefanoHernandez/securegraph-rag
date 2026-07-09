@@ -585,6 +585,17 @@ export const settingsApi = {
       }
     ),
 
+  testProviderCredential: (tenantId: string, provider: ProviderName) =>
+    api.post<ProviderCredentialStatus>(
+      `/tenants/${encodeURIComponent(tenantId)}/settings/providers/${provider}/credential/test`,
+      {}
+    ),
+
+  deleteProviderCredential: (tenantId: string, provider: ProviderName) =>
+    api.delete<void>(
+      `/tenants/${encodeURIComponent(tenantId)}/settings/providers/${provider}/credential`
+    ),
+
   listModels: (tenantId: string) =>
     api.get<ModelCatalogEntry[]>(
       `/tenants/${encodeURIComponent(tenantId)}/settings/models`

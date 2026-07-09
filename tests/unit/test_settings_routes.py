@@ -327,3 +327,93 @@ async def test_plans_blue_green_embedding_reindex(
     setting = next(row for row in added if isinstance(row, RuntimeSettingRow))
     assert setting.key == "embedding_reindex_plan"
     assert setting.value["value"]["to_model"] == "BAAI/bge-large-en-v1.5"
+
+
+async def test_delete_provider_credential_removes_row(
+    client: AsyncClient,
+    fastapi_app: FastAPI,
+    master_key_env: None,
+) -> None:
+    tenant = TenantRow(
+        id="mrd-lab",
+        display_name="MRD Lab",
+        status="active",
+        tenant_admin_settings_enabled=True,
+    )
+    credential = ProviderCredentialRow(
+        id="prv-1",
+        tenant_id="mrd-lab",
+        provider="openai",
+        encrypted_secret=b"cipher",
+        fingerprint="fp",
+        status="configured",
+        key_version=1,
+        created_by="admin-1",
+    )
+    cred_result = MagicMock()
+    cred_result.scalar_one_or_none.return_value = credential
+    empty_runtime = MagicMock()
+    empty_runtime.scalars.return_value.all.return_value = []
+    mock_session = AsyncMock()
+    mock_session.get.return_value = tenant
+    mock_session.execute.side_effect = [empty_runtime, cred_result, empty_runtime]
+    mock_session.delete = AsyncMock()
+
+    async def override_db():
+        yield mock_session
+
+    async def override_user():
+        return principal()
+
+    fastapi_app.dependency_overrides[get_db_session] = override_db
+    fastapi_app.dependency_overrides[settings_routes.require_user] = override_user
+
+    response = await client.delete(
+        "/api/v1/tenants/mrd-lab/settings/providers/openai/credential"
+    )
+
+    assert response.status_code == 204
+    mock_session.delete.assert_awaited()
+
+
+async def test_delete_provider_credential_blocks_runtime_references(
+    client: AsyncClient,
+    fastapi_app: FastAPI,
+    master_key_env: None,
+) -> None:
+    tenant = TenantRow(
+        id="mrd-lab",
+        display_name="MRD Lab",
+        status="active",
+        tenant_admin_settings_enabled=True,
+    )
+    runtime_row = RuntimeSettingRow(
+        id="set-1",
+        tenant_id="mrd-lab",
+        key="llm_provider",
+        value={"value": "openai"},
+        restart_required=False,
+        version=1,
+        updated_by="admin-1",
+    )
+    runtime_result = MagicMock()
+    runtime_result.scalars.return_value.all.return_value = [runtime_row]
+    mock_session = AsyncMock()
+    mock_session.get.return_value = tenant
+    mock_session.execute.return_value = runtime_result
+
+    async def override_db():
+        yield mock_session
+
+    async def override_user():
+        return principal()
+
+    fastapi_app.dependency_overrides[get_db_session] = override_db
+    fastapi_app.dependency_overrides[settings_routes.require_user] = override_user
+
+    response = await client.delete(
+        "/api/v1/tenants/mrd-lab/settings/providers/openai/credential"
+    )
+
+    assert response.status_code == 409
+

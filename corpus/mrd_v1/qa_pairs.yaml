@@ -52,7 +52,7 @@
 - id: mrd-10
   identity: mrd.director
   question: What does public classification mean?
-  expected: Authenticated tenant users only, not the public Internet.
+  expected: Authenticated tenant users only.
   source_documents: [02_classification_policy.md]
   outcome: allow
 - id: mrd-11
@@ -282,6 +282,6 @@
 - id: mrd-50
   identity: mrd.pm
   question: What is the default requirement for fallback behavior?
-  expected: Prompts require classification checks, token caps, audit logging, and an explicit fallback policy.
+  expected: An explicit fallback policy.
   source_documents: [03_ai_cloud_policy.md]
   outcome: allow

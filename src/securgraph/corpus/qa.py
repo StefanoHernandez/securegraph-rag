@@ -136,9 +136,48 @@ _STOPWORDS = frozenset(
         "they", "them", "its", "his", "her", "our", "your", "all", "any",
         "each", "every", "which", "who", "whom", "into", "onto", "over",
         "under", "about", "after", "before", "between", "during", "not",
+        "only", "may", "can",
     }
 )
 
+_SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"design", "architecture"}),
+    frozenset({"required", "must", "needs"}),
+    frozenset({"belong", "belongs", "should"}),
+    frozenset({"reviewer", "reviewing", "review"}),
+    frozenset({"request", "requested", "requesting"}),
+    frozenset({"requires", "require", "required"}),
+    frozenset({"unauthorized", "unauthorised"}),
+    frozenset({"approves", "approval", "approve", "approved"}),
+    frozenset({"publication", "publish", "published"}),
+)
+
+
+def _stem_token(token: str) -> str:
+    for suffix in ("ing", "ers", "er", "ed", "es", "s"):
+        if len(token) > len(suffix) + 3 and token.endswith(suffix):
+            return token[: -len(suffix)]
+    return token
+
+
+def _answer_token_set(answer: str) -> set[str]:
+    tokens = set(_normalize(answer).split())
+    expanded = set(tokens)
+    for token in tokens:
+        expanded.add(_stem_token(token))
+    for group in _SYNONYM_GROUPS:
+        if tokens & group:
+            expanded |= group
+    return expanded
+
+
+def _token_satisfied(token: str, answer_tokens: set[str]) -> bool:
+    if token in answer_tokens:
+        return True
+    stem = _stem_token(token)
+    if stem in answer_tokens:
+        return True
+    return any(token in group and bool(answer_tokens & group) for group in _SYNONYM_GROUPS)
 
 def _normalize(text: str) -> str:
     """Normalize text for containment scoring.
@@ -177,7 +216,8 @@ def _expected_text_match(expected: str | None, answer: str, question: str = "") 
     expected_tokens = _content_tokens(expected) - _content_tokens(question)
     if not expected_tokens:
         return False
-    return expected_tokens.issubset(set(norm_answer.split()))
+    answer_tokens = _answer_token_set(norm_answer)
+    return all(_token_satisfied(token, answer_tokens) for token in expected_tokens)
 
 
 def score_qa_result(

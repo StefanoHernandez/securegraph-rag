@@ -27,6 +27,7 @@ from securgraph.policy.egress import decide_egress, parse_egress_policy
 from securgraph.runtime_overrides import set_runtime_override
 from securgraph.security.secrets import (
     SecretEncryptionError,
+    decrypt_secret,
     encrypt_secret,
     secret_fingerprint,
 )
@@ -80,6 +81,7 @@ class ProviderCredentialResponse(BaseModel):
     last_tested_at: datetime | None
     last_test_ok: bool | None
     models_discovered: int = 0
+    key_version: int = 1
 
 
 class RuntimeSettingRequest(BaseModel):
@@ -280,7 +282,32 @@ def _credential_response(
         last_tested_at=row.last_tested_at,
         last_test_ok=row.last_test_ok,
         models_discovered=models_discovered,
+        key_version=row.key_version,
     )
+
+
+async def _provider_runtime_references(
+    session: AsyncSession,
+    tenant_id: str,
+    provider: ProviderName,
+) -> list[str]:
+    keys = {
+        "llm_provider",
+        "llm_provider_extract",
+        "llm_provider_judge",
+        "egress_policy",
+    }
+    values = await _load_runtime_values(session, tenant_id, keys)
+    references: list[str] = []
+    for runtime_key in ("llm_provider", "llm_provider_extract", "llm_provider_judge"):
+        if values.get(runtime_key, {}).get("value") == provider:
+            references.append(runtime_key)
+    egress = values.get("egress_policy", {}).get("value")
+    if isinstance(egress, dict):
+        for index, rule in enumerate(egress.get("rules", [])):
+            if isinstance(rule, dict) and rule.get("provider") == provider:
+                references.append(f"egress_policy.rules[{index}]")
+    return references
 
 
 @router.get(
@@ -345,6 +372,7 @@ async def upsert_provider_credential(
     )
     row = result.scalar_one_or_none()
     now = datetime.now(UTC)
+    previous_fingerprint: str | None = None
     if row is None:
         row = ProviderCredentialRow(
             id=f"prv_{uuid.uuid4().hex}",
@@ -355,15 +383,20 @@ async def upsert_provider_credential(
             status="configured",
             last_tested_at=now,
             last_test_ok=True,
+            key_version=1,
             created_by=principal.user_id if principal else "system:auth-disabled",
         )
         session.add(row)
+        audit_action = "settings.provider_credential.upsert"
     else:
+        previous_fingerprint = row.fingerprint
         row.encrypted_secret = encrypted_secret
         row.fingerprint = secret_fingerprint(request.api_key)
         row.status = "configured"
         row.last_tested_at = now
         row.last_test_ok = True
+        row.key_version += 1
+        audit_action = "settings.provider_credential.rotate"
 
     for model in models:
         model_row = ModelCatalogRow(
@@ -380,12 +413,123 @@ async def upsert_provider_credential(
         session,
         principal,
         tenant_id=tenant_id,
-        action="settings.provider_credential.upsert",
+        action=audit_action,
         target_type="provider",
         target_id=provider,
-        metadata={"models_discovered": len(models), "base_url": base_url},
+        metadata={
+            "models_discovered": len(models),
+            "base_url": base_url,
+            "previous_fingerprint": previous_fingerprint,
+            "key_version": row.key_version,
+        },
+    )
+    from securgraph.adapters.llm import reset_llm_adapter_cache
+
+    reset_llm_adapter_cache()
+    return _credential_response(row, models_discovered=len(models))
+
+
+@router.post(
+    "/tenants/{tenant_id}/settings/providers/{provider}/credential/test",
+    response_model=ProviderCredentialResponse,
+)
+async def test_provider_credential(
+    tenant_id: str,
+    provider: ProviderName,
+    principal: AuthenticatedPrincipal | None = Depends(require_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ProviderCredentialResponse:
+    """Re-verify a stored provider credential without rotating the secret."""
+    await _ensure_settings_admin(session, principal, tenant_id)
+    result = await session.execute(
+        select(ProviderCredentialRow).where(
+            ProviderCredentialRow.tenant_id == tenant_id,
+            ProviderCredentialRow.provider == provider,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Provider credential not found.")
+    try:
+        api_key = decrypt_secret(
+            row.encrypted_secret,
+            associated_data=_credential_ad(provider, tenant_id),
+        )
+        models = await fetch_provider_models(provider, api_key=api_key)
+    except SecretEncryptionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        row.last_tested_at = datetime.now(UTC)
+        row.last_test_ok = False
+        raise HTTPException(
+            status_code=400,
+            detail="Provider credential verification failed",
+        ) from exc
+    row.last_tested_at = datetime.now(UTC)
+    row.last_test_ok = True
+    _audit(
+        session,
+        principal,
+        tenant_id=tenant_id,
+        action="settings.provider_credential.test",
+        target_type="provider",
+        target_id=provider,
+        metadata={"models_discovered": len(models)},
     )
     return _credential_response(row, models_discovered=len(models))
+
+
+@router.delete(
+    "/tenants/{tenant_id}/settings/providers/{provider}/credential",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_provider_credential(
+    tenant_id: str,
+    provider: ProviderName,
+    principal: AuthenticatedPrincipal | None = Depends(require_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> None:
+    """Remove a stored provider credential when it is not referenced by runtime settings."""
+    await _ensure_settings_admin(session, principal, tenant_id)
+    references = await _provider_runtime_references(session, tenant_id, provider)
+    if references:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Provider is referenced by active runtime settings.",
+                "references": references,
+            },
+        )
+    result = await session.execute(
+        select(ProviderCredentialRow).where(
+            ProviderCredentialRow.tenant_id == tenant_id,
+            ProviderCredentialRow.provider == provider,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Provider credential not found.")
+    catalog = await session.execute(
+        select(ModelCatalogRow).where(
+            ModelCatalogRow.tenant_id == tenant_id,
+            ModelCatalogRow.provider == provider,
+        )
+    )
+    for model_row in catalog.scalars().all():
+        await session.delete(model_row)
+    await session.delete(row)
+    _audit(
+        session,
+        principal,
+        tenant_id=tenant_id,
+        action="settings.provider_credential.remove",
+        target_type="provider",
+        target_id=provider,
+        metadata={"fingerprint": row.fingerprint},
+    )
+    from securgraph.adapters.llm import reset_llm_adapter_cache
+
+    reset_llm_adapter_cache()
 
 
 @router.get(

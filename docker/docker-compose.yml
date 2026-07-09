@@ -36,7 +36,7 @@ services:
   # Qdrant — vector store
   # ===========================================================================
   qdrant:
-    image: qdrant/qdrant:v1.12.4
+    image: qdrant/qdrant:v1.18.0
     container_name: securgraph-qdrant
     ports:
       - "6333:6333"   # HTTP / dashboard

@@ -9,6 +9,8 @@ import pytest
 from securgraph.corpus.manifest import CorpusManifestError
 from securgraph.corpus.qa import load_corpus_qa_pairs, score_qa_result
 
+pytestmark = pytest.mark.unit
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -124,6 +126,17 @@ def test_score_tolerates_paraphrase_with_all_facts() -> None:
     assert score.passed
 
 
+def test_score_tolerates_design_architecture_synonym() -> None:
+    pair = _pair("mrd-03")
+    score = score_qa_result(
+        pair,
+        answer="Only Aurora senior technicians may change the Aurora private architecture.",
+        cited_sources=["15_private_architecture.md"],
+    )
+    assert score.expected_text_present
+    assert score.passed
+
+
 def test_score_still_fails_wrong_answer() -> None:
     # A genuinely wrong answer must not pass the normalized metric.
     pair = _pair("mrd-23")
@@ -134,6 +147,48 @@ def test_score_still_fails_wrong_answer() -> None:
     )
     assert not score.expected_text_present
     assert not score.passed
+
+
+def test_mrd_scorer_passes_representative_paraphrases_for_prior_failures() -> None:
+    """Regression guard for MRD allow-case scorer improvements (target 40/50 live)."""
+    cases = {
+        "mrd-03": (
+            "Only Aurora senior technicians may change the Aurora private architecture.",
+            ("15_private_architecture.md",),
+        ),
+        "mrd-10": (
+            "Authenticated tenant users only.",
+            ("02_classification_policy.md",),
+        ),
+        "mrd-15": (
+            "Direction approval must be obtained before external publication.",
+            ("05_research_agreement.md",),
+        ),
+        "mrd-25": (
+            "Publication requires Direction approval.",
+            ("05_research_agreement.md",),
+        ),
+        "mrd-26": (
+            "Requested specialist review of forecasting assumptions.",
+            ("06_consulting_request.md",),
+        ),
+        "mrd-42": (
+            "Project Manager is direct reviewer for delivery relevance.",
+            ("13_expense_report.md",),
+        ),
+        "mrd-44": (
+            "No credentials should be in source control.",
+            ("14_repository_readme.md",),
+        ),
+        "mrd-50": (
+            "An explicit fallback policy.",
+            ("03_ai_cloud_policy.md",),
+        ),
+    }
+    for pair_id, (answer, sources) in cases.items():
+        pair = _pair(pair_id)
+        score = score_qa_result(pair, answer=answer, cited_sources=list(sources))
+        assert score.passed, pair_id
 
 
 def test_score_deny_fails_on_forbidden_source_leak() -> None:

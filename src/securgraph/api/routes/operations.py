@@ -667,6 +667,7 @@ async def reconcile_stale_ingestion_jobs(
             job_id=row.job_id,
             metadata={"reason": "worker_heartbeat_expired"},
         )
+    await session.commit()
     return ReconcileResult(tenant_id=tenant_id, reconciled_job_ids=[row.job_id for row in rows])
 
 

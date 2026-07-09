@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { DEMO_USERS, expectGetApiStatusOnVisit, loginAsUser } from "./helpers/auth";
+import {
+  DEMO_USERS,
+  expectGetApiStatusOnVisit,
+  expectPostApiStatus,
+  loginAsUser,
+} from "./helpers/auth";
 
 const DEFAULT_TENANT = process.env.E2E_TENANT_ID ?? "default";
 
@@ -77,6 +82,16 @@ test.describe("Role and group authorization", () => {
 
     await page.goto("/en/chat", { waitUntil: "domcontentloaded" });
     await expect(page.locator("body")).toBeVisible();
+  });
+
+  test("tenant admin cannot create tenants via API", async ({ page }) => {
+    await loginAsUser(page, DEMO_USERS.tenantAdmin);
+    await expectPostApiStatus(
+      page,
+      "/tenants",
+      { id: "e2e-forbidden-tenant", display_name: "E2E Forbidden Tenant" },
+      403
+    );
   });
 
   test("viewer is denied tenant admin APIs for users and groups", async ({ page }) => {

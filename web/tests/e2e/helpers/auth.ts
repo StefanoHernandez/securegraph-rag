@@ -119,3 +119,74 @@ export async function expectGetApiStatusOnVisit(
   expect(response.status()).toBe(expectedStatus);
   return response;
 }
+
+export async function expectPostApiStatus(
+  page: Page,
+  urlPart: string,
+  body: Record<string, unknown>,
+  expectedStatus: number
+) {
+  const response = await page.evaluate(
+    async ({ urlPart: part, payload, expected }) => {
+      const csrfEntry = document.cookie
+        .split("; ")
+        .find((entry) => entry.startsWith("securgraph_csrf="));
+      const csrfToken = csrfEntry
+        ? decodeURIComponent(csrfEntry.slice("securgraph_csrf=".length))
+        : "";
+      const response = await fetch(`/api/v1${part}`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      return { status: response.status, expected };
+    },
+    { urlPart, payload: body, expected: expectedStatus }
+  );
+  expect(response.status).toBe(expectedStatus);
+}
+
+export async function openOperatorMenu(page: Page) {
+  await page.getByRole("button", { name: /operator menu/i }).click();
+}
+
+export async function logoutViaUI(page: Page) {
+  const logoutResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/v1/auth/logout") &&
+      response.request().method() === "POST"
+  );
+  await openOperatorMenu(page);
+  await page.getByRole("menuitem", { name: /log out/i }).click();
+  await logoutResponsePromise;
+  await expect(page).toHaveURL(/\/(it|en)\/login/);
+}
+
+export async function changePasswordViaUI(
+  page: Page,
+  currentPassword: string,
+  newPassword: string
+) {
+  await page.goto("/en/profile", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: /^Profile$/i })).toBeVisible();
+
+  const changeResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/v1/auth/change-password") &&
+      response.request().method() === "POST"
+  );
+
+  const passwordFields = page.locator('input[type="password"]');
+  await passwordFields.nth(0).fill(currentPassword);
+  await passwordFields.nth(1).fill(newPassword);
+  await passwordFields.nth(2).fill(newPassword);
+  await page.getByRole("button", { name: /change password/i }).click();
+
+  const changeResponse = await changeResponsePromise;
+  expect(changeResponse.status()).toBe(204);
+  await expect(page.getByText(/password updated/i)).toBeVisible();
+}

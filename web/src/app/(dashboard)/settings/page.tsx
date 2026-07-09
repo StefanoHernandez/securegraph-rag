@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
-import { Calculator, CheckCircle2, KeyRound, RefreshCw, Save, ShieldAlert } from "lucide-react";
+import { Calculator, CheckCircle2, KeyRound, RefreshCw, Save, ShieldAlert, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/forensic";
@@ -82,6 +82,8 @@ export default function SettingsPage() {
   const [planningReindex, setPlanningReindex] = useState(false);
   const [reindexPlan, setReindexPlan] = useState<EmbeddingReindexPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [testingProvider, setTestingProvider] = useState<ProviderName | null>(null);
+  const [removingProvider, setRemovingProvider] = useState<ProviderName | null>(null);
 
   const configured = useMemo(
     () => new Map(providers.map((item) => [item.provider, item])),
@@ -128,6 +130,49 @@ export default function SettingsPage() {
       setError(getErrorMessage(err, t("providerFailed")));
     } finally {
       setSavingProvider(false);
+    }
+  };
+
+  const testProvider = async (item: ProviderName) => {
+    if (!tenantId) {
+      return;
+    }
+    setTestingProvider(item);
+    setError(null);
+    try {
+      const result = await settingsApi.testProviderCredential(tenantId, item);
+      setProviders((rows) =>
+        rows.map((row) => (row.provider === item ? result : row))
+      );
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, t("providerFailed")));
+    } finally {
+      setTestingProvider(null);
+    }
+  };
+
+  const rotateProvider = (item: ProviderName) => {
+    setProvider(item);
+    setApiKey("");
+    setBaseUrl("");
+  };
+
+  const removeProvider = async (item: ProviderName) => {
+    if (!tenantId) {
+      return;
+    }
+    if (!window.confirm(t("removeProviderConfirm", { provider: item }))) {
+      return;
+    }
+    setRemovingProvider(item);
+    setError(null);
+    try {
+      await settingsApi.deleteProviderCredential(tenantId, item);
+      setProviders((rows) => rows.filter((row) => row.provider !== item));
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, t("providerFailed")));
+    } finally {
+      setRemovingProvider(null);
     }
   };
 
@@ -372,6 +417,37 @@ export default function SettingsPage() {
                     </dd>
                   </div>
                 </dl>
+                {row && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={testingProvider === item || !tenantId}
+                      onClick={() => void testProvider(item)}
+                    >
+                      {t("retestProvider")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => rotateProvider(item)}
+                    >
+                      {t("rotateProvider")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={removingProvider === item || !tenantId}
+                      onClick={() => void removeProvider(item)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      {t("removeProvider")}
+                    </Button>
+                  </div>
+                )}
               </div>
             );
           })}

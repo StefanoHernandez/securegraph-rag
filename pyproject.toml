@@ -50,7 +50,7 @@ dependencies = [
     "redis>=5.1",
 
     # Vector + Graph
-    "qdrant-client>=1.12,<1.13",
+    "qdrant-client>=1.18,<1.19",
     "neo4j>=5.25",
     "neo4j-graphrag>=1.5",
 

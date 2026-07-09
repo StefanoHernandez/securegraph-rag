@@ -298,6 +298,7 @@ export interface ProviderCredentialStatus {
   last_tested_at: string | null;
   last_test_ok: boolean | null;
   models_discovered: number;
+  key_version?: number;
 }
 
 export interface RuntimeSetting {

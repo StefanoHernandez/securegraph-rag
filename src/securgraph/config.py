@@ -52,7 +52,9 @@ class Settings(BaseSettings):
         default=SecretStr("securgraph"), validation_alias="POSTGRES_PASSWORD"
     )
     postgres_db: str = Field(default="securgraph", validation_alias="POSTGRES_DB")
-    postgres_dsn: str = "postgresql+asyncpg://securgraph:securgraph@localhost:5432/securgraph"
+    postgres_dsn: str = (
+        "postgresql+asyncpg://securgraph_app:securgraph_app@localhost:5432/securgraph"
+    )
 
     # ------------------------------------------------------------------- qdrant
     qdrant_url: str = "http://localhost:6333"

@@ -122,7 +122,8 @@ test-adversarial: ## Run adversarial property-based tests (security gate).
 
 .PHONY: test-rls-live
 test-rls-live: ## Live PostgreSQL RLS gate (requires `make up` + `make migrate`).
-	$(VENV)/bin/pytest tests/integration/test_postgres_rls.py -q
+	SECURGRAPH_POSTGRES_DSN=$${SECURGRAPH_POSTGRES_MIGRATE_DSN:-postgresql+asyncpg://securgraph:securgraph@localhost:5432/securgraph} \
+		$(VENV)/bin/pytest tests/integration/test_postgres_rls.py -q
 
 .PHONY: test-s3-anchor-live
 test-s3-anchor-live: ## Live S3 Object Lock anchor gate (requires `--profile anchor` + env vars).
@@ -143,6 +144,20 @@ mrd-live: ## Run MRD QA smoke against a live /query endpoint (writes eval/result
 .PHONY: test-live-gates
 test-live-gates: test-rls-live test-s3-anchor-live ## Run RLS + S3 live gates (MRD run separately via mrd-live).
 
+.PHONY: test-sgh06
+test-sgh06: ## SGH-06 cross-store failure injection unit bundle.
+	$(VENV)/bin/pytest \
+		tests/unit/test_ingestion.py::test_ingestion_failure_injection_postgres_aborts_before_external_stores \
+		tests/unit/test_ingestion.py::test_ingestion_failure_injection_qdrant_aborts_before_auth_and_provenance \
+		tests/unit/test_ingestion.py::test_ingestion_failure_injection_openfga_aborts_before_graph_and_provenance \
+		tests/unit/test_ingestion.py::test_ingestion_failure_injection_neo4j_aborts_before_provenance \
+		tests/unit/test_ingest_route_security.py::test_worker_marks_job_failed_after_ingestion_store_failure \
+		-q
+
+.PHONY: test-ingest-chaos-live
+test-ingest-chaos-live: ## Live ingest reconcile/worker chaos (requires `make up` + `make migrate`).
+	$(VENV)/bin/pytest tests/integration/test_ingest_worker_chaos.py -q
+
 .PHONY: cov
 cov: ## Test coverage report.
 	$(VENV)/bin/pytest --cov=securgraph --cov-report=term-missing --cov-report=html
@@ -150,8 +165,9 @@ cov: ## Test coverage report.
 ##@ Database & bootstrap
 
 .PHONY: migrate
-migrate: ## Apply Alembic migrations to head.
-	$(VENV)/bin/alembic upgrade head
+migrate: ## Apply Alembic migrations to head (uses superuser DSN).
+	SECURGRAPH_POSTGRES_DSN=$${SECURGRAPH_POSTGRES_MIGRATE_DSN:-postgresql+asyncpg://securgraph:securgraph@localhost:5432/securgraph} \
+		$(VENV)/bin/alembic upgrade head
 
 .PHONY: seed
 seed: ## Seed demo users (dev only).
