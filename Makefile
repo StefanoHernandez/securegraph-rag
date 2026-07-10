@@ -44,9 +44,22 @@ sync: ## Sync deps from uv.lock (frozen).
 ##@ Backends
 
 .PHONY: up
-up: env ## Start backend containers (qdrant, neo4j, openfga, postgres, jaeger).
+up: env postgres-init ## Start backend containers (qdrant, neo4j, openfga, postgres, jaeger).
 	$(COMPOSE) up -d
 	@$(MAKE) wait-healthy
+	@$(MAKE) init-qdrant
+
+.PHONY: postgres-init
+postgres-init: ## Copy init-openfga.sql.example if local init script is missing.
+	@mkdir -p docker/postgres-init
+	@if [ ! -f docker/postgres-init/init-openfga.sql ]; then \
+		cp docker/postgres-init/init-openfga.sql.example docker/postgres-init/init-openfga.sql; \
+		echo "Created docker/postgres-init/init-openfga.sql from example"; \
+	fi
+
+.PHONY: init-qdrant
+init-qdrant: ## Ensure Qdrant collection exists (idempotent).
+	@$(VENV)/bin/python -c "from securgraph.adapters.qdrant_init import init_qdrant_collection; init_qdrant_collection(); print('Qdrant collection ready')"
 
 .PHONY: down
 down: ## Stop and remove containers (keeps volumes).

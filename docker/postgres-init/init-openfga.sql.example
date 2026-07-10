@@ -1,0 +1,3 @@
+-- OpenFGA schema for local Compose (copied to init-openfga.sql by `make postgres-init`).
+-- Postgres runs this once on first volume init via docker-entrypoint-initdb.d.
+CREATE SCHEMA IF NOT EXISTS openfga;

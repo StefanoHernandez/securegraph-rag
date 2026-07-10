@@ -108,8 +108,9 @@ wiki/.obsidian/graph.json
 # Scratch / debug scripts (not part of the codebase)
 scratch/
 
-# Docker init scripts (local setup, not tracked)
-docker/postgres-init/
+# Docker init scripts (local setup; example file is tracked)
+docker/postgres-init/*
+!docker/postgres-init/init-openfga.sql.example
 
 # Mascot codex
 .codex-hatch-pet

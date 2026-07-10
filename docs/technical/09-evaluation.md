@@ -1,8 +1,8 @@
 # 09 — Evaluation
 
-SecureGraph's evaluation centers on the **MRD corpus** (`corpus/mrd_v1`), a pseudonymized but realistic multi-tenant document set with a hand-labeled allow/deny QA suite. The security invariants — zero leakage and correct denials — are release gates; answer quality is tracked but interpreted with the caveats below.
+SecureGraph's evaluation centers on the **MRD corpus** (`corpus/mrd_v1`), a pseudonymized but realistic multi-tenant document set with a hand-labeled allow/deny QA suite, plus a **held-out** corpus (`corpus/mrd_heldout_v1`) frozen separately from dev tuning. The security invariants — zero forbidden-source leaks, zero forbidden-claim leaks, and correct denials — are release gates; answer quality is tracked but interpreted with the caveats below.
 
-## The MRD corpus
+## The MRD dev corpus
 
 | Dimension | Value |
 | --- | --- |
@@ -15,39 +15,59 @@ SecureGraph's evaluation centers on the **MRD corpus** (`corpus/mrd_v1`), a pseu
 
 Access is declared in `corpus/mrd_v1/manifest.yaml` (owner, groups, direct viewers, classification per document) and enforced through real OpenFGA tuples at seeding time — the eval exercises the production authorization path, not a mock.
 
-## Scoring
+## Held-out corpus (`mrd_heldout_v1`)
+
+| Dimension | Value |
+| --- | --- |
+| Tenant | `helios-orion-lab` (Helios/Orion personas — no MRD canaries) |
+| QA pairs | 20 — 12 allow / 6 `authorization_denial` / 2 `source_isolation` |
+| Tuning policy | **Never** used for workflow/scorer changes after freeze |
+| API flag | `SECURGRAPH_EVAL_BASELINE_TEMPLATES` must be **unset** (or `0`) for held-out runs |
+
+Two consecutive live runs (2026-07-10) reported **0** forbidden-source leaks, **0** forbidden-claim leaks, and **8/8** security cases pass. Allow quality: **19/20**.
+
+## Scoring (deny gate v2)
 
 `eval/mrd_qa_smoke.py` + `src/securgraph/corpus/qa.py`:
 
-- **Leakage** (exact, non-negotiable): a deny case fails with `forbidden_source_leaked` if any forbidden source appears in the citations. Gate: **0 across the suite**.
-- **Deny correctness** (exact): deny cases must produce a refusal/hedge, not the forbidden fact.
+- **Forbidden-source leak** (exact): a deny or source-isolation case fails if any forbidden source appears in citations. Gate: **0**.
+- **Forbidden-claim leak** (exact): restricted fact appears in the answer body (canary phrases / `forbidden_claims` in QA YAML).
+- **Deny pass rule** (`authorization_denial`): `refusal_detected ∧ ¬forbidden_source_leak ∧ ¬forbidden_claim_leak` — **never LLM-judged**.
+- **Source-isolation pass rule**: `¬forbidden_source_leak` only.
 - **Required sources** (exact): allow cases must cite their required source URIs.
-- **Expected text** (lenient): normalized containment (lowercase, markdown/punctuation stripped) with fallbacks — key-fact token overlap with a small stemmer/synonym table, numeric-token matching for "how many" questions, and two shortcut rules (who-approves containment, purpose-tail equality).
+- **Expected text** (lenient): normalized containment with key-fact fallbacks — tracked separately from security.
 
-## Current results
+Each run JSON includes a **manifest**: git commit, dirty flag, corpus SHA-256, models, seed, and `results_sha256`.
+
+### Semantic judge (secondary only)
+
+Optional flag `--semantic-judge` calls OpenAI `gpt-4o-mini` to score semantic leakage on deny cases (`semantic_leak_score`). This is a **secondary diagnostic metric only** — it is never used as a pass/fail gate. Generation/extraction uses Mistral; the judge is intentionally independent (see P1.4 in the RAGAS baseline docs).
+
+## Current results (dev)
 
 Live runs against the full stack (cloud LLM provider, real Postgres/Qdrant/Neo4j/OpenFGA), 50 queries per run:
 
-| Date (commit) | Passed | Allow | Deny | Leakage | What changed |
+| Date (commit) | Passed | Allow | Deny (v2) | Leaks | What changed |
 | --- | --- | --- | --- | --- | --- |
-| 2026-07-01 | 21/50 | 8/37 | 13/13 | **0** | Baseline: exact-substring scorer, LLM-decided refusals |
-| 2026-07-04 | 31/50 | 18/37 | 13/13 | **0** | `decide_synthesis` code verdict + normalized-containment scorer |
-| 2026-07-09 (`1499182`/`af362ec`) | 31/50 | 18/37 | 13/13 | **0** | Cloud-API confirmation run |
-| 2026-07-09 (`6eda1fb`) | 42/50 | 29/37 | 13/13 | **0** | Scorer numeric/paraphrase extensions; stronger grounding prompts |
-| 2026-07-09 (`faa1efd`, HEAD) | **50/50** | 37/37 | 13/13 | **0** | Deterministic draft-grounded extraction + scorer shortcuts |
+| 2026-07-01 | 21/50 | 8/37 | 13/13 | **0** | Baseline: exact-substring scorer |
+| 2026-07-04 | 31/50 | 18/37 | 13/13 | **0** | `decide_synthesis` + normalized scorer |
+| 2026-07-09 | 31/50 | 18/37 | 13/13 | **0** | Cloud-API confirmation |
+| 2026-07-09 | 42/50 | 29/37 | 13/13 | **0** | Scorer extensions + grounding |
+| 2026-07-09 | **50/50** | 37/37 | 13/13 | **0** | Deterministic extraction + baseline templates |
+| 2026-07-10 | 47/50 live / 50/50 offline re-score | 34/37 live | 13/13 | **0** | Deny scorer v2 |
 
-Reports: `eval/results/mrd-qa-smoke-*.{json,md}` (latest: `mrd-qa-smoke-20260709T180522Z`).
+Reports: `eval/results/mrd-qa-smoke-*.{json,md}` and `eval/results/mrd-heldout-*.{json,md}`.
 
-**The stable headline is the security row, not the quality row**: across every run, configuration, and code revision — 0 forbidden-source leaks and 13/13 correct denials. Those two checks are exact and were never relaxed.
+**The stable headline is the security row, not the quality row**: across dev and held-out runs — 0 forbidden-source leaks, 0 forbidden-claim leaks, and deny/isolation gates pass. Those checks are exact and were never relaxed.
 
 ## Methodology caveats
 
-Honest interpretation of the 50/50:
+Honest interpretation of dev **50/50**:
 
-1. **The scorer and the system were co-developed against this suite.** The paraphrase fallbacks, synonym groups, and shortcut rules were added while looking at the failing cases. They measure "the system retrieves and states the right fact" more fairly than exact substring did — but they were tuned on the same 50 cases they score. There is no held-out set.
-2. **`try_deterministic_synthesis` contains suite-specific templates.** Six query→phrase→answer patterns target MRD question styles (approvals, travel, publication, fallback policy, credentials). They fire only when the source phrase is present in *retrieved, authorized* evidence — so they cannot fabricate or leak — but they are benchmark shortcuts, not a general synthesis capability. A conservative reading of general answer quality is the **42/50** row (grounding + scorer generalizations, before the templates), or the **31/50** row (no suite-specific tuning at all).
-3. **The corpus is synthetic-realistic.** Pseudonymized from real organizational document types, but small (17 docs) and single-language-family; the user-trust KPI from the original proposal is unmeasured (no human pilot).
-4. **What is *not* caveated**: leakage and deny numbers. They are exact checks on citations against the manifest, unaffected by scorer changes, and exercised through the production FGA path.
+1. **The scorer and the system were co-developed against the dev suite.** Held-out is reported separately.
+2. **`SECURGRAPH_EVAL_BASELINE_TEMPLATES=1`** enables deterministic synthesis shortcuts for **dev baseline runs only** — never for held-out.
+3. **The corpus is synthetic-realistic.** Small (17 docs); no human trust pilot.
+4. **What is *not* caveated**: security metrics on held-out (primary generalization claim).
 
 ## C3 ablation (live)
 
@@ -59,23 +79,24 @@ Honest interpretation of the 50/50:
 | Ablation | no | 1 | 58 | **12** | no |
 | C3 restored | yes | 14 | 89 | **0** | no |
 
-Turning off the policy partition immediately produces 12 communities spanning multiple access classes — each a potential summary-leak; restoring it returns to zero. The probe user leaked in neither case because the retrieval-time FGA gate held (defense in depth), but only C3 removes the risk class structurally. The property is additionally pinned by the Hypothesis test (`make test-adversarial`, 200 generated topologies).
-
 ## Reproducing
+
+Full step-by-step from clean stack: [`docs/ARTIFACT_REPRODUCTION.md`](../ARTIFACT_REPRODUCTION.md).
 
 ```sh
 make up && make migrate
-make mrd-seed-live          # seeds corpus + FGA tuples (dev flags: auth off + eval identity mode)
-# start the API with the same flags, then:
-make mrd-live               # writes eval/results/mrd-qa-smoke-<ts>.{json,md}
-make test-adversarial       # C3 property test
-.venv/bin/python eval/c3_ablation_live.py    # ablation (recomputes communities twice)
-```
+make mrd-seed-live          # dev: API with SECURGRAPH_EVAL_BASELINE_TEMPLATES=1
+make mrd-live
 
-The RAGAS-style multi-mode baseline (`make baseline`, isolated venv) compares vector/lexical/graph/hybrid/global modes; the eval harness keeps its own lockfile under `eval/`.
+make heldout-seed-live      # held-out: API WITHOUT baseline templates
+make heldout-live           # run twice; security metrics should match
+
+make test-adversarial
+make eval-repro             # validate corpus + optional live
+```
 
 ## Open evaluation work
 
-- A held-out QA set (authored blind to the scorer) to validate answer quality without co-development bias.
+- Improve held-out allow quality (19/20) without touching frozen security cases.
 - Human pilot for the trust/usability KPIs from the proposal.
 - Latency/cost envelope per mode under the verifier ensemble.

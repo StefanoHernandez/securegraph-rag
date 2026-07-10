@@ -53,7 +53,8 @@ All settings live in `src/securgraph/config.py` (env prefix `SECURGRAPH_` unless
 | `SECURGRAPH_FEATURE_SELF_HEALING_ENABLED` | `false` | Background graph contradiction repair. |
 | `SECURGRAPH_CONSENSUS_THRESHOLD` | `0.7` | High-trust gate. |
 | `SECURGRAPH_RATELIMIT_LOGIN_IP` / `_LOGIN_USER` / `_QUERY` / `_INGEST` | 10 / 5 / 30 / 10 | Per-minute sliding windows. |
-| `SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET` / `_ENDPOINT` / `_REGION` / `_PREFIX` | — | Object Lock anchor target; `_INTERVAL_SECONDS` (3600), `_EVENT_THRESHOLD` (10000), `_RETENTION_DAYS` (365). |
+| `SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET` / `_ENDPOINT` / `_REGION` / `_PREFIX` | — | Object Lock anchor target; `_INTERVAL_SECONDS` (3600), `_EVENT_THRESHOLD` (10000), `_RETENTION_DAYS` (365). Aliases `SECURGRAPH_AUDIT_ANCHOR_*` are preferred; legacy `SECURGRAPH_AUDIT_ANCHOR_S3_*` names still work with a one-time deprecation warning. |
+| `SECURGRAPH_EVAL_BASELINE_TEMPLATES` | unset | **Dev MRD only.** Enables deterministic synthesis templates in `try_deterministic_synthesis`. Must be **off** for held-out eval (`corpus/mrd_heldout_v1`). |
 | `SECURGRAPH_OTEL_ENABLED` / `_EXPORTER_OTLP_ENDPOINT` | `true` / `:4317` | Tracing; Prometheus metrics on `SECURGRAPH_METRICS_PORT` (9464). |
 | `SECURGRAPH_EVAL_IDENTITY_MODE` | unset | **Dev/test only** — never set in production. |
 
@@ -66,18 +67,27 @@ Retrieval knobs: `SECURGRAPH_MAX_GRAPH_DEPTH` (2, hard cap 4), `SECURGRAPH_MAX_E
 | `GET /api/v1/health/live` | zero | Liveness probe. |
 | `GET /api/v1/health/ready` | pings postgres/qdrant/neo4j/openfga; provider status from cache | Readiness probe; `down` iff a datastore is unavailable. The LLM provider is never pinged here (cost control) — use the super-admin diagnostics endpoint. |
 
+## WORM anchoring trust boundary
+
+| Environment | Anchor target | Trust model |
+| --- | --- | --- |
+| **Local Compose** (`--profile anchor`) | MinIO on localhost | Integration gate only — proves the anchor adapter and Object Lock wiring; same failure domain as the dev stack. |
+| **Stage / production** | Dedicated MinIO or S3-compatible WORM bucket on a **separate host** | External commitment; `enforce_audit_hygiene()` refuses startup without `AUDIT_HMAC_KEY`, anchor bucket, and endpoint in stage/prod. |
+
+Compose MinIO is **not** a production trust anchor. Operators must provision a separate Object Lock bucket (MinIO cluster or cloud S3-compatible store with COMPLIANCE retention) and point `SECURGRAPH_AUDIT_ANCHOR_*` at it. The periodic ARQ job `anchor_due_ledgers` (workers profile) calls the same due-anchor logic as the operations API.
+
 ## Production checklist
 
 - [ ] `SECURGRAPH_ENV=prod`; boot guards verified (JWT secret strong, auth enabled, provider/model coherent).
 - [ ] `SECURGRAPH_AUDIT_TAMPER_EVIDENT=true`; `AUDIT_HMAC_KEY` strong and stored only in the runtime environment/secret manager.
 - [ ] `SECURGRAPH_MASTER_KEY` set; provider keys entered via Settings UI (encrypted at rest), not `.env`.
-- [ ] Real S3 Object Lock bucket for anchors (`COMPLIANCE` mode); MinIO profile is a dev stand-in.
+- [ ] Dedicated MinIO or S3-compatible Object Lock bucket for anchors (`COMPLIANCE` mode); Compose MinIO is dev/integration only.
 - [ ] PostgreSQL: app role `securgraph_app` in use with a **changed password**, migrations via the separate privileged DSN.
 - [ ] Bootstrap super-admin created, password rotated on first login; `seed-demo` **not** run.
 - [ ] Cookies: `SECURGRAPH_SESSION_COOKIE_SECURE=true` (automatic in stage/prod) behind TLS.
 - [ ] Rate limiter fronted by a shared limiter if running multiple uvicorn workers.
-- [ ] `SECURGRAPH_EVAL_IDENTITY_MODE` not set.
-- [ ] Release gates green: `make ci`, `make test-adversarial`, `make test-live-gates`, `make mrd-live` (leakage 0, deny 13/13).
+- [ ] `SECURGRAPH_EVAL_IDENTITY_MODE` and `SECURGRAPH_EVAL_BASELINE_TEMPLATES` not set.
+- [ ] Release gates green: `make ci`, `make test-adversarial`, `make test-live-gates`, `make heldout-live` (0 leaks), `make mrd-live` (dev security 13/13).
 
 ## Known deployment gaps (alpha)
 

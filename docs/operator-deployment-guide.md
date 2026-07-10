@@ -38,7 +38,10 @@ make up
 ```
 
 This starts PostgreSQL, Qdrant, Neo4j, OpenFGA, Jaeger, and (with
-`--profile anchor`) MinIO for S3 Object Lock anchoring.
+`--profile anchor`) MinIO for S3-compatible Object Lock anchoring.
+
+On first run, `make up` copies `docker/postgres-init/init-openfga.sql.example`
+to `init-openfga.sql` if missing, and initializes the Qdrant collection.
 
 To enable S3 Object Lock anchoring (recommended for production-like):
 
@@ -109,32 +112,36 @@ dependency checks + cached provider diagnostic (zero LLM completions).
 
 ### 9. Seed the MRD corpus (optional, for evaluation)
 
-```sh
-SECURGRAPH_EVAL_IDENTITY_MODE=true .venv/bin/python eval/mrd_seed_live.py --corpus corpus/mrd_v1
-```
-
-Then run live scoring:
+Dev corpus (`mrd_v1`):
 
 ```sh
-.venv/bin/python eval/mrd_qa_smoke.py \
-  --live-query-url http://localhost:8000/api/v1/query \
-  --tenant-id mrd-lab \
-  --output-dir eval/results
+make mrd-seed-live   # API should have SECURGRAPH_EVAL_BASELINE_TEMPLATES=1 for dev scoring
+make mrd-live
 ```
 
-## MRD live scoring
+Held-out corpus (`mrd_heldout_v1`) — **without** baseline templates on the API:
+
+```sh
+make heldout-seed-live
+make heldout-live    # run twice; security metrics should match
+```
+
+Full reproduction from clean stack: [`docs/ARTIFACT_REPRODUCTION.md`](ARTIFACT_REPRODUCTION.md).
+
+## MRD live scoring (dev)
 
 ```sh
 make up && make migrate
-# Terminal 1 — disable rate limits for batch seed/scoring:
+# Terminal 1 — dev eval flags (baseline templates ON):
 SECURGRAPH_AUTH_ENABLED=false SECURGRAPH_EVAL_IDENTITY_MODE=true \
+  SECURGRAPH_EVAL_BASELINE_TEMPLATES=1 \
   SECURGRAPH_RATELIMIT_QUERY=0 SECURGRAPH_RATELIMIT_INGEST=0 make api
 # Terminal 2:
 make mrd-seed-live
 make mrd-live
 ```
 
-Latest report: `eval/results/mrd-qa-smoke-20260709T145548Z.*` (31/50 pass, 0 leakage, 13/13 deny).
+Latest dev report (deny scorer v2): 47/50 allow-quality live, **13/13 deny security**, 0 source/claim leaks. Held-out: 19/20 overall, **8/8 security**, 0 leaks ×2 runs.
 
 ## Production Checklist
 
@@ -143,11 +150,11 @@ Latest report: `eval/results/mrd-qa-smoke-20260709T145548Z.*` (31/50 pass, 0 lea
       refuses `auth_enabled=false` in stage/prod)
 - [ ] `AUDIT_HMAC_KEY` set to a strong random secret
 - [ ] `SECURGRAPH_MASTER_KEY` set to a strong random secret
-- [ ] `SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET` set to a real S3 Object Lock bucket
+- [ ] `SECURGRAPH_AUDIT_ANCHOR_BUCKET` (or legacy `SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET`) points to a **dedicated** MinIO or S3-compatible WORM host — Compose MinIO is integration-only
 - [ ] Cloud LLM API keys configured via Settings UI (not plaintext in `.env`)
 - [ ] Bootstrap super-admin password changed after first login
 - [ ] PostgreSQL role is non-superuser without BYPASSRLS (RLS defense-in-depth)
-- [ ] `SECURGRAPH_EVAL_IDENTITY_MODE` is NOT set (dev/test only)
+- [ ] `SECURGRAPH_EVAL_IDENTITY_MODE` and `SECURGRAPH_EVAL_BASELINE_TEMPLATES` are NOT set (dev/test only)
 - [ ] `SECURGRAPH_C3_ABLATION_DISABLE_PARTITION` is NOT set (unless running
       ablation study)
 
