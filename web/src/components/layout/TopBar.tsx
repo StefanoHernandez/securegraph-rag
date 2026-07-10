@@ -9,8 +9,8 @@ import { Menu, LogOut, Settings, User, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClassificationStamp } from "@/components/forensic";
 import { authApi } from "@/lib/api";
-import { useTenantSelection } from "@/lib/useTenantSelection";
-import { displayName, useSessionUser } from "@/lib/session";
+import { useTenant } from "@/context/TenantProvider";
+import { clearSession, displayName, useSessionUser } from "@/lib/session";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,7 +50,7 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
   const pathname = usePathname();
   const activePath = stripLocale(pathname);
   const router = useRouter();
-  const { tenants, tenantId, loadingTenants, selectTenant } = useTenantSelection();
+  const { tenants, tenantId, loadingTenants, selectTenant } = useTenant();
   const sessionUser = useSessionUser();
 
   const meta =
@@ -66,6 +66,7 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
 
   const handleLogout = async () => {
     await authApi.logout().catch(() => undefined);
+    clearSession();
     router.push(localizePath("/login", pathname));
   };
 

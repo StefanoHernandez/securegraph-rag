@@ -129,7 +129,8 @@ def enforce_audit_hygiene(settings: Settings) -> None:
             "MinIO Object Lock anchor configuration is required; set "
             "SECURGRAPH_AUDIT_ANCHOR_BUCKET and SECURGRAPH_AUDIT_ANCHOR_ENDPOINT."
         )
-    if not settings.audit_anchor_s3_access_key or not settings.audit_anchor_s3_secret_key.get_secret_value():
+    secret = settings.audit_anchor_s3_secret_key.get_secret_value()
+    if not settings.audit_anchor_s3_access_key or not secret:
         raise RuntimeError(
             "SECURGRAPH_AUDIT_ANCHOR_ACCESS_KEY and SECURGRAPH_AUDIT_ANCHOR_SECRET_KEY "
             f"are required in env={settings.env}."

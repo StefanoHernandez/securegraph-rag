@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,7 +56,7 @@ class ExplainReport(SGModel):
     consensus: dict[str, Any] | None = None
     authorization_status: str
     integrity_status: str
-    denied_candidates: list[dict[str, Any]] = []
+    denied_candidates: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _authorization_status(

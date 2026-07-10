@@ -16,8 +16,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
-import { ingestApi } from "@/lib/api";
+import { ingestApi, operationsApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
+import { useTenant } from "@/context/TenantProvider";
+import type { OperationIngestionJob } from "@/lib/types";
 
 interface IngestionTrackerJob {
   job_id: string;
@@ -43,15 +45,27 @@ const DOCUMENT_TYPES = [
   { value: "other", label: "Other Document" }
 ];
 
-function loadStoredJobs(): IngestionTrackerJob[] {
-  if (typeof window === "undefined") return [];
-  const savedJobs = localStorage.getItem("securgraph_ingest_jobs");
-  if (!savedJobs) return [];
-  try {
-    return JSON.parse(savedJobs) as IngestionTrackerJob[];
-  } catch {
-    return [];
-  }
+function mapApiJob(job: OperationIngestionJob): IngestionTrackerJob {
+  return {
+    job_id: job.job_id,
+    document_id: job.document_id ?? "",
+    trace_id: job.trace_id,
+    filename: job.document_id ?? job.job_id,
+    fileSize: "—",
+    tenant_id: job.tenant_id,
+    owner_id: job.owner_id ?? "user:unknown",
+    classification: "internal",
+    document_type: "other",
+    status:
+      job.status === "queued" ||
+      job.status === "running" ||
+      job.status === "completed" ||
+      job.status === "failed"
+        ? job.status
+        : "failed",
+    error: job.error,
+    created_at: job.started_at,
+  };
 }
 
 function loadStoredIdentity(): { tenantId: string; ownerId: string } {
@@ -80,6 +94,7 @@ function loadStoredIdentity(): { tenantId: string; ownerId: string } {
 
 export default function IngestPage() {
   const t = useTranslations("ingestPage");
+  const { tenantId: selectedTenantId } = useTenant();
   const [initialIdentity] = useState(loadStoredIdentity);
   const [file, setFile] = useState<File | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -96,13 +111,34 @@ export default function IngestPage() {
   const [titleOverride, setTitleOverride] = useState("");
 
   // Jobs Tracker
-  const [jobs, setJobs] = useState<IngestionTrackerJob[]>(loadStoredJobs);
+  const [jobs, setJobs] = useState<IngestionTrackerJob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Save jobs to localStorage
-  const saveJobsToStorage = (updatedJobs: IngestionTrackerJob[]) => {
+  useEffect(() => {
+    if (!selectedTenantId) {
+      setJobs([]);
+      return;
+    }
+    let active = true;
+    operationsApi
+      .listIngestionJobs(selectedTenantId)
+      .then((result) => {
+        if (active) {
+          setJobs(result.jobs.map(mapApiJob));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setJobs([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedTenantId]);
+
+  const saveJobs = (updatedJobs: IngestionTrackerJob[]) => {
     setJobs(updatedJobs);
-    localStorage.setItem("securgraph_ingest_jobs", JSON.stringify(updatedJobs));
   };
 
   // Poll status for running/queued jobs
@@ -134,7 +170,7 @@ export default function IngestPage() {
       }
 
       if (changed) {
-        saveJobsToStorage(updatedJobs);
+        saveJobs(updatedJobs);
       }
     }, 3000);
 
@@ -242,7 +278,7 @@ export default function IngestPage() {
         created_at: new Date().toLocaleTimeString(),
       };
 
-      saveJobsToStorage([newJob, ...jobs]);
+      saveJobs([newJob, ...jobs]);
       setSuccessMessage(t("uploadSuccess", { jobId: result.job_id }));
       setFile(null);
       setTitleOverride("");
@@ -257,7 +293,7 @@ export default function IngestPage() {
   };
 
   const clearJobsList = () => {
-    saveJobsToStorage([]);
+    saveJobs([]);
   };
 
   // Ledger status stamp — queued/running = bone-dim, completed = amber, failed = seal-red

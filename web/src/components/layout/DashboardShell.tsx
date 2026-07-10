@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
+import { TenantProvider } from "@/context/TenantProvider";
 import { authApi } from "@/lib/api";
 
 export default function DashboardShell({
@@ -54,14 +55,16 @@ export default function DashboardShell({
   }
 
   return (
-    <div className="flex min-h-screen w-full relative">
-      <Sidebar collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
-      <div className="flex flex-col flex-1 min-w-0">
-        <TopBar setSidebarCollapsed={() => setSidebarCollapsed(!sidebarCollapsed)} />
-        <main className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar">
-          {children}
-        </main>
+    <TenantProvider>
+      <div className="flex min-h-screen w-full relative">
+        <Sidebar collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
+        <div className="flex flex-col flex-1 min-w-0">
+          <TopBar setSidebarCollapsed={() => setSidebarCollapsed(!sidebarCollapsed)} />
+          <main className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </TenantProvider>
   );
 }

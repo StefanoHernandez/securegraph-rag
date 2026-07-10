@@ -188,7 +188,7 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
-    cron_jobs = [
+    cron_jobs: ClassVar = [
         cron(
             anchor_due_ledgers,
             minute=set(range(0, 60, max(1, get_settings().audit_anchor_interval_seconds // 60))),

@@ -307,8 +307,11 @@ class Settings(BaseSettings):
             ("SECURGRAPH_AUDIT_ANCHOR_S3_ACCESS_KEY", "SECURGRAPH_AUDIT_ANCHOR_ACCESS_KEY"),
             ("SECURGRAPH_AUDIT_ANCHOR_S3_SECRET_KEY", "SECURGRAPH_AUDIT_ANCHOR_SECRET_KEY"),
         )
-        if any(os.environ.get(legacy) and not os.environ.get(canonical) for legacy, canonical in legacy_pairs):
-            if not self._legacy_anchor_alias_warned:
+        uses_legacy = any(
+            os.environ.get(legacy) and not os.environ.get(canonical)
+            for legacy, canonical in legacy_pairs
+        )
+        if uses_legacy and not self._legacy_anchor_alias_warned:
                 import logging
 
                 logging.getLogger(__name__).warning(

@@ -3,6 +3,14 @@
 import { useEffect, useState } from "react";
 import type { SessionUser } from "./types";
 
+export function clearSession(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  localStorage.removeItem("securgraph_user");
+  localStorage.removeItem("securgraph_tenant");
+}
+
 export function getSessionUser(): SessionUser | null {
   if (typeof window === "undefined") {
     return null;
