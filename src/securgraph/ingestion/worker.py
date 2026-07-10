@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from arq.connections import RedisSettings
+from arq.cron import cron
 from qdrant_client import QdrantClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -155,10 +156,42 @@ async def async_ingest_task(
             raise
 
 
+async def anchor_due_ledgers(ctx: dict[Any, Any]) -> dict[str, int]:
+    """Idempotently anchor tenants whose audit chain heads are due."""
+    from sqlalchemy import select
+
+    from securgraph.indexing.anchors import (
+        anchor_current_chain_heads,
+        should_anchor_current_chain_heads,
+    )
+    from securgraph.indexing.db import TenantRow
+
+    session_maker = ctx["session_maker"]
+    anchored = 0
+    async with session_maker() as session:
+        tenants = list((await session.execute(select(TenantRow.id))).scalars().all())
+        for tenant_id in tenants:
+            if not await should_anchor_current_chain_heads(session, tenant_id):
+                continue
+            await anchor_current_chain_heads(session, tenant_id)
+            anchored += 1
+        if anchored:
+            await session.commit()
+    _LOG.info("anchor_due_ledgers_completed", anchored=anchored)
+    return {"anchored": anchored}
+
+
 class WorkerSettings:
     """arq Worker configuration."""
 
-    functions: ClassVar = [async_ingest_task]
+    functions: ClassVar = [async_ingest_task, anchor_due_ledgers]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
+    cron_jobs = [
+        cron(
+            anchor_due_ledgers,
+            minute=set(range(0, 60, max(1, get_settings().audit_anchor_interval_seconds // 60))),
+            run_at_startup=False,
+        )
+    ]

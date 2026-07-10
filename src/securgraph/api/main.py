@@ -110,6 +110,32 @@ def check_provider_model_coherence(settings: Settings) -> list[str]:
     return problems
 
 
+def enforce_audit_hygiene(settings: Settings) -> None:
+    """Fail closed in stage/prod when tamper-evident audit or MinIO anchoring is incomplete."""
+    if settings.env not in ("stage", "prod"):
+        return
+    if not settings.audit_tamper_evident:
+        raise RuntimeError(
+            "SECURGRAPH_AUDIT_TAMPER_EVIDENT must be enabled; refusing to start "
+            f"in env={settings.env}."
+        )
+    if len(settings.audit_hmac_key.get_secret_value()) < 32:
+        raise RuntimeError(
+            "AUDIT_HMAC_KEY is missing or too short; refusing to start "
+            f"in env={settings.env}."
+        )
+    if settings.audit_anchor_backend != "minio":
+        raise RuntimeError(
+            "MinIO Object Lock anchor configuration is required; set "
+            "SECURGRAPH_AUDIT_ANCHOR_BUCKET and SECURGRAPH_AUDIT_ANCHOR_ENDPOINT."
+        )
+    if not settings.audit_anchor_s3_access_key or not settings.audit_anchor_s3_secret_key.get_secret_value():
+        raise RuntimeError(
+            "SECURGRAPH_AUDIT_ANCHOR_ACCESS_KEY and SECURGRAPH_AUDIT_ANCHOR_SECRET_KEY "
+            f"are required in env={settings.env}."
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Process-level startup/shutdown.
@@ -121,6 +147,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log = get_logger(__name__)
     enforce_secret_hygiene(settings)
     enforce_auth_hygiene(settings)
+    enforce_audit_hygiene(settings)
     if (
         settings.env in ("dev", "test")
         and settings.jwt_secret.get_secret_value() == DEFAULT_JWT_SECRET

@@ -10,7 +10,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 EnvName = Literal["dev", "test", "stage", "prod"]
@@ -30,6 +30,7 @@ class Settings(BaseSettings):
         env_prefix="SECURGRAPH_",
         extra="ignore",
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     # ------------------------------------------------------------------ service
@@ -193,15 +194,129 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         validation_alias="AUDIT_HMAC_KEY",
     )
-    audit_anchor_s3_bucket: str = ""
-    audit_anchor_s3_prefix: str = "securegraph/audit-anchors"
-    audit_anchor_s3_endpoint: str = ""
-    audit_anchor_s3_region: str = "us-east-1"
-    audit_anchor_s3_access_key: str = ""
-    audit_anchor_s3_secret_key: SecretStr = SecretStr("")
+    audit_anchor_s3_bucket: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "AUDIT_ANCHOR_BUCKET",
+            "AUDIT_ANCHOR_S3_BUCKET",
+            "SECURGRAPH_AUDIT_ANCHOR_BUCKET",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET",
+        ),
+    )
+    audit_anchor_s3_prefix: str = Field(
+        default="securegraph/audit-anchors",
+        validation_alias=AliasChoices(
+            "AUDIT_ANCHOR_PREFIX",
+            "AUDIT_ANCHOR_S3_PREFIX",
+            "SECURGRAPH_AUDIT_ANCHOR_PREFIX",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_PREFIX",
+        ),
+    )
+    audit_anchor_s3_endpoint: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "AUDIT_ANCHOR_ENDPOINT",
+            "AUDIT_ANCHOR_S3_ENDPOINT",
+            "SECURGRAPH_AUDIT_ANCHOR_ENDPOINT",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_ENDPOINT",
+        ),
+    )
+    audit_anchor_s3_region: str = Field(
+        default="us-east-1",
+        validation_alias=AliasChoices(
+            "AUDIT_ANCHOR_REGION",
+            "AUDIT_ANCHOR_S3_REGION",
+            "SECURGRAPH_AUDIT_ANCHOR_REGION",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_REGION",
+        ),
+    )
+    audit_anchor_s3_access_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "AUDIT_ANCHOR_ACCESS_KEY",
+            "AUDIT_ANCHOR_S3_ACCESS_KEY",
+            "SECURGRAPH_AUDIT_ANCHOR_ACCESS_KEY",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_ACCESS_KEY",
+        ),
+    )
+    audit_anchor_s3_secret_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices(
+            "AUDIT_ANCHOR_SECRET_KEY",
+            "AUDIT_ANCHOR_S3_SECRET_KEY",
+            "SECURGRAPH_AUDIT_ANCHOR_SECRET_KEY",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_SECRET_KEY",
+        ),
+    )
     audit_anchor_retention_days: int = Field(default=365, ge=1, le=36500)
     audit_anchor_interval_seconds: int = Field(default=3600, ge=60, le=86400)
     audit_anchor_event_threshold: int = Field(default=10000, ge=1, le=10_000_000)
+
+    _legacy_anchor_alias_warned: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_prefixed_anchor_constructor_keys(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        mappings = {
+            "SECURGRAPH_AUDIT_ANCHOR_BUCKET": "audit_anchor_s3_bucket",
+            "SECURGRAPH_AUDIT_ANCHOR_PREFIX": "audit_anchor_s3_prefix",
+            "SECURGRAPH_AUDIT_ANCHOR_ENDPOINT": "audit_anchor_s3_endpoint",
+            "SECURGRAPH_AUDIT_ANCHOR_REGION": "audit_anchor_s3_region",
+            "SECURGRAPH_AUDIT_ANCHOR_ACCESS_KEY": "audit_anchor_s3_access_key",
+            "SECURGRAPH_AUDIT_ANCHOR_SECRET_KEY": "audit_anchor_s3_secret_key",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET": "audit_anchor_s3_bucket",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_PREFIX": "audit_anchor_s3_prefix",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_ENDPOINT": "audit_anchor_s3_endpoint",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_REGION": "audit_anchor_s3_region",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_ACCESS_KEY": "audit_anchor_s3_access_key",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_SECRET_KEY": "audit_anchor_s3_secret_key",
+        }
+        normalized = dict(data)
+        for source, target in mappings.items():
+            if source in normalized and target not in normalized:
+                normalized[target] = normalized.pop(source)
+        return normalized
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def audit_anchor_bucket(self) -> str:
+        return self.audit_anchor_s3_bucket
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def audit_anchor_endpoint(self) -> str:
+        return self.audit_anchor_s3_endpoint
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def audit_anchor_backend(self) -> str:
+        if self.audit_anchor_s3_bucket and self.audit_anchor_s3_endpoint:
+            return "minio"
+        return "local"
+
+    @model_validator(mode="after")
+    def _warn_legacy_anchor_env_names(self) -> Settings:
+        """Accept deprecated *_S3_* anchor env names; canonical names are preferred."""
+        import os
+
+        legacy_pairs = (
+            ("SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET", "SECURGRAPH_AUDIT_ANCHOR_BUCKET"),
+            ("SECURGRAPH_AUDIT_ANCHOR_S3_ENDPOINT", "SECURGRAPH_AUDIT_ANCHOR_ENDPOINT"),
+            ("SECURGRAPH_AUDIT_ANCHOR_S3_ACCESS_KEY", "SECURGRAPH_AUDIT_ANCHOR_ACCESS_KEY"),
+            ("SECURGRAPH_AUDIT_ANCHOR_S3_SECRET_KEY", "SECURGRAPH_AUDIT_ANCHOR_SECRET_KEY"),
+        )
+        if any(os.environ.get(legacy) and not os.environ.get(canonical) for legacy, canonical in legacy_pairs):
+            if not self._legacy_anchor_alias_warned:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Deprecated SECURGRAPH_AUDIT_ANCHOR_S3_* env vars are set; "
+                    "prefer SECURGRAPH_AUDIT_ANCHOR_* (S3-compatible MinIO naming)."
+                )
+                object.__setattr__(self, "_legacy_anchor_alias_warned", True)
+        return self
 
 
 @lru_cache(maxsize=1)

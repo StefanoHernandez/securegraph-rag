@@ -25,7 +25,7 @@ class AccessLabel:
 
 
 def policy_class_key(label: AccessLabel) -> str:
-    """Return a deterministic 16-hex-char fingerprint of the access label."""
+    """Return a deterministic 128-bit fingerprint of the access label."""
     canonical = json.dumps(
         {
             "owner": label.owner,
@@ -35,7 +35,7 @@ def policy_class_key(label: AccessLabel) -> str:
         separators=(",", ":"),
         sort_keys=True,
     )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
 
 
 UNLABELED_CLASS_KEY = "unlabeled"

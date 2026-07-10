@@ -41,10 +41,10 @@ def test_key_changes_with_direct_viewers() -> None:
     assert policy_class_key(a) != policy_class_key(b)
 
 
-def test_key_is_short_hex() -> None:
+def test_key_is_128_bit_hex() -> None:
     a = AccessLabel(owner="alice", group_viewers=frozenset(), direct_viewers=frozenset())
     key = policy_class_key(a)
-    assert len(key) == 16
+    assert len(key) == 32
     assert all(c in "0123456789abcdef" for c in key)
 
 

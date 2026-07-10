@@ -135,3 +135,58 @@ def test_ollama_provider_with_ollama_model_passes() -> None:
 
     settings = Settings(env="prod", llm_provider="ollama")
     assert check_provider_model_coherence(settings) == []
+
+
+def _production_audit_settings(**overrides: object) -> Settings:
+    values: dict[str, object] = {
+        "env": "prod",
+        "audit_tamper_evident": True,
+        "AUDIT_HMAC_KEY": SecretStr("ab" * 32),
+        "audit_anchor_s3_bucket": "securegraph-audit-anchors",
+        "audit_anchor_s3_endpoint": "https://minio.audit.example",
+        "audit_anchor_s3_access_key": "anchor-writer",
+        "audit_anchor_s3_secret_key": SecretStr("secret-value"),
+    }
+    values.update(overrides)
+    return Settings(_env_file=None, **values)
+
+
+def test_prod_requires_tamper_evident_audit() -> None:
+    from securgraph.api.main import enforce_audit_hygiene
+
+    with pytest.raises(RuntimeError, match="AUDIT_TAMPER_EVIDENT"):
+        enforce_audit_hygiene(_production_audit_settings(audit_tamper_evident=False))
+
+
+def test_prod_requires_hmac_key() -> None:
+    from securgraph.api.main import enforce_audit_hygiene
+
+    with pytest.raises(RuntimeError, match="HMAC"):
+        enforce_audit_hygiene(_production_audit_settings(AUDIT_HMAC_KEY=SecretStr("")))
+
+
+def test_prod_requires_minio_object_lock_configuration() -> None:
+    from securgraph.api.main import enforce_audit_hygiene
+
+    with pytest.raises(RuntimeError, match="MinIO Object Lock"):
+        enforce_audit_hygiene(_production_audit_settings(audit_anchor_s3_bucket=""))
+
+
+def test_prod_accepts_complete_minio_object_lock_configuration() -> None:
+    from securgraph.api.main import enforce_audit_hygiene
+
+    enforce_audit_hygiene(_production_audit_settings())
+
+
+def test_legacy_s3_environment_names_map_to_minio_fields() -> None:
+    settings = Settings(
+        _env_file=None,
+        audit_anchor_s3_bucket="legacy-bucket",
+        audit_anchor_s3_endpoint="https://minio.example",
+        audit_anchor_s3_access_key="legacy-user",
+        audit_anchor_s3_secret_key=SecretStr("legacy-secret"),
+    )
+
+    assert settings.audit_anchor_bucket == "legacy-bucket"
+    assert settings.audit_anchor_endpoint == "https://minio.example"
+    assert settings.audit_anchor_backend == "minio"
