@@ -101,7 +101,7 @@ async def test_seed_demo_resets_existing_demo_user_credentials_and_membership() 
     assert verify_password("admin123", existing_admin.password_hash)
     assert existing_admin.is_active is True
     assert existing_admin.is_super_admin is False
-    assert existing_admin.must_change_password is True
+    assert existing_admin.must_change_password is False
     assert existing_admin.token_version == 4
     memberships = [
         call.args[0]

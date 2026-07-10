@@ -19,6 +19,8 @@ def upsert_chunks_to_qdrant(
     client: QdrantClient,
     chunks: list[Chunk],
     embeddings: EmbeddingAdapter,
+    *,
+    source_uri: str | None = None,
 ) -> None:
     """Batch embed and upsert chunks to Qdrant.
 
@@ -48,6 +50,8 @@ def upsert_chunks_to_qdrant(
             "classification": chunk.classification.value,
             "policy_tags": list(chunk.policy_tags),
         }
+        if source_uri:
+            payload["source_uri"] = source_uri
 
         points.append(
             models.PointStruct(

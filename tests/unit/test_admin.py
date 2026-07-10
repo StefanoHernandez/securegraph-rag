@@ -402,3 +402,46 @@ async def test_revoke_permission_writes_audit_event(
     events = [row for row in added if isinstance(row, AdminAuditEventRow)]
     assert len(events) == 1
     assert events[0].action == "permission.revoke"
+
+
+@patch("securgraph.indexing.vector_atlas.build_vector_atlas", new_callable=AsyncMock)
+async def test_get_vector_atlas(
+    mock_build: AsyncMock, fastapi_app: FastAPI, client: AsyncClient, auth_on: None
+) -> None:
+    mock_build.return_value = {
+        "tenant_id": "MRD",
+        "total": 1,
+        "dims": 2,
+        "projection_method": "pca",
+        "points": [{"id": "p1", "x": 0.1, "y": -0.2, "chunk_id": "chunk_1"}],
+    }
+    fastapi_app.dependency_overrides[require_admin] = lambda: _tenant_admin()
+
+    resp = await client.get("/admin/vector-atlas?tenant_id=MRD")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["points"][0]["chunk_id"] == "chunk_1"
+
+
+@patch("securgraph.indexing.vector_atlas.search_atlas_neighbors", new_callable=AsyncMock)
+async def test_post_vector_atlas_neighbors(
+    mock_neighbors: AsyncMock, fastapi_app: FastAPI, client: AsyncClient, auth_on: None
+) -> None:
+    mock_neighbors.return_value = {
+        "tenant_id": "MRD",
+        "query": "what is SecureGraph?",
+        "chunk_ids": ["chunk_1"],
+        "scores": [0.91],
+        "point_ids": ["point-1"],
+    }
+    fastapi_app.dependency_overrides[require_admin] = lambda: _tenant_admin()
+
+    resp = await client.post(
+        "/admin/vector-atlas/neighbors",
+        json={"tenant_id": "MRD", "query": "what is SecureGraph?", "limit": 5},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["chunk_ids"] == ["chunk_1"]
+    assert body["scores"] == [0.91]

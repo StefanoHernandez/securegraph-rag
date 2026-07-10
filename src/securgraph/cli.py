@@ -106,7 +106,7 @@ async def seed_demo_users(session: AsyncSession) -> None:
             password_hash=hash_password("superadmin123"),
             is_active=True,
             is_super_admin=True,
-            must_change_password=True,
+            must_change_password=False,
             token_version=1,
         )
         session.add(superadmin)
@@ -114,7 +114,7 @@ async def seed_demo_users(session: AsyncSession) -> None:
         superadmin.password_hash = hash_password("superadmin123")
         superadmin.is_active = True
         superadmin.is_super_admin = True
-        superadmin.must_change_password = True
+        superadmin.must_change_password = False
         superadmin.token_version += 1
 
     for username, role in (
@@ -132,7 +132,7 @@ async def seed_demo_users(session: AsyncSession) -> None:
                 password_hash=hash_password(f"{username}123"),
                 is_active=True,
                 is_super_admin=False,
-                must_change_password=True,
+                must_change_password=False,
                 token_version=1,
             )
             session.add(user)
@@ -140,7 +140,7 @@ async def seed_demo_users(session: AsyncSession) -> None:
             user.password_hash = hash_password(f"{username}123")
             user.is_active = True
             user.is_super_admin = False
-            user.must_change_password = True
+            user.must_change_password = False
             user.token_version += 1
 
         membership = await session.get(TenantMembershipRow, ("default", user.id))

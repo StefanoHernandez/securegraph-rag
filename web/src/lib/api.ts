@@ -527,6 +527,48 @@ export const adminApi = {
         summary: string;
       }>;
     }>(`/admin/graph/communities?tenant_id=${encodeURIComponent(tenantId)}`),
+
+  getVectorAtlas: (
+    tenantId: string,
+    opts?: { documentId?: string; classification?: string; limit?: number; dims?: 2 | 3 }
+  ) => {
+    const params = new URLSearchParams({ tenant_id: tenantId });
+    if (opts?.documentId) params.set("document_id", opts.documentId);
+    if (opts?.classification) params.set("classification", opts.classification);
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    if (opts?.dims) params.set("dims", String(opts.dims));
+    return api.get<{
+      tenant_id: string;
+      total: number;
+      dims: number;
+      projection_method: string;
+      points: Array<{
+        id: string;
+        x: number;
+        y: number | null;
+        z: number | null;
+        chunk_id: string;
+        document_id: string;
+        classification: string;
+        text_preview: string;
+        source_uri?: string | null;
+        last_trace_id?: string | null;
+      }>;
+    }>(`/admin/vector-atlas?${params.toString()}`);
+  },
+
+  searchVectorAtlasNeighbors: (tenantId: string, query: string, limit = 10) =>
+    api.post<{
+      tenant_id: string;
+      query: string;
+      chunk_ids: string[];
+      scores: number[];
+      point_ids: string[];
+    }>("/admin/vector-atlas/neighbors", {
+      tenant_id: tenantId,
+      query,
+      limit,
+    }),
 };
 
 export const authApi = {

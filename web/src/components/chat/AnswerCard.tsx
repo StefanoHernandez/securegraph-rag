@@ -13,6 +13,8 @@ interface AnswerCardProps {
   response: QueryResponse;
   /** Retrieval mode the query ran with; single-lane modes get a "consensus N/A" verdict. */
   retrievalMode?: string;
+  queryText?: string;
+  tenantId?: string;
 }
 
 const SINGLE_LANE_MODES = new Set(["vector", "lexical", "graph"]);
@@ -40,12 +42,28 @@ function Meter({
   );
 }
 
-export default function AnswerCard({ response, retrievalMode }: AnswerCardProps) {
+export default function AnswerCard({
+  response,
+  retrievalMode,
+  queryText,
+  tenantId,
+}: AnswerCardProps) {
   const [showCitations, setShowCitations] = useState(false);
   const t = useTranslations("answerCard");
   const { answer, confidence, channels, citations, trace_id, warnings } =
     response;
   const singleLane = retrievalMode ? SINGLE_LANE_MODES.has(retrievalMode) : false;
+  const highlightChunkIds = (citations ?? [])
+    .map((c) => c.chunk_id)
+    .filter((id): id is string => Boolean(id));
+  const atlasHref =
+    queryText && tenantId
+      ? `/vectors?tenant=${encodeURIComponent(tenantId)}&q=${encodeURIComponent(queryText)}${
+          highlightChunkIds.length
+            ? `&highlight=${encodeURIComponent(highlightChunkIds.join(","))}`
+            : ""
+        }`
+      : null;
 
   const channelRows = [
     { key: "vector", label: t("vectorLane"), unit: t("chunks"), ch: channels.vector },
@@ -68,13 +86,24 @@ export default function AnswerCard({ response, retrievalMode }: AnswerCardProps)
           score={confidence.agreement_score ?? undefined}
           notApplicableLabel={singleLane ? t("consensusNA") : undefined}
         />
-        <Link
-          href={`/explain?trace_id=${trace_id}`}
-          className="inline-flex items-center gap-1.5 font-mono text-[0.6875rem] uppercase tracking-wider text-bone-dim hover:text-signal-amber transition-colors"
-        >
-          {t("verifyLineage")} · {trace_id.slice(0, 8)}
-          <ArrowUpRight className="h-3.5 w-3.5" />
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          {atlasHref && (
+            <Link
+              href={atlasHref}
+              className="inline-flex items-center gap-1.5 font-mono text-[0.6875rem] uppercase tracking-wider text-bone-dim hover:text-signal-amber transition-colors"
+            >
+              {t("viewInAtlas")}
+              <ArrowUpRight className="h-3.5 w-3.5" />
+            </Link>
+          )}
+          <Link
+            href={`/explain?trace_id=${trace_id}`}
+            className="inline-flex items-center gap-1.5 font-mono text-[0.6875rem] uppercase tracking-wider text-bone-dim hover:text-signal-amber transition-colors"
+          >
+            {t("verifyLineage")} · {trace_id.slice(0, 8)}
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
       </header>
 
       <div className="px-5 py-5 space-y-6">

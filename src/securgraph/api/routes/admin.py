@@ -6,7 +6,7 @@ Provides ReBAC tuple editing, cryptographic chain verification, and Neo4j graph 
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from securgraph.api.dependencies import get_db_session, get_openfga_client
+from securgraph.api.dependencies import get_db_session, get_openfga_client, get_qdrant_retriever
 from securgraph.api.routes.auth import (
     AuthenticatedPrincipal,
     require_admin,
@@ -394,4 +394,77 @@ async def get_graph_communities(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch graph communities.",
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Vector Atlas
+# ---------------------------------------------------------------------------
+
+
+class VectorAtlasNeighborsRequest(BaseModel):
+    tenant_id: str = Field(..., description="Tenant scope identifier")
+    query: str = Field(..., min_length=1, description="Natural-language query to embed")
+    limit: int = Field(default=10, ge=1, le=50, description="Top-k neighbors to return")
+
+
+@router.get("/vector-atlas")
+async def get_vector_atlas(
+    tenant_id: str = Query(..., description="Tenant scope identifier"),
+    dims: int = Query(2, ge=2, le=3, description="Projection dimensions (2 or 3)"),
+    limit: int = Query(500, ge=1, le=500, description="Maximum points to return"),
+    document_id: str | None = Query(None, description="Filter by document_id"),
+    classification: str | None = Query(None, description="Filter by classification"),
+    session: AsyncSession = Depends(get_db_session),
+    admin: AuthenticatedPrincipal | None = Depends(require_admin),
+) -> dict[str, Any]:
+    """Scroll tenant Qdrant points and return a 2D projected atlas map."""
+    _ensure_tenant_scope(admin, tenant_id)
+    from qdrant_client import QdrantClient
+
+    from securgraph.config import get_settings
+    from securgraph.indexing.vector_atlas import build_vector_atlas
+
+    settings = get_settings()
+    client = QdrantClient(url=settings.qdrant_url, check_compatibility=False)
+    try:
+        return await build_vector_atlas(
+            client,
+            session,
+            tenant_id=tenant_id,
+            dims=dims,
+            limit=limit,
+            document_id=document_id,
+            classification=classification,
+        )
+    except Exception as exc:
+        logger.error("Failed to build vector atlas", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to build vector atlas.",
+        ) from exc
+
+
+@router.post("/vector-atlas/neighbors")
+async def post_vector_atlas_neighbors(
+    req: VectorAtlasNeighborsRequest,
+    retriever: Annotated[Any, Depends(get_qdrant_retriever)],
+    admin: AuthenticatedPrincipal | None = Depends(require_admin),
+) -> dict[str, Any]:
+    """Return dense retrieval neighbors for query highlight on the atlas."""
+    _ensure_tenant_scope(admin, req.tenant_id)
+    from securgraph.indexing.vector_atlas import search_atlas_neighbors
+
+    try:
+        return await search_atlas_neighbors(
+            retriever,
+            tenant_id=req.tenant_id,
+            query=req.query,
+            limit=req.limit,
+        )
+    except Exception as exc:
+        logger.error("Failed to search vector atlas neighbors", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to search vector atlas neighbors.",
         ) from exc

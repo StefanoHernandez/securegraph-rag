@@ -242,7 +242,7 @@ async def ingest_document(
     q_client = qdrant_client or QdrantClient(url=settings.qdrant_url)
 
     # Run indexing. Any exception raised here aborts the database transaction.
-    upsert_chunks_to_qdrant(q_client, chunks, embed_adapter)
+    upsert_chunks_to_qdrant(q_client, chunks, embed_adapter, source_uri=request.source_uri)
 
     # --- 5b. FGA: write chunk -> parent_document tuples ---------------------
     # Without these tuples, chunk.viewer cannot resolve via document.viewer and

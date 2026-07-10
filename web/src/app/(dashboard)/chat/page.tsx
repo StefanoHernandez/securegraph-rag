@@ -17,6 +17,7 @@ interface ChatMessage {
   content: string;
   response?: QueryResponse;
   retrievalMode?: RetrievalMode;
+  queryText?: string;
   timestamp: Date;
 }
 
@@ -166,6 +167,7 @@ export default function ChatPage() {
         content: apiResponse.answer,
         response: apiResponse,
         retrievalMode,
+        queryText: textToSend,
         timestamp: new Date()
       };
       setMessages((prev) => [...prev, assistantMessage]);
@@ -262,7 +264,12 @@ export default function ChatPage() {
                     ) : (
                       <div className="w-full max-w-[95%]">
                         {msg.response ? (
-                          <AnswerCard response={msg.response} retrievalMode={msg.retrievalMode} />
+                          <AnswerCard
+                            response={msg.response}
+                            retrievalMode={msg.retrievalMode}
+                            queryText={msg.queryText}
+                            tenantId={tenantId}
+                          />
                         ) : (
                           <div
                             className="classification-gutter panel px-4 py-3 prose prose-invert prose-sm max-w-none text-bone/90 leading-relaxed font-sans"

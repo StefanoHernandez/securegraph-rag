@@ -32,6 +32,7 @@ const TITLES: Record<string, { eyebrow: string; titleKey: string }> = {
   "/explain": { eyebrow: "section 03", titleKey: "provenance" },
   "/permissions": { eyebrow: "section 04", titleKey: "clearance" },
   "/graph": { eyebrow: "section 05", titleKey: "graph" },
+  "/vectors": { eyebrow: "section 05b", titleKey: "vectors" },
   "/audit": { eyebrow: "section 06", titleKey: "custodyLedger" },
   "/health": { eyebrow: "section 07", titleKey: "health" },
   "/settings": { eyebrow: "section 08", titleKey: "settings" },
