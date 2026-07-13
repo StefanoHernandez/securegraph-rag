@@ -23,8 +23,8 @@ flowchart TB
         QD[("Qdrant<br/>dense vectors + full-text")]
         NEO[("Neo4j 5<br/>entities · relations · communities")]
         FGA[("OpenFGA<br/>ReBAC tuples — ground truth")]
-        RED[("Redis + arq<br/>optional workers profile")]
-        S3[("S3 Object Lock<br/>Merkle audit anchors")]
+        RED[("Redis + arq<br/>required in stage/prod")]
+        MINIO[("MinIO Object Lock<br/>Merkle audit anchors")]
     end
     LLM["Cloud LLM providers<br/>OpenAI · Mistral · Anthropic · Google<br/>(Ollama adapter exists; not used currently)"]
     JAE["Jaeger (OTLP)"]
@@ -34,7 +34,7 @@ flowchart TB
     WF --> QD & NEO & FGA & PG & LLM
     ING --> PG & QD & NEO & FGA
     ING -.-> RED
-    RT --> S3
+    RT --> MINIO
     MW --> JAE
 ```
 
@@ -129,11 +129,11 @@ Package rule of thumb: `domain/` holds vendor-neutral models and protocols; `ada
 | **Authorization filtering happens post-retrieval, pre-prompt** (not as store-level filters) | The decision must be recorded per object with a reason code; a pre-filter would hide denials from the audit trail. | Retrieves candidates it may then drop. |
 | **Synthesis verdict in code, not in the prompt** (`decide_synthesis`) | An LLM asked "refuse if unsure" refuses unpredictably; four explicit branches make refusal at high agreement impossible by construction. | Less prompt flexibility. |
 | **Policy partition before Louvain** (C3), one FGA check per class + per-community defense-in-depth | Communities and their LLM summaries are derived artifacts; partitioning after the fact cannot un-mix a summary. | More, smaller communities (89 vs 58 on the MRD corpus). |
-| **Per-tenant HMAC chain in PostgreSQL + periodic Merkle anchor to S3 Object Lock** | Per-event external writes are too slow; a chain head + WORM anchor gives external verifiability at bounded cost. | Window between anchors relies on DB integrity alone. |
+| **Per-tenant HMAC chain in PostgreSQL + periodic Merkle anchor to MinIO Object Lock** | Per-event external writes are too slow; a chain head + WORM anchor gives independently operated verifiability at bounded cost. | The window between anchors relies on DB integrity; MinIO must be in a separate failure domain to provide an independent boundary. |
 | **Embeddings local (BGE-M3 via FlagEmbedding)** | Chunk text never leaves the host for embedding; matters under egress policies. | CPU/GPU cost on the API host; dense-only (lexical lane uses Qdrant full-text, not BGE-M3 sparse). |
 | **Least-privilege DB role `securgraph_app` (`NOBYPASSRLS`) + `FORCE ROW LEVEL SECURITY`** | RLS as defense-in-depth below the application layer; even SQL injection in app code stays tenant-scoped. | Migrations need a separate superuser DSN. |
 | **LangGraph StateGraph with static edges** | Parallel lanes with deterministic join; in-code branching in `synthesis_node` is easier to test than conditional graph edges. | The graph topology alone doesn't show the branching. |
-| **Redis/arq optional (`workers` compose profile)** | Sync ingestion must work on a laptop with no Redis; the flag gates the async path with an explicit 503 if misconfigured. | Two ingestion code paths to maintain. |
+| **Redis/arq worker profile** | Local development can use synchronous ingestion; stage/prod require workers so the durable ingestion saga and periodic anchors run through their intended path. | Development retains a synchronous path; production needs Redis and worker supervision. |
 
 ## Multi-tenancy model
 

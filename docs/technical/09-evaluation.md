@@ -24,7 +24,7 @@ Access is declared in `corpus/mrd_v1/manifest.yaml` (owner, groups, direct viewe
 | Tuning policy | **Never** used for workflow/scorer changes after freeze |
 | API flag | `SECURGRAPH_EVAL_BASELINE_TEMPLATES` must be **unset** (or `0`) for held-out runs |
 
-Two consecutive live runs (2026-07-10) reported **0** forbidden-source leaks, **0** forbidden-claim leaks, and **8/8** security cases pass. Allow quality: **19/20**.
+Two archived live runs (2026-07-10) reported **0** forbidden-source leaks, **0** forbidden-claim leaks, six authorization-denial refusals, and two source-isolation passes. They predate the required commit-bound v2 manifest and are not release certification. A release requires two fresh clean-worktree runs with the mandated cloud providers, baseline templates disabled, and identical input hashes.
 
 ## Scoring (deny gate v2)
 
@@ -37,7 +37,7 @@ Two consecutive live runs (2026-07-10) reported **0** forbidden-source leaks, **
 - **Required sources** (exact): allow cases must cite their required source URIs.
 - **Expected text** (lenient): normalized containment with key-fact fallbacks — tracked separately from security.
 
-Each run JSON includes a **manifest**: git commit, dirty flag, corpus SHA-256, models, seed, and `results_sha256`.
+Each run JSON includes a **manifest**: git commit, dirty flag, corpus SHA-256, models, prompt version, seed, configuration, timestamp, and `results_sha256`.
 
 ### Semantic judge (secondary only)
 
@@ -58,7 +58,7 @@ Live runs against the full stack (cloud LLM provider, real Postgres/Qdrant/Neo4j
 
 Reports: `eval/results/mrd-qa-smoke-*.{json,md}` and `eval/results/mrd-heldout-*.{json,md}`.
 
-**The stable headline is the security row, not the quality row**: across dev and held-out runs — 0 forbidden-source leaks, 0 forbidden-claim leaks, and deny/isolation gates pass. Those checks are exact and were never relaxed.
+These are archived dev observations, not a release headline. The clean held-out protocol is the only source of a submission security claim; its authorization-denial and source-isolation outcomes remain separate.
 
 ## Methodology caveats
 
@@ -67,7 +67,18 @@ Honest interpretation of dev **50/50**:
 1. **The scorer and the system were co-developed against the dev suite.** Held-out is reported separately.
 2. **`SECURGRAPH_EVAL_BASELINE_TEMPLATES=1`** enables deterministic synthesis shortcuts for **dev baseline runs only** — never for held-out.
 3. **The corpus is synthetic-realistic.** Small (17 docs); no human trust pilot.
-4. **What is *not* caveated**: security metrics on held-out (primary generalization claim).
+4. **What remains pending**: clean, commit-bound held-out evidence; archived results are not a primary generalization claim.
+
+## C2 calibration and lane ablation
+
+`eval/c2_calibration.py` consumes a hybrid MRD report with its bounded C2
+diagnostics and produces reliability bins, expected calibration error, and
+threshold sensitivity. When vector and graph runs over the exact same case IDs
+are supplied, it also reports a lane ablation. The tool rejects mismatched case
+sets and reports without `confidence.agreement_score`; agreement remains a
+diagnostic score, never a deny-security gate. See
+[Artifact Reproduction](../ARTIFACT_REPRODUCTION.md#c2-calibration-and-lane-ablation)
+for the commands.
 
 ## C3 ablation (live)
 
@@ -97,6 +108,6 @@ make eval-repro             # validate corpus + optional live
 
 ## Open evaluation work
 
-- Improve held-out allow quality (19/20) without touching frozen security cases.
+- Generate two clean held-out reports and a clean C2 calibration report from the release commit.
 - Human pilot for the trust/usability KPIs from the proposal.
 - Latency/cost envelope per mode under the verifier ensemble.

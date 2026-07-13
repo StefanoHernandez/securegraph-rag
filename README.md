@@ -22,7 +22,7 @@ Active delivery tracks:
 | **M10** | Security hardening — identity binding, fail-closed audit, tamper-chain concurrency, health cost controls |
 | **M11** | Admin control plane — users, tenants, groups, access templates, Settings/Models UI |
 
-Production readiness still requires durable cross-store ingestion, PostgreSQL RLS, S3 Object Lock Merkle anchoring, and unified job control. See [`wiki/project/status.md`](wiki/project/status.md) for the live milestone register.
+The submission configuration uses durable cross-store ingestion, PostgreSQL RLS, MinIO Object Lock Merkle anchoring, and ARQ job control. Release certification still requires the live gates and two clean held-out runs described in [Artifact Reproduction](docs/ARTIFACT_REPRODUCTION.md).
 
 ## Documentation
 
@@ -42,7 +42,7 @@ Next.js (Forensic Vault UI) ── BFF proxy ── FastAPI /api/v1
      Qdrant        Neo4j        OpenFGA            PostgreSQL      Redis/arq
    (vector)       (graph)        (ReBAC)         (metadata/audit)  (workers)
         │             │             │                   │
-        └─────────────┴─────────────┴───────────────────┴── Ollama / cloud LLMs
+        └─────────────┴─────────────┴───────────────────┴── Mistral / OpenAI cloud LLMs
                                               │
                               OpenTelemetry → Jaeger
 ```
@@ -55,7 +55,7 @@ Next.js (Forensic Vault UI) ── BFF proxy ── FastAPI /api/v1
 | Vector store | Qdrant (dense + sparse) | Semantic + BM25-like retrieval |
 | Graph store | Neo4j 5 | Entity-relationship traversal, Louvain communities |
 | Orchestration | LangGraph `StateGraph` | Vector ‖ graph fanout, RRF fusion, NLI verifier ensemble |
-| LLM | Ollama (default) + cloud adapters | Generation, extraction, NLI judge (`openai`, `anthropic`, `gemini`, `mistral`) |
+| LLM | Mistral + OpenAI cloud defaults | Mistral generation/extraction and OpenAI NLI judge; Ollama remains an explicit legacy development adapter |
 | Embeddings | BGE-M3 (multilingual) | Dense + sparse in one pass |
 | Chunker tokenizer | HF `ibm-granite/granite-4.0-h-tiny` | Token budgeting (offline after first cache) |
 | Workers | arq + Redis | Async ingestion, community recompute |
@@ -71,14 +71,10 @@ Legacy unversioned route aliases remain for migration but are omitted from OpenA
 - **Python 3.11+**
 - **[uv](https://docs.astral.sh/uv/)** (`brew install uv` or the official install script)
 - **Node.js 20+** and **npm** (for the web UI)
-- **Ollama native** (recommended on macOS for Apple Silicon GPU):
+- **Mistral API key** for generation and extraction (`MISTRAL_API_KEY`)
+- **OpenAI API key** for the NLI/RAGAS judge (`OPENAI_API_KEY`)
 
-  ```sh
-  brew install ollama
-  ollama serve   # in a separate terminal
-  ```
-
-Hardware mode: defaults in `config.py` target **minimal-hardware mode** (<16 GB RAM): `gemma3:1b` LLM, Neo4j with 512 MB heap, etc. Override via `.env`. The tested profile uses `granite4.1:3b` — set `SECURGRAPH_LLM_MODEL=granite4.1:3b` and related keys (see `.env.example`).
+The default submission profile is cloud-only: `mistral-small-latest` for generation and extraction, and `gpt-4o-mini` for NLI judging. Local BGE-M3 embeddings remain on the host. Ollama is an explicit legacy adapter and is not part of default, acceptance, or held-out evaluation paths.
 
 ## Quickstart
 
@@ -95,8 +91,8 @@ make up
 # 4. Database schema
 .venv/bin/alembic upgrade head
 
-# 5. LLM + embedding models
-make pull-models
+# 5. Local embedding model cache (LLMs use the configured cloud APIs)
+make prepare-embeddings
 
 # 6. First super-admin (one-time; password shown once)
 .venv/bin/securgraph bootstrap-superadmin \
@@ -214,9 +210,11 @@ make type          # mypy on src/
 make test-unit     # unit tests (~120+)
 make test          # unit + integration
 make test-adversarial   # C3 no-leakage property tests
-make ci            # lint + type + test
+make ci            # lint + type + Docker-free unit tests
+make cov           # Docker-free unit/adversarial coverage gate (>=70%)
 make baseline      # vector / lexical / graph / hybrid comparison → eval/results/
 make eval          # golden-set KPI evaluation (requires make eval-venv)
+make test-minio-anchor-live  # live Object Lock integration gate
 ```
 
 Engineering reference: [`wiki/engineering/development.md`](wiki/engineering/development.md), [`wiki/index.md`](wiki/index.md).

@@ -6,7 +6,7 @@ SecureGraph is a hybrid vector-graph Retrieval-Augmented Generation (RAG) framew
 
 | Guarantee | Meaning | Mechanism |
 | --- | --- | --- |
-| **C1 — Verifiable access correctness** | An auditor can re-derive, after the fact, that every chunk, node, and edge used as evidence was authorized for the requesting subject at query time. | Per-decision `PolicyDecision` rows, HMAC-SHA256 tamper-evident hash chain over query traces, periodic Merkle-root anchoring to S3 Object Lock, `/explain` replay endpoint. |
+| **C1 — Verifiable access correctness** | An auditor can re-derive, after the fact, the recorded authorization decisions for each evidence object persisted with a query trace. | Per-decision `PolicyDecision` rows, HMAC-SHA256 tamper-evident hash chain over query traces, periodic Merkle-root anchoring to self-hosted MinIO Object Lock, `/explain` replay endpoint. |
 | **C2 — Cross-retriever consensus** | The system reports *how much* independent retrieval channels agree before an answer is labeled trustworthy. | Vector and graph lanes run independently on authorized evidence; agreement = 0.4 · entity-set Jaccard + 0.6 · bidirectional NLI over decomposed claims (3-voter ensemble); a code-level synthesis verdict (`decide_synthesis`) gates the answer style. |
 | **C3 — Policy-partitioned communities** | Graph community summaries never mix content across access boundaries. | The tenant graph is partitioned by policy-equivalence class (canonical hash of `owner + group_viewers + direct_viewers`) *before* Louvain community detection; a Hypothesis property test pins the no-leakage guarantee. |
 
@@ -51,7 +51,7 @@ The full component breakdown is in [Architecture](01-architecture.md).
 | **Consensus score** | `0.4 · jaccard(entity sets) + 0.6 · NLI agreement` between the vector-lane and graph-lane drafts. |
 | **Synthesis verdict** | One of four code-level branches (`direct`, `single_channel`, `cautious`, `no_evidence`) chosen by `decide_synthesis` from evidence presence and consensus — never left to the LLM prompt. |
 | **Tamper chain** | Per-tenant HMAC-SHA256 hash chain linking each query trace to its predecessor; any rewrite breaks verification. |
-| **Merkle anchor** | A periodic Merkle root over audit rows written to S3 Object Lock (WORM), giving external verifiability without per-event external writes. |
+| **Merkle anchor** | A periodic Merkle root over audit rows written to self-hosted MinIO Object Lock (WORM), giving an independently operated commitment without per-event external writes. |
 | **Trace / trace_id** | The persisted audit record of one query: retrieval evidence, policy decisions, consensus, answer, chain hash. Input to `/explain`. |
 | **MRD corpus** | The 50-case evaluation suite (`corpus/mrd_v1`): 17 pseudonymized documents, 8 personas, 10 groups, 4 classification levels, 37 allow / 13 deny cases. |
 | **Eval identity mode** | Dev/test-only flag (`SECURGRAPH_EVAL_IDENTITY_MODE`) allowing the caller to simulate a subject for read-only authorization evaluation. Refused in production. |

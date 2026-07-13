@@ -1,79 +1,95 @@
-# SecureGraph RAG — Pilot Validation Report (D7)
+# SecureGraph RAG - Archived Pilot Validation Report (D7)
 
-**Version:** v0.1.0-rc1
-**Date:** 2026-07-01
-**Branch:** `feat/security-hardening`
+**Status:** Historical pilot record; not submission or release evidence
+**Pilot version:** v0.1.0-rc1
+**Pilot date:** 2026-07-01
+**Pilot branch:** `feat/security-hardening`
 
-## Executive Summary
+## Purpose and limits
 
-SecureGraph RAG was validated against a production-like acceptance plan
-spanning 9 phases. The framework demonstrates verifiable access correctness
-(C1), cross-retriever consensus (C2), and policy-aware community detection
-(C3) on a realistic 50-case QA suite with zero leakage.
+This document records the 1 July 2026 pilot exactly enough to explain the
+project history. It does **not** certify the current submission-ready release.
+The pilot predates the current deny scorer, heldout-corpus isolation,
+audit-payload v2, automatic anchor jobs, and the 365-day MinIO deployment
+requirements.
 
-## Validation Scope
+In particular, a pilot deny was counted when the response used a hedge. The
+current gate requires an explicit refusal, no forbidden source, and no
+forbidden protected claim. Consequently the historical "Deny=100%" result
+below must not be read as a zero-leakage claim under the current protocol.
 
-| Area | Method | Result |
+The MinIO test below was a local integration test using Object Lock
+`COMPLIANCE` with 24-hour retention. It does not demonstrate the current
+production requirement: self-hosted MinIO Object Lock in a separate failure
+domain and administrative domain, with 365-day `COMPLIANCE` retention.
+
+## Historical Pilot Scope
+
+| Area | Method used in the pilot | Historical result |
 |---|---|---|
-| **Security hardening (SGH-01..10)** | Regression tests, failure injection, and live concurrent fork test | 9 Done, 1 Partial |
-| **PostgreSQL RLS** | Live integration test against migrated PostgreSQL | Pass |
-| **S3 Object Lock anchoring** | Live test against MinIO with Object Lock compliance | Pass (24h retention verified) |
-| **MRD corpus live scoring** | 50 QA pairs × 8 personas × 4 classification levels | Leakage=0%, Deny=100% |
-| **Settings advanced** | Egress policy, token/cost estimate, blue-green reindex plan | Implemented post-rc1 |
-| **Frontend i18n** | `check:i18n` gate + nested component localization | Pass (IT/EN) |
-| **Playwright E2E** | 5 live smoke tests (login, invalid login, locale, dashboard) | Pass |
+| Security hardening (SGH-01..10) | Regression tests, failure injection, live concurrent fork test | 9 done, 1 partial |
+| PostgreSQL RLS | Live integration test against migrated PostgreSQL | Pass |
+| MinIO Object Lock anchoring | Local live integration test | Pass, 24-hour retention verified |
+| MRD corpus live scoring | 50 QA pairs x 8 personas x 4 classifications | Old scorer reported leakage=0%, deny=100% |
+| Settings advanced | Egress policy, token/cost estimate, blue-green reindex plan | Implemented after rc1 |
+| Frontend i18n | `check:i18n` gate and nested component localization | Pass, IT/EN |
+| Playwright E2E | Five live smoke tests: login, invalid login, locale, dashboard | Pass |
 
-## Key Metrics
+## Historical Measurements
 
-### C1 — Verifiable Access Correctness
+### C1 - Verifiable Access Correctness
 
-| Metric | Value |
-|---|---|
-| Leakage rate | **0%** (0/50 QA pairs) |
-| Deny accuracy | **100%** (13/13 deny cases produced hedge) |
-| Citation source coverage | 36/37 allow cases in full live smoke before public-seed fix; `mrd-45` single retry after the fix cited `file://14_repository_readme.md` |
-| Tamper chain integrity | Verified intact under 4 concurrent writers |
-| Merkle anchor | Object Lock COMPLIANCE mode, 24h retention |
+| Measurement | Pilot value | Current interpretation |
+|---|---|---|
+| Leakage rate | 0% over 50 QA pairs | Requires remeasurement with the current scorer and heldout corpus |
+| Deny accuracy | 13/13 deny cases produced a hedge | Not equivalent to the current explicit-refusal security gate |
+| Citation source coverage | 36/37 allow cases in the pre-fix live smoke; `mrd-45` retry cited `file://14_repository_readme.md` | Historical answer-quality observation only |
+| Tamper chain integrity | Intact under four concurrent writers | Superseded by audit payload v2 verification requirements |
+| Merkle anchor | Object Lock `COMPLIANCE`, 24-hour retention | Superseded by the 365-day MinIO production policy |
 
-### C2 — Cross-Retriever Consensus
+### C2 - Cross-Retriever Consensus
 
-| Metric | Value |
-|---|---|
-| NLI ensemble | 3-voter majority (asyncio.gather) |
-| Consensus threshold | 0.6 (configurable) |
-| High-trust gating | Authorized queries → high_trust=true; unauthorized → hedge |
+| Measurement | Pilot value | Current interpretation |
+|---|---|---|
+| NLI ensemble | Three-voter majority via `asyncio.gather` | Requires calibration and lane ablation reports |
+| Consensus threshold | 0.6, configurable | Requires threshold-sensitivity evidence |
+| High-trust gating | Authorized queries high-trust; unauthorized queries hedge | Requires the current deny scorer |
 
-### C3 — Policy-Aware Communities
+### C3 - Policy-Aware Communities
 
-| Metric | Value |
-|---|---|
-| No-leakage property | Proven by construction + Hypothesis property test |
-| Live ablation | C3 ON: 14 classes, 89 communities, 0 mixed; ablation OFF: 1 class, 58 communities, 12 mixed; C3 restored: 14 classes, 89 communities, 0 mixed |
-| Evidence | `eval/results/c3-ablation-live-20260701T154455Z.json` |
+| Measurement | Pilot value | Current interpretation |
+|---|---|---|
+| No-leakage property | Construction argument and Hypothesis property test | Current implementation uses canonical 128-bit policy-class digests |
+| Live ablation | C3 on: 14 classes, 89 communities, 0 mixed. C3 off: 1 class, 58 communities, 12 mixed. Restored: 14 classes, 89 communities, 0 mixed. | Historical evidence; rerun required for release evidence |
+| Evidence | `eval/results/c3-ablation-live-20260701T154455Z.json` | Historical artifact only |
 
-## Test Baseline
+## Historical Test Baseline
 
-- **Unit tests:** 165 passed, 24 deselected (integration/live)
-- **Integration tests:** RLS (1/1 pass), S3 anchor (3/3 pass, 1 skip)
-- **Lint:** ruff check — all checks passed
-- **Type:** mypy src — 0 issues in 78 source files
-- **Frontend:** check:i18n OK, eslint clean, build compiled successfully
+- Unit tests: 165 passed, 24 deselected (integration/live).
+- Integration tests: RLS 1/1 pass; MinIO anchor 3/3 pass, 1 skipped.
+- Static checks: Ruff passed; mypy reported 0 issues across 78 source files.
+- Frontend: `check:i18n`, ESLint, and production build passed.
 
-## Open Items (non-blocking for rc1)
+These counts describe the pilot checkout and must not be compared directly to
+the current test suite.
 
-- Role/group E2E expansion: live smoke passes; full role and business-group
-  browser matrix remains a final-release expansion.
-- Answer exact-match quality: full live smoke still has allow-case failures
-  where `expected_text_present=false`; source citations and zero-leakage checks
-  are no longer the blocker.
-- Settings production hardening: provider rotation/remove, scheduled diagnostics
-  with cooldown, live provider validation, and actual blue-green reindex
-  worker/cutover remain outside the rc1 slice.
+## Supersession
 
-## Conclusion
+The current acceptance contract is in
+[ARTIFACT_REPRODUCTION.md](../ARTIFACT_REPRODUCTION.md) and the technical
+evaluation documentation. A release is blocked until all of the following are
+green on the current commit:
 
-SecureGraph v0.1.0-rc1 is ready for release candidate tagging. The
-zero-leakage result on the MRD corpus validates the C1 security claim. The
-The engineering is
-production-like with live-verified RLS, S3 Object Lock anchoring, and a
-localized Forensic Vault UI.
+- clean heldout execution with two independently reproducible runs;
+- zero forbidden-source and forbidden-claim leaks under the explicit-refusal
+  scorer;
+- audit v1/v2 verification, scheduled MinIO Object Lock anchors, and durable
+  ingest-saga reconciliation;
+- calibrated C2 reports with lane ablation and C3 evidence;
+- backend and frontend static checks, test gates, and live integration gates.
+
+## Archived Conclusion
+
+The pilot demonstrated useful early integration coverage and informed the
+submission-ready remediation work. It is not a basis for release tagging,
+paper claims, or production-security conclusions.

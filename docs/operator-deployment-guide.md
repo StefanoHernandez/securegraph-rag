@@ -9,8 +9,8 @@
 - **Python 3.11+**
 - **[uv](https://docs.astral.sh/uv/)** (`brew install uv`)
 - **Node.js 20+** and **npm**
-- **Cloud LLM API key** (Mistral or OpenAI) — Ollama optional for future
-  hardware
+- **Mistral API key** for generation and extraction, plus an **OpenAI API key**
+  for the NLI/RAGAS judge
 
 ## Step-by-Step Deployment
 
@@ -23,9 +23,9 @@ cp .env.example .env
 ```
 
 Edit `.env`:
-- Set `SECURGRAPH_LLM_PROVIDER=mistral` (or `openai`)
-- Set `SECURGRAPH_LLM_MODEL=mistral-small-latest`
-- Set `MISTRAL_API_KEY` or `OPENAI_API_KEY`
+- Keep the default providers: `mistral` for generation/extraction and `openai`
+  for the judge
+- Set `MISTRAL_API_KEY` and `OPENAI_API_KEY`
 - Set `SECURGRAPH_MASTER_KEY` to a long random secret (for encrypted
   provider credential storage)
 - Set `AUDIT_HMAC_KEY` to a 32+ byte hex string (for tamper-evident audit
@@ -38,12 +38,12 @@ make up
 ```
 
 This starts PostgreSQL, Qdrant, Neo4j, OpenFGA, Jaeger, and (with
-`--profile anchor`) MinIO for S3-compatible Object Lock anchoring.
+`--profile anchor`) MinIO for Object Lock integration testing.
 
 On first run, `make up` copies `docker/postgres-init/init-openfga.sql.example`
 to `init-openfga.sql` if missing, and initializes the Qdrant collection.
 
-To enable S3 Object Lock anchoring (recommended for production-like):
+To enable the local MinIO Object Lock integration target:
 
 ```sh
 docker compose -f docker/docker-compose.yml --env-file .env --profile anchor up -d
@@ -51,13 +51,16 @@ docker compose -f docker/docker-compose.yml --env-file .env --profile anchor up 
 
 Then set in `.env`:
 ```
-SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET=securgraph-audit-anchors
-SECURGRAPH_AUDIT_ANCHOR_S3_ENDPOINT=http://localhost:9000
-SECURGRAPH_AUDIT_ANCHOR_S3_ACCESS_KEY=minioadmin
-SECURGRAPH_AUDIT_ANCHOR_S3_SECRET_KEY=minioadmin
+SECURGRAPH_AUDIT_ANCHOR_BUCKET=securgraph-audit-anchors
+SECURGRAPH_AUDIT_ANCHOR_ENDPOINT=http://localhost:9000
+SECURGRAPH_AUDIT_ANCHOR_ACCESS_KEY=minioadmin
+SECURGRAPH_AUDIT_ANCHOR_SECRET_KEY=minioadmin
 ```
 
-For production AWS S3, set the bucket name and region, leave endpoint empty.
+For stage/prod, use a dedicated self-hosted MinIO Object Lock deployment on a
+separate host and administrative domain. Set its endpoint and dedicated
+credentials; retention is `COMPLIANCE` for 365 days. Do not use the Compose
+instance as a production trust boundary.
 
 ### 3. Install Python dependencies
 
@@ -141,7 +144,7 @@ make mrd-seed-live
 make mrd-live
 ```
 
-Latest dev report (deny scorer v2): 47/50 allow-quality live, **13/13 deny security**, 0 source/claim leaks. Held-out: 19/20 overall, **8/8 security**, 0 leaks ×2 runs.
+Archived reports are development evidence only. A release report must be generated from a clean worktree on the release commit, using `make heldout-live` twice with the mandated cloud providers and no baseline templates. The report separates six authorization-denial cases from two source-isolation cases; do not collapse them into one refusal metric.
 
 ## Production Checklist
 
@@ -150,7 +153,8 @@ Latest dev report (deny scorer v2): 47/50 allow-quality live, **13/13 deny secur
       refuses `auth_enabled=false` in stage/prod)
 - [ ] `AUDIT_HMAC_KEY` set to a strong random secret
 - [ ] `SECURGRAPH_MASTER_KEY` set to a strong random secret
-- [ ] `SECURGRAPH_AUDIT_ANCHOR_BUCKET` (or legacy `SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET`) points to a **dedicated** MinIO or S3-compatible WORM host — Compose MinIO is integration-only
+- [ ] `SECURGRAPH_AUDIT_ANCHOR_BUCKET`, endpoint, and dedicated credentials point to self-hosted MinIO Object Lock (`COMPLIANCE`, 365 days) on a separate host and administrative domain — Compose MinIO is integration-only
+- [ ] `SECURGRAPH_FEATURE_WORKERS_ENABLED=true`; Redis and the ARQ worker are running for durable ingestion and periodic anchors
 - [ ] Cloud LLM API keys configured via Settings UI (not plaintext in `.env`)
 - [ ] Bootstrap super-admin password changed after first login
 - [ ] PostgreSQL role is non-superuser without BYPASSRLS (RLS defense-in-depth)
@@ -180,11 +184,11 @@ Check `/tmp/securgraph-api.log` or the terminal output. Common causes:
 - Ensure `started_at` is set explicitly on trace rows (not server_default)
 - Run `.venv/bin/securgraph` backfill if legacy rows exist
 
-### S3 anchor fails
+### MinIO anchor fails
 
 - Ensure MinIO bucket has Object Lock enabled (`mc mb --with-lock`)
-- Ensure `SECURGRAPH_AUDIT_ANCHOR_S3_*` env vars are set
-- In production, ensure the S3 bucket has Object Lock retention configured
+- Ensure canonical `SECURGRAPH_AUDIT_ANCHOR_*` variables are set
+- Ensure the production MinIO bucket has `COMPLIANCE` retention configured for 365 days
 
 ## Shutdown
 

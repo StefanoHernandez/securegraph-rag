@@ -11,7 +11,7 @@ Assets: document/chunk text and derived artifacts (graph edges, community summar
 | Authenticated user over-reaching | Crafts queries to pull content beyond their grants (direct vector hits, graph hops through restricted docs, community summaries) | C1 per-object checks, path-cut, C3 partitioning |
 | Cross-tenant caller | Valid session in tenant A probing tenant B | Session tenant binding, store-level tenant filters, PostgreSQL RLS + `NOBYPASSRLS` role |
 | Client-side manipulation | Tampered browser state, forged `user_id` in request bodies | SGH-01: identity always derived server-side from the session; CSRF double-submit; body `user_id` ignored outside dev/test eval mode |
-| Insider with DB write access | Rewrites the audit trail after an incident | HMAC chain (keyed, key not in DB) + Merkle anchors on S3 Object Lock (WORM) |
+| Insider with DB write access | Rewrites the audit trail after an incident | HMAC chain (keyed, key not in DB) + Merkle anchors on self-hosted MinIO Object Lock (WORM) |
 | Malicious document | Prompt injection via ingested content; oversized/hostile uploads | Documented trust boundary, strict grounding prompts, upload hardening |
 | Server-side request forgery | Admin sets a provider `base_url` pointing at internal services | SSRF guard on egress URLs |
 | Credential theft from disk/DB | Reads provider keys from PostgreSQL | AES-GCM encryption under `SECURGRAPH_MASTER_KEY`; secrets never returned by any API |
@@ -21,12 +21,12 @@ Out of scope (alpha): a compromised API host (holds the HMAC key in env), malici
 
 ## C1 — Verifiable access correctness
 
-The claim: *an auditor can re-derive, per answer, that every evidence object was authorized for the subject at query time.*
+The claim is limited to the persisted record: *an auditor can verify the recorded authorization decisions and evidence hashes for a query trace, and can re-check current policy state.* Historical OpenFGA tuple replay is not implemented.
 
 1. **Ground truth**: OpenFGA ReBAC model (`viewer` = owner ∪ group_viewer ∪ direct_viewer; chunks inherit from documents, communities from policy classes). Every retrieval-time check is per-object and fail-closed.
 2. **Decision records**: each check writes a `PolicyDecisionRow` — object type/id, action, allow/deny, reason code (`openfga_ok`, `unauthorized_rbac`, `graph_path_cut`, `community_policy_class_ok`, …), engine, timestamp. Denies are recorded, not just allows.
 3. **Tamper evidence**: with `SECURGRAPH_AUDIT_TAMPER_EVIDENT=true`, traces, evidence, and decisions are HMAC-SHA256-chained per tenant: canonical `key=val|…|prev_hash=<h>` message, key from `AUDIT_HMAC_KEY` (env only, never stored; unset ⇒ plain SHA-256 with a loud warning — dev only). Chain heads are `SELECT … FOR UPDATE`-serialized; `chain_sequence` is unique per tenant. Verification (`/admin/audit/verify-chain`, ledger-verify jobs) re-derives every hash and pinpoints tampered rows without cascading.
-4. **External anchor**: periodically (≥10 000 new events or interval elapsed), a Merkle root over the chain heads is written to S3 with `ObjectLockMode=COMPLIANCE` and a retention date — the database alone can no longer rewrite history past an anchor. Local anchor storage refuses to run in prod.
+4. **MinIO anchor**: periodically (>=10,000 new events or interval elapsed), a Merkle root over the chain heads is written to self-hosted MinIO with `ObjectLockMode=COMPLIANCE` and 365-day retention. This is an independent commitment only when MinIO is separately administered on a distinct host and domain; local or colocated MinIO is an integration boundary, not an external one. Local anchor storage refuses to run in prod.
 5. **Replay**: `GET /explain/{trace_id}` reconstructs the answer's lineage as W3C PROV-style agents/activities/entities: per-evidence authorization outcomes with real snippets for allowed chunks (500-char cap), `CONFIDENTIAL - ACCESS DENIED` for denied ones, honest structural labels for graph paths (path text is not persisted), plus the consensus snapshot and chain status.
 6. **Failures audit too**: failed queries persist a chained trace row; permission grant/revoke, job cancel (with pre-cancel status), and retries write `admin_audit_events`.
 
@@ -38,7 +38,7 @@ Security-relevant property: the confidence signal is computed from **independent
 
 Community summaries are LLM-generated aggregates — the one derived artifact that could silently blend restricted and unrestricted content. C3 prevents this **structurally**:
 
-1. Every chunk's access label (`owner + sorted group_viewers + sorted direct_viewers`) hashes to a 16-hex **policy-class key**; identical key ⟺ identical authorized-subject set.
+1. Every chunk's access label (`owner + sorted group_viewers + sorted direct_viewers`) hashes to a 32-hex (128-bit) **policy-class key**; identical key ⟺ identical authorized-subject set.
 2. The tenant graph's edges are partitioned by class **before** Louvain runs (per-class subgraphs; Level 0 resolution 1.2, Level 1 resolution 0.6, seed 42). Edges whose source chunks have no label go to a quarantined `unlabeled` bucket that receives no grants — invisible, fail-closed.
 3. Retrieval does one FGA check per class (`viewer` on `policy_class:<key>`), then a per-community defense-in-depth check (`viewer` on `community:<id>`).
 4. The guarantee is pinned by a Hypothesis property test (`tests/adversarial/test_c3_no_leakage.py`, 200 generated topologies): no bucket ever contains a cross-class edge.
@@ -78,6 +78,6 @@ Tracked honestly rather than hidden:
 make test-adversarial     # C3 no-leakage property (Hypothesis, fixed seed)
 make test-sgh06           # fail-closed ingestion failure injection
 make test-rls-live        # live RLS gate (requires make up + migrate)
-make test-s3-anchor-live  # live S3 Object Lock anchor gate
+make test-minio-anchor-live  # live MinIO Object Lock anchor gate
 make mrd-live             # 50-case allow/deny/leakage suite against a live stack
 ```

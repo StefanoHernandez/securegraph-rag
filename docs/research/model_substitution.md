@@ -1,131 +1,54 @@
 ---
-title: Model Substitution & Judge Independence
-updated: 2026-06-18
-status: draft
-sources:
-  - SecurGraph_RAG_Technical_Blueprint.md (§5.2, validation scenario 6)
-  - src/securgraph/adapters/llm/
-  - tests/unit/test_llm_adapter_swap.py
+title: Model Configuration and Judge Independence
+status: current
 ---
 
-# Model Substitution & Judge Independence
+# Model Configuration and Judge Independence
 
-This document records how SecurGraph satisfies two related requirements from
-the technical blueprint:
+SecureGraph keeps LLM providers behind `LLMAdapter`, but the submission and
+acceptance profile is deliberately fixed rather than provider-neutral:
 
-1. **Model flexibility KPI** (blueprint validation scenario 6):
-   "Support for multiple LLM and embedding backends, including at least one
-   local or self-hosted deployment option."
-2. **Eval-judge independence** (work-tracker P1.4): the RAGAS evaluation judge
-   must not be the same model as the pipeline's internal NLI judge, otherwise
-   the evaluation is circular.
+| Stage | Provider | Model |
+| --- | --- | --- |
+| Generation | Mistral | `mistral-small-latest` |
+| Graph extraction | Mistral | `mistral-small-latest` |
+| NLI / semantic judge | OpenAI | `gpt-4o-mini` |
+| Embeddings | local FlagEmbedding | `BAAI/bge-m3` |
 
-## 1. Model flexibility — LLM adapter layer
+This separation makes the NLI and semantic diagnostics independent from the
+generation/extraction provider. It does not by itself prove statistical
+independence; the evaluation reports preserve provider/model metadata so that
+reviewers can assess the configuration.
 
-### Architecture
+## Provider Adapter Boundary
 
-SecurGraph's pipeline never imports a vendor SDK directly. All LLM calls go
-through the `LLMAdapter` ABC defined in
-`src/securgraph/adapters/llm/base.py`. Concrete providers implement the ABC
-under sibling modules:
+The pipeline uses `get_llm_adapter()` / `get_llm_adapter_for()` rather than
+calling vendor SDKs directly. OpenAI, Mistral, Google, and Anthropic adapters
+remain available. Ollama is retained only as an explicit legacy local adapter:
+stage and production startup reject it, and it is excluded from cloud defaults,
+acceptance tests, held-out evaluation, and paper experiments.
 
-| Provider   | Module                          | Default for |
-|------------|---------------------------------|-------------|
-| Ollama     | `adapters/llm/ollama.py`        | local/dev   |
-| OpenAI     | `adapters/llm/openai.py`        | cloud       |
-| Google     | `adapters/llm/google.py`        | cloud       |
-| Mistral    | `adapters/llm/mistral.py`       | cloud       |
-| Anthropic  | `adapters/llm/anthropic.py`     | cloud       |
+## Configuration
 
-The factory `get_llm_adapter(role)` reads `SECURGRAPH_LLM_PROVIDER` (and
-per-role overrides `SECURGRAPH_LLM_PROVIDER_EXTRACT` / `_JUDGE`) from
-settings and returns a cached adapter instance. Per-role overrides allow a
-mixed deployment: e.g. local Ollama for extraction of sensitive documents
-and a cloud model for the NLI judge over already-authorized evidence.
-
-### Verification — blueprint scenario 6
-
-`tests/unit/test_llm_adapter_swap.py` (7 tests, all passing) verifies:
-
-1. The default provider is Ollama (sovereign-default guarantee — a fresh
-   checkout with zero cloud credentials produces a working adapter).
-2. Every provider satisfies the `LLMAdapter` ABC.
-3. Swapping `SECURGRAPH_LLM_PROVIDER` at runtime routes to a different class.
-4. Per-role overrides select different adapters.
-5. An unsupported provider id is rejected with a clear error.
-6. A `chat()` call goes through the adapter, not a direct vendor SDK.
-7. The legacy `from securgraph.adapters.ollama import ...` shim still works.
-
-### Configuration
-
-Cloud providers are optional extras in `pyproject.toml`:
-
-```
-uv pip install -e ".[llm_openai,llm_google,llm_anthropic]"
-```
-
-Mistral reuses the OpenAI SDK with `OPENAI_BASE_URL=https://api.mistral.ai/v1`,
-so it has no separate extra. The default Ollama provider needs no extra deps.
-
-`.env` example for a mixed deployment:
-
-```
-SECURGRAPH_LLM_PROVIDER=ollama              # online path: local
-SECURGRAPH_LLM_MODEL=granite4.1:3b
-SECURGRAPH_LLM_PROVIDER_EXTRACT=ollama      # extraction of sensitive docs: local
-SECURGRAPH_LLM_MODEL_EXTRACT=gemma4:e2b-it-qat
-SECURGRAPH_LLM_PROVIDER_JUDGE=openai        # NLI judge over authorized evidence: cloud
+```dotenv
+SECURGRAPH_LLM_PROVIDER=mistral
+SECURGRAPH_LLM_MODEL=mistral-small-latest
+SECURGRAPH_LLM_PROVIDER_EXTRACT=mistral
+SECURGRAPH_LLM_MODEL_EXTRACT=mistral-small-latest
+SECURGRAPH_LLM_PROVIDER_JUDGE=openai
 SECURGRAPH_LLM_MODEL_JUDGE=gpt-4o-mini
-OPENAI_API_KEY=sk-...
+MISTRAL_API_KEY=<configured-secret>
+OPENAI_API_KEY=<configured-secret>
 ```
 
-### Security note (blueprint §5.6)
+Cloud calls receive only evidence that passed the authorization layer. Local
+BGE-M3 embeddings keep chunk embedding on the host. Provider/model coherence
+guards reject local-shaped model identifiers for cloud providers and reject
+Ollama in stage/prod.
 
-Cloud providers receive only *already-authorized* evidence. The policy layer
-runs before context assembly, so unauthorized chunks never enter the prompt
-regardless of which LLM provider serves the call. The per-role config lets
-operators keep extraction of raw sensitive documents on a local provider
-while still using a cloud model for the judge over authorized context.
+## Verification
 
-## 2. Eval-judge independence (P1.4)
-
-### Problem
-
-RAGAS evaluates the pipeline's answers against ground truth. If the RAGAS
-judge LLM is the same model as the pipeline's internal NLI judge
-(`workflow.py:judge_nli`), the evaluation is circular: the same model is
-both producing and grading the answers. This is indefensible in peer review.
-
-### Solution
-
-The baseline harness (`eval/baseline.py`) uses a dedicated judge model that
-is **different** from the pipeline's internal judge:
-
-| Role                  | Config                          | Default model       |
-|-----------------------|---------------------------------|---------------------|
-| Pipeline NLI judge    | `SECURGRAPH_LLM_MODEL_JUDGE`    | `granite4.1:3b`     |
-| RAGAS eval judge      | hardcoded in `baseline.py`      | `qwen3.5:2b`        |
-| RAGAS eval embeddings | hardcoded in `baseline.py`      | `nomic-embed-text`  |
-
-The RAGAS judge also runs with `think=False` (via the `OllamaThinkOff` wrapper
-in `baseline.py`) to keep latency bounded on long prompts.
-
-### Verification
-
-This is documented here rather than tested in code, because the independence
-is a property of the *configuration*, not of the code. The test that the
-pipeline uses `get_llm_adapter_for("judge")` (which reads
-`SECURGRAPH_LLM_PROVIDER_JUDGE` / `SECURGRAPH_LLM_MODEL_JUDGE`) is covered by
-`test_llm_adapter_swap.py::test_per_role_provider_override`.
-
-## 3. Open follow-ups
-
-- **Live smoke test per provider**: `tests/integration/test_llm_provider_live.py`
-  that issues one real chat call per configured provider (requires API keys).
-  Not blocking for the paper; the unit-level substitution test is sufficient
-  for the KPI claim.
-- **Antigravity as orchestration alternative**: `google-antigravity` is an
-  agentic framework comparable to LangGraph, not an LLM provider. Tracked as
-  a separate backlog item (`feat/orchestration-antigravity`).
-- **Pin `uv.lock`** on the branch that produces paper figures, so the
-  provider SDK versions are reproducible (work-tracker INFRA-2).
+`tests/unit/test_llm_adapter_swap.py` verifies adapter selection and the
+submission defaults. Held-out runs validate their provider/model manifest
+before contacting the live endpoint; this prevents a legacy or mismatched
+model configuration from producing a submission report.

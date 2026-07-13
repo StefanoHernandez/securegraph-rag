@@ -38,12 +38,12 @@ The API connects as the least-privilege PostgreSQL role `securgraph_app` (grante
 | `make test-unit` | Unit tests only — Docker-free and network-free (hermetic). |
 | `make test` | Unit + integration (requires `make up`). |
 | `make test-adversarial` | Hypothesis property tests (C3 no-leakage gate), fixed seed. |
-| `make test-rls-live` / `make test-s3-anchor-live` / `make test-live-gates` | Release-blocking live gates: PostgreSQL RLS and S3 Object Lock anchoring against real backends. |
+| `make test-rls-live` / `make test-minio-anchor-live` / `make test-live-gates` | Release-blocking live gates: PostgreSQL RLS and MinIO Object Lock anchoring against real backends. |
 | `make test-sgh06` | Cross-store failure-injection bundle (fail-closed ingestion). |
 | `make test-ingest-chaos-live` | Live ingest reconcile/worker chaos tests. |
 | `make mrd-seed-live` / `make mrd-live` | Seed the MRD corpus into a live stack / run the 50-case MRD QA smoke against `/query` (writes `eval/results/`). |
-| `make ci` | `lint + type + test-unit` — mirrors GitHub Actions exactly. |
-| `make cov` | Coverage report (terminal + HTML). |
+| `make ci` | `lint + type + test-unit` — mirrors the primary GitHub Actions checks. |
+| `make cov` | Docker-free unit/adversarial branch-coverage gate, minimum 70% (terminal + HTML). |
 | `make web-lint` / `make web-i18n` / `make web-build` / `make web-e2e` | Frontend gates (Playwright E2E needs API + web running). |
 | `make eval-venv` / `make eval` / `make baseline` | Isolated eval environment and evaluation runs (see [09 — Evaluation](09-evaluation.md)). |
 
@@ -70,10 +70,10 @@ Conventions worth knowing before writing tests:
 
 `.github/workflows/ci.yml` runs on pushes/PRs to `main` and `feat/**`, two parallel jobs:
 
-- **backend** — Python 3.11 provisioned with `uv sync --frozen` from `uv.lock`: `make lint`, `make type`, `make test-unit`. The unit suite is intentionally Docker-free; do not switch the job to `make test`.
+- **backend** — Python 3.11 provisioned with `uv sync --frozen` from `uv.lock`: `make lint`, `make type`, `make test-unit`, and `make cov` (70% minimum). The unit suite and coverage gate are intentionally Docker-free; do not switch the job to `make test`.
 - **web** — Node 20: `npm run lint`, `npm run check:i18n`, `npm run build` (the build runs the typed-routes typegen, which covers `tsc`).
 
-Run `make ci` locally to reproduce the backend job bit-for-bit.
+Run `make ci && make cov` locally to reproduce the backend job bit-for-bit.
 
 ## Code conventions
 
@@ -87,7 +87,7 @@ Run `make ci` locally to reproduce the backend job bit-for-bit.
 
 1. Branch from `main` (`feat/…` or `fix/…`).
 2. Implement with tests: unit for logic, integration when a real store matters, adversarial when a security invariant moves.
-3. Gate locally: `make ci` (backend) and `make web-lint && make web-i18n && make web-build` when the UI changed.
+3. Gate locally: `make ci && make cov` (backend) and `make web-lint && make web-i18n && make web-build` when the UI changed.
 4. If retrieval, policy, or synthesis behavior changed, re-run the MRD evaluation with `make mrd-live` ([09 — Evaluation](09-evaluation.md)) — the leakage-zero and deny invariants are release-blocking.
 5. Open a PR to `main`; CI must be green.
 

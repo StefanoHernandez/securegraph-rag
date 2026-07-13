@@ -58,6 +58,29 @@ Reports: `eval/results/mrd-heldout-*.json`
 
 ```bash
 make ci
+make cov
 make test-adversarial
 pytest tests/unit/test_tamper_audit_v2.py -q
 ```
+
+## C2 calibration and lane ablation
+
+Run the dev corpus three times against the same clean stack, retaining the
+three generated JSON report paths. The runner stores only C2 confidence
+diagnostics (`agreement_score`, overlap, NLI score, high-trust flag, and
+verdict); it does not store drafts or retrieved text for calibration.
+
+```bash
+make mrd-live MRD_RETRIEVAL_MODE=hybrid
+make mrd-live MRD_RETRIEVAL_MODE=vector
+make mrd-live MRD_RETRIEVAL_MODE=graph
+
+make c2-calibration \
+  C2_HYBRID_REPORT=eval/results/mrd-qa-smoke-<hybrid>.json \
+  C2_VECTOR_REPORT=eval/results/mrd-qa-smoke-<vector>.json \
+  C2_GRAPH_REPORT=eval/results/mrd-qa-smoke-<graph>.json
+```
+
+The output records reliability bins, expected calibration error, threshold
+sensitivity, and a same-case lane ablation. It is a diagnostic for C2, not a
+replacement for deterministic deny-security gates.
