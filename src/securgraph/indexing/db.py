@@ -192,6 +192,30 @@ class IngestionSourceRow(Base):
     )
 
 
+class IngestionSagaStepRow(Base):
+    """Durable ledger of external ingestion effects and their compensation."""
+
+    __tablename__ = "ingestion_saga_steps"
+
+    job_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("ingestion_jobs.job_id", ondelete="CASCADE"), primary_key=True
+    )
+    step: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    resource_ids: Mapped[dict[str, Any]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict
+    )
+    compensation_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class IngestionProvenanceRow(Base):
     __tablename__ = "ingestion_provenance"
 
@@ -274,6 +298,7 @@ class RetrievalEvidenceRow(Base):
     original_rank: Mapped[int] = mapped_column(Integer, nullable=False)
     original_score: Mapped[float] = mapped_column(Float, nullable=False)
     included_in_prompt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     tamper_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     chain_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tamper_version: Mapped[str] = mapped_column(

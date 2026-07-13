@@ -46,6 +46,19 @@ def test_prod_with_auth_disabled_refuses_startup() -> None:
         enforce_auth_hygiene(Settings(env="prod", auth_enabled=False))
 
 
+def test_prod_requires_workers_for_durable_ingestion_saga() -> None:
+    from securgraph.api.main import enforce_worker_hygiene
+
+    with pytest.raises(RuntimeError, match="FEATURE_WORKERS_ENABLED"):
+        enforce_worker_hygiene(Settings(env="prod", feature_workers_enabled=False))
+
+
+def test_dev_allows_synchronous_ingestion_without_workers() -> None:
+    from securgraph.api.main import enforce_worker_hygiene
+
+    enforce_worker_hygiene(Settings(env="dev", feature_workers_enabled=False))
+
+
 def test_stage_with_auth_disabled_refuses_startup() -> None:
     from securgraph.api.main import enforce_auth_hygiene
 
@@ -130,11 +143,26 @@ def test_cloud_provider_with_cloud_models_passes() -> None:
     assert check_provider_model_coherence(settings) == []
 
 
-def test_ollama_provider_with_ollama_model_passes() -> None:
+def test_ollama_provider_refuses_startup_in_prod() -> None:
     from securgraph.api.main import check_provider_model_coherence
 
     settings = Settings(env="prod", llm_provider="ollama")
-    assert check_provider_model_coherence(settings) == []
+    with pytest.raises(RuntimeError, match="Ollama"):
+        check_provider_model_coherence(settings)
+
+
+def test_ollama_provider_warns_in_dev() -> None:
+    from securgraph.api.main import check_provider_model_coherence
+
+    settings = Settings(
+        env="dev",
+        llm_provider="ollama",
+        llm_provider_extract="ollama",
+        llm_provider_judge="ollama",
+    )
+    problems = check_provider_model_coherence(settings)
+    assert len(problems) == 3
+    assert all("Ollama" in problem for problem in problems)
 
 
 def _production_audit_settings(**overrides: object) -> Settings:
@@ -142,10 +170,10 @@ def _production_audit_settings(**overrides: object) -> Settings:
         "env": "prod",
         "audit_tamper_evident": True,
         "AUDIT_HMAC_KEY": SecretStr("ab" * 32),
-        "audit_anchor_s3_bucket": "securegraph-audit-anchors",
-        "audit_anchor_s3_endpoint": "https://minio.audit.example",
-        "audit_anchor_s3_access_key": "anchor-writer",
-        "audit_anchor_s3_secret_key": SecretStr("secret-value"),
+        "audit_anchor_bucket": "securegraph-audit-anchors",
+        "audit_anchor_endpoint": "https://minio.audit.example",
+        "audit_anchor_access_key": "anchor-writer",
+        "audit_anchor_secret_key": SecretStr("secret-value"),
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -169,13 +197,24 @@ def test_prod_requires_minio_object_lock_configuration() -> None:
     from securgraph.api.main import enforce_audit_hygiene
 
     with pytest.raises(RuntimeError, match="MinIO Object Lock"):
-        enforce_audit_hygiene(_production_audit_settings(audit_anchor_s3_bucket=""))
+        enforce_audit_hygiene(_production_audit_settings(audit_anchor_bucket=""))
 
 
 def test_prod_accepts_complete_minio_object_lock_configuration() -> None:
     from securgraph.api.main import enforce_audit_hygiene
 
     enforce_audit_hygiene(_production_audit_settings())
+
+
+def test_prod_rejects_aws_endpoint_for_minio_object_lock() -> None:
+    from securgraph.api.main import enforce_audit_hygiene
+
+    with pytest.raises(RuntimeError, match="MinIO Object Lock"):
+        enforce_audit_hygiene(
+            _production_audit_settings(
+                audit_anchor_endpoint="https://securegraph-audit.s3.amazonaws.com"
+            )
+        )
 
 
 def test_legacy_s3_environment_names_map_to_minio_fields() -> None:
@@ -188,5 +227,19 @@ def test_legacy_s3_environment_names_map_to_minio_fields() -> None:
     )
 
     assert settings.audit_anchor_bucket == "legacy-bucket"
+    assert settings.audit_anchor_endpoint == "https://minio.example"
+    assert settings.audit_anchor_backend == "minio"
+
+
+def test_canonical_minio_fields_are_the_settings_contract() -> None:
+    settings = Settings(
+        _env_file=None,
+        audit_anchor_bucket="securegraph-audit-anchors",
+        audit_anchor_endpoint="https://minio.example",
+        audit_anchor_access_key="anchor-writer",
+        audit_anchor_secret_key=SecretStr("anchor-secret"),
+    )
+
+    assert settings.audit_anchor_bucket == "securegraph-audit-anchors"
     assert settings.audit_anchor_endpoint == "https://minio.example"
     assert settings.audit_anchor_backend == "minio"

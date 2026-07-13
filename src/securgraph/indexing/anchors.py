@@ -36,7 +36,7 @@ class AnchorStorage(Protocol):
 class LocalAnchorStorage:
     """Development/test anchor storage.
 
-    Production must use S3 Object Lock. This class deliberately refuses to run
+    Production must use MinIO Object Lock. This class deliberately refuses to run
     when environment is production-like.
     """
 
@@ -46,7 +46,7 @@ class LocalAnchorStorage:
 
     async def write_anchor(self, payload: dict[str, object]) -> AnchorStorageResult:
         if self.environment.lower() in {"prod", "production"}:
-            raise RuntimeError("S3 Object Lock anchor storage is required in production.")
+            raise RuntimeError("MinIO Object Lock anchor storage is required in production.")
         tenant_id = str(payload["tenant_id"])
         merkle_root = str(payload["merkle_root"])
         directory = self.root / tenant_id
@@ -59,11 +59,11 @@ class LocalAnchorStorage:
         return AnchorStorageResult(storage_uri=path.as_posix(), object_version=None)
 
 
-class S3ObjectLockAnchorStorage:
-    """S3 Object Lock anchor storage.
+class MinioObjectLockAnchorStorage:
+    """MinIO Object Lock anchor storage using its S3-compatible API.
 
-    Uses boto3 only when this storage is instantiated, keeping the default API
-    process free from an AWS dependency in development/test environments.
+    Uses the S3-compatible boto3 client only when this storage is instantiated;
+    the configured endpoint must be a self-hosted MinIO deployment.
     """
 
     def __init__(
@@ -78,7 +78,9 @@ class S3ObjectLockAnchorStorage:
         secret_key: str = "",
     ) -> None:
         if not bucket:
-            raise RuntimeError("S3 Object Lock bucket is required for audit anchoring.")
+            raise RuntimeError("MinIO Object Lock bucket is required for audit anchoring.")
+        if not endpoint:
+            raise RuntimeError("MinIO Object Lock endpoint is required for audit anchoring.")
         self.bucket = bucket
         self.prefix = prefix.strip("/")
         self.retention_days = retention_days
@@ -91,7 +93,7 @@ class S3ObjectLockAnchorStorage:
         try:
             import boto3
         except ImportError as exc:
-            raise RuntimeError("boto3 is required for S3 Object Lock audit anchoring.") from exc
+            raise RuntimeError("boto3 is required for MinIO Object Lock audit anchoring.") from exc
 
         tenant_id = str(payload["tenant_id"])
         merkle_root = str(payload["merkle_root"])
@@ -137,17 +139,22 @@ def compute_merkle_root(leaves: list[str]) -> str:
 
 def default_anchor_storage() -> AnchorStorage:
     settings = get_settings()
-    if settings.audit_anchor_s3_bucket:
-        return S3ObjectLockAnchorStorage(
-            bucket=settings.audit_anchor_s3_bucket,
-            prefix=settings.audit_anchor_s3_prefix,
+    if settings.audit_anchor_backend == "minio":
+        return MinioObjectLockAnchorStorage(
+            bucket=settings.audit_anchor_bucket,
+            prefix=settings.audit_anchor_prefix,
             retention_days=settings.audit_anchor_retention_days,
-            endpoint=settings.audit_anchor_s3_endpoint,
-            region=settings.audit_anchor_s3_region,
-            access_key=settings.audit_anchor_s3_access_key,
-            secret_key=settings.audit_anchor_s3_secret_key.get_secret_value(),
+            endpoint=settings.audit_anchor_endpoint,
+            region=settings.audit_anchor_region,
+            access_key=settings.audit_anchor_access_key,
+            secret_key=settings.audit_anchor_secret_key.get_secret_value(),
         )
     return LocalAnchorStorage(environment=settings.env)
+
+
+# Compatibility import for deployments upgrading from the former S3-specific
+# class name. New code must use ``MinioObjectLockAnchorStorage``.
+S3ObjectLockAnchorStorage = MinioObjectLockAnchorStorage
 
 
 def is_anchor_due(

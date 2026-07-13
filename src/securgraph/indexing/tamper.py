@@ -87,8 +87,8 @@ def _query_payload_v2(row: QueryTraceRow) -> dict[str, Any]:
     }
 
 
-def _evidence_payload(row: RetrievalEvidenceRow) -> dict[str, Any]:
-    """Return the retrieval-evidence payload shared by audit versions v1 and v2."""
+def _evidence_payload_v1(row: RetrievalEvidenceRow) -> dict[str, Any]:
+    """Return the original retrieval-evidence payload used by v1 chains."""
     return {
         "evidence_id": row.evidence_id,
         "trace_id": row.trace_id,
@@ -98,6 +98,14 @@ def _evidence_payload(row: RetrievalEvidenceRow) -> dict[str, Any]:
         "original_rank": row.original_rank,
         "original_score": row.original_score,
         "included_in_prompt": row.included_in_prompt,
+    }
+
+
+def _evidence_payload_v2(row: RetrievalEvidenceRow) -> dict[str, Any]:
+    """Return the v2 evidence payload, including a hash of the source content."""
+    return {
+        **_evidence_payload_v1(row),
+        "content_hash": row.content_hash,
     }
 
 
@@ -279,7 +287,7 @@ async def chain_evidence_batch(session: AsyncSession, rows: list[RetrievalEviden
     for r in rows:
         r.chain_sequence = head.sequence + 1
         r.tamper_version = "v2"
-        r.tamper_hash = compute_payload_hmac(_evidence_payload(r), prev_hash)
+        r.tamper_hash = compute_payload_hmac(_evidence_payload_v2(r), prev_hash)
         prev_hash = r.tamper_hash
         head.last_hash = r.tamper_hash
         head.sequence = r.chain_sequence
@@ -337,7 +345,7 @@ async def backfill_unsealed_chains(session: AsyncSession, tenant_id: str) -> dic
             "genesis_evidence",
             "evidence_id",
             "evidence_id",
-            _evidence_payload,
+            _evidence_payload_v1,
         ),
         (
             PolicyDecisionRow,
@@ -449,8 +457,10 @@ async def verify_table_chain(
         pk_field = "evidence_id"
 
         def _row_data(row: RetrievalEvidenceRow) -> dict[str, Any]:  # type: ignore[misc]
-            if _row_version(row) in {"v1", "v2"}:
-                return _evidence_payload(row)
+            if _row_version(row) == "v1":
+                return _evidence_payload_v1(row)
+            if _row_version(row) == "v2":
+                return _evidence_payload_v2(row)
             raise ValueError(f"Unsupported tamper version: {_row_version(row)}")
 
     elif table_class == PolicyDecisionRow:
@@ -477,8 +487,12 @@ async def verify_table_chain(
 
     prev_hash = genesis
     tampered_ids: list[str] = []
+    expected_sequence = 0
 
     for row in rows:
+        expected_sequence += 1
+        if row.chain_sequence != expected_sequence:
+            tampered_ids.append(getattr(row, pk_field))
         calculated_hash = compute_payload_hmac(_row_data(row), prev_hash)
 
         if row.tamper_hash != calculated_hash:
@@ -488,5 +502,18 @@ async def verify_table_chain(
             prev_hash = calculated_hash
         else:
             prev_hash = row.tamper_hash
+
+    head_result = await session.execute(
+        select(AuditChainHeadRow).where(
+            AuditChainHeadRow.tenant_id == tenant_id,
+            AuditChainHeadRow.chain_name == table_class.__tablename__,
+        )
+    )
+    head = head_result.scalar_one_or_none()
+    if head is None:
+        if rows:
+            tampered_ids.append("__chain_head__")
+    elif head.sequence != expected_sequence or head.last_hash != prev_hash:
+        tampered_ids.append("__chain_head__")
 
     return len(tampered_ids) == 0, tampered_ids

@@ -62,6 +62,7 @@ from securgraph.ingestion.parsers import (
     parse_bytes,
 )
 from securgraph.ingestion.policy_binder import POLICY_BINDER_VERSION, bind_chunks
+from securgraph.ingestion.saga import IngestionSaga, SagaJournal
 from securgraph.logging import get_logger
 
 _LOG = get_logger(__name__)
@@ -116,6 +117,24 @@ class IngestionResult:
     chunks_created: int = 0
 
 
+async def _noop_saga_journal(
+    _step: str,
+    _status: str,
+    _resource_ids: dict[str, object],
+    _compensation_status: str | None,
+    _error: str | None,
+) -> None:
+    """Keep synchronous dev ingestion compensatable without a durable worker journal."""
+
+
+def _resource_id_list(resource_ids: dict[str, object], key: str) -> list[str]:
+    """Read a list-valued ledger field without trusting persisted JSON shape."""
+    values = resource_ids.get(key)
+    if not isinstance(values, list):
+        return []
+    return [str(value) for value in values]
+
+
 async def ingest_document(
     session: AsyncSession,
     request: IngestionRequest,
@@ -125,6 +144,7 @@ async def ingest_document(
     qdrant_client: QdrantClient | None = None,
     embeddings: EmbeddingAdapter | None = None,
     neo4j_driver: AsyncDriver | None = None,
+    saga_journal: SagaJournal | None = None,
 ) -> IngestionResult:
     """Run the full ingestion pipeline for a single source.
 
@@ -227,104 +247,192 @@ async def ingest_document(
         policy_tags=request.policy_tags,
     )
 
-    # --- 5. Persist --------------------------------------------------------
-    started = utcnow()
-    await upsert_document(session, document)
-    await upsert_chunks(session, chunks)
-
-    # Qdrant Indexing
-    from securgraph.adapters.embeddings import get_embedding_adapter
-    from securgraph.config import get_settings
-    from securgraph.indexing.qdrant_writer import upsert_chunks_to_qdrant
-
-    settings = get_settings()
-    embed_adapter = embeddings or get_embedding_adapter()
-    q_client = qdrant_client or QdrantClient(url=settings.qdrant_url)
-
-    # Run indexing. Any exception raised here aborts the database transaction.
-    upsert_chunks_to_qdrant(q_client, chunks, embed_adapter, source_uri=request.source_uri)
-
-    # --- 5b. FGA: write chunk -> parent_document tuples ---------------------
-    # Without these tuples, chunk.viewer cannot resolve via document.viewer and
-    # ReBAC-gated retrieval will return zero contexts for legitimate readers.
-    await _write_chunk_parent_tuples(document_id, [c.chunk_id for c in chunks])
-
-    # --- 5c. FGA: write document owner + direct_viewer tuples --------------
-    # Until now these were seeded manually via /admin/permissions/grant, which
-    # meant a fresh ingest produced documents that even the uploader could not
-    # read. Emit them at ingest so the owner pipeline works zero-touch and the
-    # ReBAC graph reflects the ingestion contract (owner_id / direct_viewers
-    # on IngestionRequest).
-    await _write_document_owner_tuples(
-        document_id,
-        owner_id=request.owner_id,
-        direct_viewers=request.direct_viewers,
+    # The database transaction is caller-owned. External effects are tracked
+    # separately and reversed on any later failure.
+    saga = IngestionSaga(
+        job_id=job_id,
+        tenant_id=request.tenant_id,
+        journal=saga_journal or _noop_saga_journal,
+        compensators={},
     )
+    q_client: QdrantClient | None = None
+    owns_qdrant_client = False
+    n4j_driver: AsyncDriver | None = None
 
-    # --- Neo4j Graph Extraction & Persistence -------------------------------
-    from securgraph.adapters.llm import get_llm_adapter_for
-    from securgraph.adapters.neo4j import get_neo4j_driver
-    from securgraph.adapters.neo4j_writer import write_graph_slice
+    async def compensate_qdrant(resource_ids: dict[str, object]) -> None:
+        if q_client is None:
+            raise RuntimeError("Qdrant client is unavailable for compensation")
+        from securgraph.indexing.qdrant_writer import delete_chunks_from_qdrant
 
-    n4j_driver = neo4j_driver or get_neo4j_driver()
-    extract_adapter = get_llm_adapter_for("extract", tenant_id=request.tenant_id)
-    for chunk in chunks:
-        # Extract graph slice from chunk text using the configured LLM provider
-        # (default Ollama; can be OpenAI/Google/Mistral/Anthropic via config).
-        graph_slice = await extract_adapter.extract_graph_slice(chunk.text)
-        # Write graph slice to Neo4j database
-        await write_graph_slice(
+        chunk_ids = _resource_id_list(resource_ids, "chunk_ids")
+        delete_chunks_from_qdrant(q_client, chunk_ids)
+
+    async def compensate_openfga(resource_ids: dict[str, object]) -> None:
+        await _delete_ingestion_fga_tuples(
+            document_id=str(resource_ids["document_id"]),
+            chunk_ids=_resource_id_list(resource_ids, "chunk_ids"),
+            owner_id=str(resource_ids["owner_id"]),
+            direct_viewers=tuple(_resource_id_list(resource_ids, "direct_viewers")),
+            remove_document_acl=bool(resource_ids.get("document_acl_written")),
+        )
+
+    async def compensate_neo4j(resource_ids: dict[str, object]) -> None:
+        if n4j_driver is None:
+            raise RuntimeError("Neo4j driver is unavailable for compensation")
+        from securgraph.adapters.neo4j_writer import delete_document_graph
+
+        await delete_document_graph(
             n4j_driver,
             request.tenant_id,
-            chunk,
-            graph_slice,
+            str(resource_ids["document_id"]),
+            _resource_id_list(resource_ids, "chunk_ids"),
+        )
+
+    saga.compensators = {
+        "qdrant": compensate_qdrant,
+        "openfga": compensate_openfga,
+        "neo4j": compensate_neo4j,
+    }
+
+    try:
+        # --- 5. Persist ----------------------------------------------------
+        started = utcnow()
+        await upsert_document(session, document)
+        await upsert_chunks(session, chunks)
+
+        # Qdrant indexing
+        from securgraph.adapters.embeddings import get_embedding_adapter
+        from securgraph.config import get_settings
+        from securgraph.indexing.qdrant_writer import upsert_chunks_to_qdrant
+
+        settings = get_settings()
+        embed_adapter = embeddings or get_embedding_adapter()
+        owns_qdrant_client = qdrant_client is None
+        q_client = qdrant_client or QdrantClient(
+            url=settings.qdrant_url,
+            check_compatibility=False,
+        )
+        qdrant_resources: dict[str, object] = {
+            "chunk_ids": [chunk.chunk_id for chunk in chunks]
+        }
+        await saga.record_started("qdrant", qdrant_resources)
+        upsert_chunks_to_qdrant(q_client, chunks, embed_adapter, source_uri=request.source_uri)
+        await saga.record_completed("qdrant", qdrant_resources)
+
+        # --- 5b. FGA: write chunk -> parent_document tuples -----------------
+        # Without these tuples, chunk.viewer cannot resolve via document.viewer
+        # and ReBAC-gated retrieval will return zero contexts for legitimate readers.
+        chunk_ids = [chunk.chunk_id for chunk in chunks]
+        fga_resources: dict[str, object] = {
+            "document_id": document_id,
+            "chunk_ids": chunk_ids,
+            "owner_id": request.owner_id,
+            "direct_viewers": list(request.direct_viewers),
+            "document_acl_written": False,
+        }
+        await saga.record_started("openfga", fga_resources)
+        await _write_chunk_parent_tuples(document_id, chunk_ids)
+        await saga.record_completed("openfga", fga_resources)
+
+        # --- 5c. FGA: write document owner + direct_viewer tuples ----------
+        fga_resources["document_acl_written"] = True
+        await saga.record_started("openfga", fga_resources)
+        await _write_document_owner_tuples(
+            document_id,
             owner_id=request.owner_id,
             direct_viewers=request.direct_viewers,
         )
+        await saga.record_completed("openfga", fga_resources)
 
-    # --- 6. Provenance + job completion -----------------------------------
-    trace = IngestionTrace(
-        job_id=job_id,
-        trace_id=trace_id,
-        tenant_id=request.tenant_id,
-        document_id=document_id,
-        parser_version=PARSER_VERSION,
-        chunker_version=CHUNKER_VERSION,
-        embedder_version=settings.embedding_model,
-        source_hash=src_hash,
-        chunks_created=len(chunks),
-        started_at=started,
-        completed_at=utcnow(),
-        status=TraceStatus.COMPLETED,
-    )
-    await write_ingestion_provenance(session, trace)
-    await update_ingestion_job(
-        session,
-        job_id=job_id,
-        status=IngestionStatus.COMPLETED.value,
-        document_id=document_id,
-    )
+        # --- Neo4j graph extraction and persistence ------------------------
+        from securgraph.adapters.llm import get_llm_adapter_for
+        from securgraph.adapters.neo4j import get_neo4j_driver
+        from securgraph.adapters.neo4j_writer import write_graph_slice
 
-    _LOG.info(
-        "ingest_completed",
-        trace_id=trace_id,
-        job_id=job_id,
-        document_id=document_id,
-        chunks=len(chunks),
-        source_uri=request.source_uri,
-        pipeline=PIPELINE_TAG,
-    )
-    return IngestionResult(
-        job_id=job_id,
-        trace_id=trace_id,
-        document_id=document_id,
-        status=IngestionStatus.COMPLETED,
-        chunks_created=len(chunks),
-    )
+        n4j_driver = neo4j_driver or get_neo4j_driver()
+        extract_adapter = get_llm_adapter_for("extract", tenant_id=request.tenant_id)
+        graph_chunk_ids: list[str] = []
+        for chunk in chunks:
+            graph_slice = await extract_adapter.extract_graph_slice(chunk.text)
+            graph_chunk_ids.append(chunk.chunk_id)
+            graph_resources: dict[str, object] = {
+                "document_id": document_id,
+                "chunk_ids": graph_chunk_ids,
+            }
+            await saga.record_started("neo4j", graph_resources)
+            await write_graph_slice(
+                n4j_driver,
+                request.tenant_id,
+                chunk,
+                graph_slice,
+                owner_id=request.owner_id,
+                direct_viewers=request.direct_viewers,
+            )
+            await saga.record_completed("neo4j", graph_resources)
+
+        # --- 6. Provenance + job completion --------------------------------
+        trace = IngestionTrace(
+            job_id=job_id,
+            trace_id=trace_id,
+            tenant_id=request.tenant_id,
+            document_id=document_id,
+            parser_version=PARSER_VERSION,
+            chunker_version=CHUNKER_VERSION,
+            embedder_version=settings.embedding_model,
+            source_hash=src_hash,
+            chunks_created=len(chunks),
+            started_at=started,
+            completed_at=utcnow(),
+            status=TraceStatus.COMPLETED,
+        )
+        await write_ingestion_provenance(session, trace)
+        await update_ingestion_job(
+            session,
+            job_id=job_id,
+            status=IngestionStatus.COMPLETED.value,
+            document_id=document_id,
+        )
+
+        _LOG.info(
+            "ingest_completed",
+            trace_id=trace_id,
+            job_id=job_id,
+            document_id=document_id,
+            chunks=len(chunks),
+            source_uri=request.source_uri,
+            pipeline=PIPELINE_TAG,
+        )
+        return IngestionResult(
+            job_id=job_id,
+            trace_id=trace_id,
+            document_id=document_id,
+            status=IngestionStatus.COMPLETED,
+            chunks_created=len(chunks),
+        )
+    except Exception as exc:
+        outcome = await saga.compensate()
+        if outcome.reconcile_required:
+            raise IngestionCompensationError(exc, outcome.errors) from exc
+        raise
+    finally:
+        if owns_qdrant_client and q_client is not None:
+            q_client.close()
 
 
 class IngestionError(RuntimeError):
     """Raised when ingestion cannot proceed (e.g. empty parse)."""
+
+
+class IngestionCompensationError(IngestionError):
+    """An ingest failure whose external effects could not be fully removed."""
+
+    def __init__(self, original: Exception, errors: tuple[str, ...]) -> None:
+        super().__init__(
+            "Ingestion failed and requires manual reconciliation: "
+            + "; ".join(errors)
+        )
+        self.original = original
+        self.errors = errors
 
 
 def load_file(path: str | Path) -> bytes:
@@ -411,10 +519,75 @@ async def _write_chunk_parent_tuples(doc_id: str, chunk_ids: list[str]) -> None:
     )
 
 
+async def _delete_ingestion_fga_tuples(
+    *,
+    document_id: str,
+    chunk_ids: list[str],
+    owner_id: str,
+    direct_viewers: tuple[str, ...],
+    remove_document_acl: bool,
+) -> None:
+    """Remove only authorization tuples written by the failed ingest attempt."""
+    from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
+
+    from securgraph.api import dependencies as deps
+
+    client = deps._fga_client
+    if client is None:
+        return
+    deletes: list[ClientTuple] = [
+        ClientTuple(
+            user=f"document:{document_id}",
+            relation="parent_document",
+            object=f"chunk:{chunk_id}",
+        )
+        for chunk_id in chunk_ids
+    ]
+    if remove_document_acl:
+        document_object = f"document:{document_id}"
+        if owner_id:
+            deletes.append(
+                ClientTuple(
+                    user=_fga_user_principal(owner_id),
+                    relation="owner",
+                    object=document_object,
+                )
+            )
+        deletes.extend(
+            ClientTuple(
+                user=_fga_user_principal(viewer),
+                relation="direct_viewer",
+                object=document_object,
+            )
+            for viewer in direct_viewers
+            if viewer
+        )
+    if not deletes:
+        return
+    try:
+        await client.write(ClientWriteRequest(deletes=deletes))
+    except Exception as exc:
+        if _is_missing_fga_tuple_error(exc):
+            return
+        _LOG.error(
+            "fga_ingest_compensation_failed",
+            error=str(exc),
+            document_id=document_id,
+            chunk_count=len(chunk_ids),
+        )
+        raise
+
+
 def _is_duplicate_fga_tuple_error(exc: Exception) -> bool:
     """Return whether OpenFGA rejected an idempotent duplicate tuple write."""
     message = str(exc).lower()
     return "already exists" in message or "write_failed_due_to_invalid_input" in message
+
+
+def _is_missing_fga_tuple_error(exc: Exception) -> bool:
+    """Treat an already-removed tuple as a successful idempotent compensation."""
+    message = str(exc).lower()
+    return "tuple not found" in message or "does not exist" in message
 
 
 async def _write_fga_tuple_batch(

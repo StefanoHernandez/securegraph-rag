@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import numpy as np
 import pytest
 
+from securgraph.domain import RetrievalEvidence, RetrieverId, Subject
 from securgraph.indexing.vector_atlas import build_vector_atlas, chunk_id_to_point_id
 from securgraph.indexing.vector_projection import project_mds_from_pairs, project_pca
 
@@ -67,11 +68,16 @@ async def test_build_vector_atlas_enriches_metadata() -> None:
     trace_result = MagicMock()
     trace_result.all.return_value = [("chunk_1", "trace_99", None)]
     mock_session.execute.side_effect = [doc_result, trace_result]
+    policy = MagicMock()
+    policy.filter_chunk_ids = AsyncMock(return_value=({"chunk_1"}, []))
 
     atlas = await build_vector_atlas(
         mock_client,
         mock_session,
         tenant_id="default",
+        subject=Subject(tenant_id="default", user_id="user:tenant-admin"),
+        policy=policy,
+        trace_id="atlas-metadata-test",
         dims=2,
         limit=10,
     )
@@ -83,3 +89,115 @@ async def test_build_vector_atlas_enriches_metadata() -> None:
     assert point["source_uri"] == "file://paper.md"
     assert point["last_trace_id"] == "trace_99"
     assert "x" in point and "y" in point
+
+
+@pytest.mark.asyncio
+async def test_build_vector_atlas_excludes_chunks_denied_by_openfga() -> None:
+    mock_client = MagicMock()
+    mock_client.scroll.return_value = (
+        [
+            MagicMock(
+                id="allowed-point",
+                vector=[1.0, 0.0],
+                payload={
+                    "chunk_id": "allowed-chunk",
+                    "document_id": "public-doc",
+                    "classification": "public",
+                    "text": "Public document preview.",
+                },
+            ),
+            MagicMock(
+                id="denied-point",
+                vector=[0.0, 1.0],
+                payload={
+                    "chunk_id": "denied-chunk",
+                    "document_id": "restricted-doc",
+                    "classification": "restricted",
+                    "text": "Restricted document preview.",
+                    "source_uri": "file://restricted.md",
+                },
+            ),
+        ],
+        None,
+    )
+    mock_session = AsyncMock()
+    mock_session.execute.side_effect = [
+        MagicMock(all=MagicMock(return_value=[])),
+        MagicMock(all=MagicMock(return_value=[])),
+    ]
+    policy = MagicMock()
+    policy.filter_chunk_ids = AsyncMock(return_value=({"allowed-chunk"}, []))
+    subject = Subject(tenant_id="default", user_id="user:tenant-admin")
+
+    atlas = await build_vector_atlas(
+        mock_client,
+        mock_session,
+        tenant_id="default",
+        subject=subject,
+        policy=policy,
+        trace_id="atlas-test",
+    )
+
+    assert [point["chunk_id"] for point in atlas["points"]] == ["allowed-chunk"]
+    assert "Restricted document preview." not in str(atlas)
+    assert "file://restricted.md" not in str(atlas)
+    policy.filter_chunk_ids.assert_awaited_once_with(
+        subject=subject,
+        chunk_ids=["allowed-chunk", "denied-chunk"],
+        trace_id="atlas-test",
+    )
+
+
+@pytest.mark.asyncio
+async def test_search_atlas_neighbors_excludes_chunks_denied_by_openfga() -> None:
+    from securgraph.indexing.vector_atlas import search_atlas_neighbors
+
+    subject = Subject(tenant_id="default", user_id="user:tenant-admin")
+    retriever = MagicMock()
+    retriever.search_dense = AsyncMock(
+        return_value=[
+            RetrievalEvidence(
+                evidence_id="allowed-evidence",
+                trace_id="atlas-test",
+                tenant_id="default",
+                evidence_type="chunk",
+                object_id="allowed-chunk",
+                retriever_id=RetrieverId.VECTOR,
+                retrieval_strategy="dense",
+                original_rank=0,
+                original_score=0.9,
+                policy_check_id="pending",
+            ),
+            RetrievalEvidence(
+                evidence_id="denied-evidence",
+                trace_id="atlas-test",
+                tenant_id="default",
+                evidence_type="chunk",
+                object_id="denied-chunk",
+                retriever_id=RetrieverId.VECTOR,
+                retrieval_strategy="dense",
+                original_rank=1,
+                original_score=0.8,
+                policy_check_id="pending",
+            ),
+        ]
+    )
+    policy = MagicMock()
+    policy.filter_chunk_ids = AsyncMock(return_value=({"allowed-chunk"}, []))
+
+    result = await search_atlas_neighbors(
+        retriever,
+        tenant_id="default",
+        query="atlas query",
+        subject=subject,
+        policy=policy,
+        trace_id="atlas-neighbor-test",
+    )
+
+    assert result["chunk_ids"] == ["allowed-chunk"]
+    assert result["scores"] == [0.9]
+    policy.filter_chunk_ids.assert_awaited_once_with(
+        subject=subject,
+        chunk_ids=["allowed-chunk", "denied-chunk"],
+        trace_id="atlas-neighbor-test",
+    )

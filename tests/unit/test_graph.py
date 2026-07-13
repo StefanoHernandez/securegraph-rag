@@ -455,7 +455,12 @@ async def test_ingest_document_triggers_graph_processing() -> None:
             classification=Classification.INTERNAL,
         )
 
-        res = await ingest_document(mock_session, request, neo4j_driver=MagicMock())
+        res = await ingest_document(
+            mock_session,
+            request,
+            qdrant_client=MagicMock(),
+            neo4j_driver=MagicMock(),
+        )
 
         # Verify success
         assert res.chunks_created == 1

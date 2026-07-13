@@ -275,6 +275,16 @@ async def get_openfga_client() -> OpenFgaClient:
     return _fga_client
 
 
+async def close_openfga_client() -> None:
+    """Close the cached OpenFGA HTTP session and clear dependent singletons."""
+    global _fga_client, _policy_adapter, _graph_retriever
+    if _fga_client is not None:
+        await _fga_client.close()  # type: ignore[no-untyped-call]
+    _fga_client = None
+    _policy_adapter = None
+    _graph_retriever = None
+
+
 async def get_policy_adapter(
     client: OpenFgaClient = Depends(get_openfga_client),
 ) -> OpenFGAPolicyAdapter:
@@ -307,9 +317,17 @@ async def get_qdrant_retriever() -> QdrantRetriever:
         from securgraph.indexing.vector_retriever import QdrantRetriever
 
         _settings = get_settings()
-        client = QdrantClient(url=_settings.qdrant_url)
+        client = QdrantClient(url=_settings.qdrant_url, check_compatibility=False)
         _qdrant_retriever = QdrantRetriever(client, get_embedding_adapter())
     return _qdrant_retriever
+
+
+def close_qdrant_retriever() -> None:
+    """Close the process-wide Qdrant client and clear its lazy singleton."""
+    global _qdrant_retriever
+    if _qdrant_retriever is not None:
+        _qdrant_retriever.close()
+        _qdrant_retriever = None
 
 
 async def get_graph_retriever(

@@ -38,22 +38,22 @@ __all__ = [
 
 
 def get_ollama_adapter() -> OllamaLLMAdapter:
-    """Return an OllamaLLMAdapter using the default settings."""
+    """Return the explicitly selected legacy Ollama adapter from settings."""
     from securgraph.config import get_settings
 
     return OllamaLLMAdapter(role="generation", settings=get_settings())
 
 
 async def extract_graph_slice(text: str) -> ExtractedGraphSlice:
-    """Back-compat wrapper around the default Ollama extract adapter."""
+    """Back-compat wrapper around the legacy Ollama extract adapter."""
     return await get_ollama_adapter().extract_graph_slice(text)
 
 
 async def extract_claims(text: str) -> ClaimDecomposition:
-    """Back-compat wrapper around the default Ollama claims adapter."""
+    """Back-compat wrapper around the legacy Ollama claims adapter."""
     return await get_ollama_adapter().extract_claims(text)
 
 
 async def judge_nli(claim: str, reference: str) -> NLIResult:
-    """Back-compat wrapper around the default Ollama NLI judge adapter."""
+    """Back-compat wrapper around the legacy Ollama NLI judge adapter."""
     return await get_ollama_adapter().judge_nli(claim, reference)

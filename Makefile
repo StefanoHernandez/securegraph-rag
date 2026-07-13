@@ -8,10 +8,10 @@ UV ?= uv
 COMPOSE := docker compose -f docker/docker-compose.yml --env-file .env
 ENV_FILE := .env
 
-# Default LLM for minimal mode. Override via env: `LLM_MODEL=gemma3:4b make pull-models`.
-LLM_MODEL ?= gemma3:1b
-LLM_MODEL_EXTRACT ?= gemma3:1b
 EMBEDDING_MODEL ?= BAAI/bge-m3
+OLLAMA_MODEL ?=
+OLLAMA_MODEL_EXTRACT ?=
+MRD_RETRIEVAL_MODE ?= hybrid
 
 # ============================================================================
 # Help
@@ -88,14 +88,19 @@ wait-healthy: ## Wait for every container healthcheck to be green (max 120s).
 	done; \
 	echo "Timed out waiting for healthy backends."; $(COMPOSE) ps; exit 1
 
-##@ Models (Ollama + BGE-M3)
+##@ Models
 
-.PHONY: pull-models
-pull-models: ## Pull LLM models via host-native Ollama and pre-download BGE-M3.
-	@command -v ollama >/dev/null 2>&1 || { echo "Install Ollama: brew install ollama && ollama serve"; exit 1; }
-	ollama pull $(LLM_MODEL)
-	@if [ "$(LLM_MODEL)" != "$(LLM_MODEL_EXTRACT)" ]; then ollama pull $(LLM_MODEL_EXTRACT); fi
+
+.PHONY: prepare-embeddings
+prepare-embeddings: ## Pre-download the local BGE-M3 embedding model.
 	$(VENV)/bin/python -c "from FlagEmbedding import BGEM3FlagModel; BGEM3FlagModel('$(EMBEDDING_MODEL)', use_fp16=False); print('BGE-M3 ready')"
+
+.PHONY: pull-legacy-ollama-models
+pull-legacy-ollama-models: ## Explicitly pull legacy local Ollama models (never used by acceptance gates).
+	@test -n "$(OLLAMA_MODEL)" || { echo "Set OLLAMA_MODEL explicitly; cloud providers are the default."; exit 1; }
+	@command -v ollama >/dev/null 2>&1 || { echo "Install Ollama: brew install ollama && ollama serve"; exit 1; }
+	ollama pull $(OLLAMA_MODEL)
+	@if [ -n "$(OLLAMA_MODEL_EXTRACT)" ] && [ "$(OLLAMA_MODEL)" != "$(OLLAMA_MODEL_EXTRACT)" ]; then ollama pull $(OLLAMA_MODEL_EXTRACT); fi
 
 ##@ App
 
@@ -138,8 +143,8 @@ test-rls-live: ## Live PostgreSQL RLS gate (requires `make up` + `make migrate`)
 	SECURGRAPH_POSTGRES_DSN=$${SECURGRAPH_POSTGRES_MIGRATE_DSN:-postgresql+asyncpg://securgraph:securgraph@localhost:5432/securgraph} \
 		$(VENV)/bin/pytest tests/integration/test_postgres_rls.py -q
 
-.PHONY: test-s3-anchor-live
-test-s3-anchor-live: ## Live S3 Object Lock anchor gate (requires `--profile anchor` + env vars).
+.PHONY: test-minio-anchor-live
+test-minio-anchor-live: ## Live MinIO Object Lock anchor gate (requires `--profile anchor` + env vars).
 	$(VENV)/bin/pytest tests/integration/test_s3_object_lock_anchor.py -q
 
 .PHONY: mrd-seed-live
@@ -154,6 +159,7 @@ mrd-live: ## Run MRD QA smoke against a live /query endpoint (writes eval/result
 		--live-query-url http://localhost:8000/api/v1/query \
 		--tenant-id mrd-lab \
 		--corpus corpus/mrd_v1 \
+		--retrieval-mode $(MRD_RETRIEVAL_MODE) \
 		--output-dir eval/results
 
 .PHONY: heldout-seed-live
@@ -167,6 +173,16 @@ heldout-live: ## Run held-out QA smoke (API must NOT have SECURGRAPH_EVAL_BASELI
 		--live-query-url http://localhost:8000/api/v1/query \
 		--tenant-id helios-orion-lab \
 		--corpus corpus/mrd_heldout_v1 \
+		--semantic-judge \
+		--output-dir eval/results
+
+.PHONY: c2-calibration
+c2-calibration: ## Measure C2 from hybrid/vector/graph MRD reports; set C2_*_REPORT paths.
+	@test -n "$(C2_HYBRID_REPORT)" && test -n "$(C2_VECTOR_REPORT)" && test -n "$(C2_GRAPH_REPORT)" || { echo "Set C2_HYBRID_REPORT, C2_VECTOR_REPORT, and C2_GRAPH_REPORT."; exit 1; }
+	$(VENV)/bin/python -m eval.c2_calibration \
+		--hybrid-report "$(C2_HYBRID_REPORT)" \
+		--vector-report "$(C2_VECTOR_REPORT)" \
+		--graph-report "$(C2_GRAPH_REPORT)" \
 		--output-dir eval/results
 
 .PHONY: eval-repro
@@ -175,7 +191,7 @@ eval-repro: ## Validate corpus contract and score a saved JSON (--results-json=.
 	@echo "Optional live re-run: make mrd-seed-live && SECURGRAPH_EVAL_BASELINE_TEMPLATES=1 make api (separate terminal) && make mrd-live"
 
 .PHONY: test-live-gates
-test-live-gates: test-rls-live test-s3-anchor-live ## Run RLS + S3 live gates (MRD run separately via mrd-live).
+test-live-gates: test-rls-live test-minio-anchor-live ## Run RLS + MinIO live gates (MRD run separately via mrd-live).
 
 .PHONY: test-sgh06
 test-sgh06: ## SGH-06 cross-store failure injection unit bundle.
@@ -192,8 +208,8 @@ test-ingest-chaos-live: ## Live ingest reconcile/worker chaos (requires `make up
 	$(VENV)/bin/pytest tests/integration/test_ingest_worker_chaos.py -q
 
 .PHONY: cov
-cov: ## Test coverage report.
-	$(VENV)/bin/pytest --cov=securgraph --cov-report=term-missing --cov-report=html
+cov: ## Docker-free unit/adversarial coverage gate (minimum 70%).
+	$(VENV)/bin/pytest -m "unit or adversarial" --cov=securgraph --cov-branch --cov-fail-under=70 --cov-report=term-missing --cov-report=html
 
 ##@ Database & bootstrap
 
@@ -261,4 +277,3 @@ baseline: ## Run vector/lexical/graph/hybrid baseline comparison (writes eval/re
 .PHONY: web-dev
 web-dev: ## Run the Next.js development server.
 	npm --prefix web run dev
-

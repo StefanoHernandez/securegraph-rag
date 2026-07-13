@@ -1,9 +1,9 @@
-"""Ollama LLM adapter — local, sovereign-default provider.
+"""Ollama LLM adapter — legacy local-development provider.
 
 Implements :class:`securgraph.adapters.llm.base.LLMAdapter` over the official
-``ollama.AsyncClient``. This is the default provider and the only one that
-requires no external credentials, so a fresh checkout works offline (blueprint
-§5.2: "at least one local or self-hosted deployment option").
+``ollama.AsyncClient``. It is a legacy local-development provider selected
+only explicitly; the submission and production defaults use Mistral for
+generation/extraction and OpenAI for NLI judging.
 
 The module preserves the per-stage ``keep_alive`` discipline introduced for
 the baseline harness:
@@ -11,8 +11,8 @@ the baseline harness:
       offline ingestion phase is the only place where the heavy extract model
       runs, and we want the VRAM back before the online query phase).
     - extract_claims / judge_nli / generation keep the model warm for
-      ``keep_alive=300`` seconds so the 35x5 baseline queries do not pay a
-      reload penalty on every call.
+      ``keep_alive=300`` seconds in an explicitly configured legacy
+      local-development deployment.
 
 ``build_adapter`` is the entry point used by the factory in ``base.py``.
 """

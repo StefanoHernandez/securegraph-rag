@@ -37,7 +37,7 @@ class MockGraphPath(GraphPath):
 
 class MockQdrant:
     async def search_dense(
-        self, tenant_id: str, query: str, limit: int, trace_id: str
+        self, tenant_id: str, query: str, limit: int, trace_id: str, scope: object | None = None
     ) -> list[RetrievalEvidence]:
         return [
             MockRetrievalEvidence(
@@ -59,7 +59,7 @@ class MockQdrant:
         ]
 
     async def search_lexical(
-        self, tenant_id: str, query: str, limit: int, trace_id: str
+        self, tenant_id: str, query: str, limit: int, trace_id: str, scope: object | None = None
     ) -> list[RetrievalEvidence]:
         return []
 

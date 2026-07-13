@@ -28,6 +28,7 @@ from securgraph.indexing.db import (
     DocumentRow,
     IngestionJobRow,
     IngestionProvenanceRow,
+    IngestionSagaStepRow,
     IngestionSourceRow,
     PolicyDecisionRow,
 )
@@ -225,7 +226,7 @@ async def update_ingestion_job(
         row.error = error
     if completed_at is not None:
         row.completed_at = completed_at
-    elif status in {"completed", "failed", "already_ingested"}:
+    elif status in {"completed", "failed", "reconcile_required", "already_ingested"}:
         row.completed_at = utcnow()
 
 
@@ -267,6 +268,39 @@ async def store_ingestion_source(
     row.direct_viewers = list(direct_viewers)
     row.title_override = title_override
     row.source_format = source_format
+
+
+async def record_ingestion_saga_step(
+    session: AsyncSession,
+    *,
+    job_id: str,
+    tenant_id: TenantId,
+    step: str,
+    status: str,
+    resource_ids: dict[str, object],
+    compensation_status: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Upsert one idempotent external-side-effect ledger entry for an ingest job."""
+    row = await session.get(IngestionSagaStepRow, (job_id, step))
+    if row is None:
+        session.add(
+            IngestionSagaStepRow(
+                job_id=job_id,
+                tenant_id=tenant_id,
+                step=step,
+                status=status,
+                resource_ids=resource_ids,
+                compensation_status=compensation_status,
+                error=error,
+            )
+        )
+        return
+    row.tenant_id = tenant_id
+    row.status = status
+    row.resource_ids = resource_ids
+    row.compensation_status = compensation_status
+    row.error = error
 
 
 async def write_ingestion_provenance(session: AsyncSession, trace: IngestionTrace) -> None:

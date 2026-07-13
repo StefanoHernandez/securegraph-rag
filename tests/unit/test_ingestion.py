@@ -79,6 +79,7 @@ def mock_graph_extraction_and_writing(monkeypatch: pytest.MonkeyPatch) -> None:
 # ----------------------------------------------------------------------------
 
 
+@pytest.mark.unit
 def test_parser_robustness_markdown() -> None:
     """Verify Markdown parser handles headings and text structures correctly."""
     md_content = b"# Document Title\n\n## Section 1\nThis is a paragraph with **bold** text."
@@ -90,6 +91,7 @@ def test_parser_robustness_markdown() -> None:
     assert "This is a paragraph" in parsed.sections[0].text
 
 
+@pytest.mark.unit
 def test_parser_xlsx_extracts_displayed_values_with_coordinates() -> None:
     from openpyxl import Workbook
 
@@ -115,6 +117,7 @@ def test_parser_xlsx_extracts_displayed_values_with_coordinates() -> None:
     assert "=B2*2" not in parsed.sections[0].text
 
 
+@pytest.mark.unit
 def test_parser_blocks_legacy_and_macro_excel_formats() -> None:
     with pytest.raises(ValueError, match="Unsupported Excel format"):
         detect_format("file://legacy.xls")
@@ -122,6 +125,7 @@ def test_parser_blocks_legacy_and_macro_excel_formats() -> None:
         detect_format("file://macro.xlsm")
 
 
+@pytest.mark.unit
 def test_parser_xlsx_enforces_cell_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     from openpyxl import Workbook
 
@@ -139,6 +143,7 @@ def test_parser_xlsx_enforces_cell_limit(monkeypatch: pytest.MonkeyPatch) -> Non
         parse_bytes(stream.getvalue(), "xlsx")
 
 
+@pytest.mark.unit
 def test_chunker_token_limit_and_invariants() -> None:
     """Verify chunker produces chunks with token count limits."""
     md_content = b"# Title\n\n" + b"word " * 1000  # Large block of text
@@ -163,6 +168,8 @@ def test_chunker_token_limit_and_invariants() -> None:
 # ----------------------------------------------------------------------------
 
 
+@pytest.mark.integration
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_ingestion_pipeline_idempotency(real_db_session: AsyncSession) -> None:
     """Verify identical documents are not ingested twice (idempotency invariant)."""
@@ -208,6 +215,7 @@ async def test_ingestion_pipeline_idempotency(real_db_session: AsyncSession) -> 
     assert res2.chunks_created == 0
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ingestion_failure_injection_qdrant_aborts_before_auth_and_provenance() -> None:
     """A Qdrant write failure must abort before FGA, Neo4j, provenance, and completion."""
@@ -226,6 +234,7 @@ async def test_ingestion_failure_injection_qdrant_aborts_before_auth_and_provena
     write_provenance = AsyncMock()
     complete_job = AsyncMock()
     graph_write = AsyncMock()
+    qdrant_delete = MagicMock()
     adapter = MagicMock()
     adapter.extract_graph_slice = AsyncMock(return_value=ExtractedGraphSlice())
 
@@ -240,6 +249,7 @@ async def test_ingestion_failure_injection_qdrant_aborts_before_auth_and_provena
             "securgraph.indexing.qdrant_writer.upsert_chunks_to_qdrant",
             side_effect=RuntimeError("qdrant unavailable"),
         ),
+        patch("securgraph.indexing.qdrant_writer.delete_chunks_from_qdrant", qdrant_delete),
         patch(
             "securgraph.adapters.embeddings.get_embedding_adapter",
             return_value=DummyEmbeddingAdapter(),
@@ -256,10 +266,12 @@ async def test_ingestion_failure_injection_qdrant_aborts_before_auth_and_provena
     fga_owner.assert_not_awaited()
     adapter.extract_graph_slice.assert_not_awaited()
     graph_write.assert_not_awaited()
+    qdrant_delete.assert_called_once()
     write_provenance.assert_not_awaited()
     complete_job.assert_not_awaited()
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ingestion_failure_injection_postgres_aborts_before_external_stores() -> None:
     """A PostgreSQL persistence failure must abort before Qdrant, FGA, Neo4j, and provenance."""
@@ -314,6 +326,7 @@ async def test_ingestion_failure_injection_postgres_aborts_before_external_store
     complete_job.assert_not_awaited()
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ingestion_failure_injection_openfga_aborts_before_graph_and_provenance() -> None:
     """An OpenFGA tuple write failure must fail closed instead of completing ingest."""
@@ -342,6 +355,7 @@ async def test_ingestion_failure_injection_openfga_aborts_before_graph_and_prove
         patch("securgraph.ingestion.service.update_ingestion_job", complete_job),
         patch("securgraph.ingestion.service.write_ingestion_provenance", write_provenance),
         patch("securgraph.indexing.qdrant_writer.upsert_chunks_to_qdrant", return_value=None),
+        patch("securgraph.indexing.qdrant_writer.delete_chunks_from_qdrant", return_value=None),
         patch(
             "securgraph.adapters.embeddings.get_embedding_adapter",
             return_value=DummyEmbeddingAdapter(),
@@ -364,6 +378,7 @@ async def test_ingestion_failure_injection_openfga_aborts_before_graph_and_prove
     complete_job.assert_not_awaited()
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ingestion_failure_injection_neo4j_aborts_before_provenance() -> None:
     """A Neo4j graph persistence failure must leave the ingest job incomplete."""
@@ -392,6 +407,7 @@ async def test_ingestion_failure_injection_neo4j_aborts_before_provenance() -> N
         patch("securgraph.ingestion.service.update_ingestion_job", complete_job),
         patch("securgraph.ingestion.service.write_ingestion_provenance", write_provenance),
         patch("securgraph.indexing.qdrant_writer.upsert_chunks_to_qdrant", return_value=None),
+        patch("securgraph.indexing.qdrant_writer.delete_chunks_from_qdrant", return_value=None),
         patch(
             "securgraph.adapters.embeddings.get_embedding_adapter",
             return_value=DummyEmbeddingAdapter(),
@@ -414,6 +430,62 @@ async def test_ingestion_failure_injection_neo4j_aborts_before_provenance() -> N
     complete_job.assert_not_awaited()
 
 
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_ingestion_compensates_external_stores_when_completion_persistence_fails() -> None:
+    """A late database failure removes Neo4j, OpenFGA and Qdrant effects in reverse order."""
+    session = AsyncMock(spec=AsyncSession)
+    request = IngestionRequest(
+        tenant_id="mrd",
+        source_uri="file://compensation.md",
+        owner_id="user:stefano",
+        data=b"# Compensation\nExternal writes must be undone on failure.",
+        document_type=DocumentType.POLICY,
+        classification=Classification.INTERNAL,
+    )
+    adapter = MagicMock()
+    adapter.extract_graph_slice = AsyncMock(return_value=ExtractedGraphSlice())
+    compensation_order: list[str] = []
+
+    async def cleanup_neo4j(*_args: Any, **_kwargs: Any) -> None:
+        compensation_order.append("neo4j")
+
+    async def cleanup_openfga(*_args: Any, **_kwargs: Any) -> None:
+        compensation_order.append("openfga")
+
+    def cleanup_qdrant(*_args: Any, **_kwargs: Any) -> None:
+        compensation_order.append("qdrant")
+
+    with (
+        patch("securgraph.ingestion.service.find_existing_document", AsyncMock(return_value=None)),
+        patch("securgraph.ingestion.service.create_ingestion_job", AsyncMock()),
+        patch("securgraph.ingestion.service.upsert_document", AsyncMock()),
+        patch("securgraph.ingestion.service.upsert_chunks", AsyncMock()),
+        patch("securgraph.ingestion.service.update_ingestion_job", AsyncMock()),
+        patch(
+            "securgraph.ingestion.service.write_ingestion_provenance",
+            AsyncMock(side_effect=RuntimeError("provenance unavailable")),
+        ),
+        patch("securgraph.indexing.qdrant_writer.upsert_chunks_to_qdrant", return_value=None),
+        patch("securgraph.indexing.qdrant_writer.delete_chunks_from_qdrant", cleanup_qdrant),
+        patch(
+            "securgraph.adapters.embeddings.get_embedding_adapter",
+            return_value=DummyEmbeddingAdapter(),
+        ),
+        patch("securgraph.ingestion.service._write_chunk_parent_tuples", AsyncMock()),
+        patch("securgraph.ingestion.service._write_document_owner_tuples", AsyncMock()),
+        patch("securgraph.ingestion.service._delete_ingestion_fga_tuples", cleanup_openfga),
+        patch("securgraph.adapters.llm.get_llm_adapter_for", return_value=adapter),
+        patch("securgraph.adapters.neo4j_writer.write_graph_slice", AsyncMock()),
+        patch("securgraph.adapters.neo4j_writer.delete_document_graph", cleanup_neo4j),
+        pytest.raises(RuntimeError, match="provenance unavailable"),
+    ):
+        await ingest_document(session, request, neo4j_driver=MagicMock())
+
+    assert compensation_order == ["neo4j", "openfga", "qdrant"]
+
+
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_openfga_duplicate_ingest_tuples_are_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
     """Duplicate OpenFGA tuples remain idempotent during retry/reseed."""
@@ -439,6 +511,7 @@ async def test_openfga_duplicate_ingest_tuples_are_skipped(monkeypatch: pytest.M
     assert fga_client.write.await_count == 3
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_openfga_ingest_tuple_store_errors_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
@@ -462,6 +535,8 @@ async def test_openfga_ingest_tuple_store_errors_fail_closed(
 # ----------------------------------------------------------------------------
 
 
+@pytest.mark.integration
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_ingest_route_success(fastapi_app: FastAPI, client: AsyncClient) -> None:
     """Verify `/ingest` route handles valid multipart form upload successfully."""
@@ -497,6 +572,7 @@ async def test_ingest_route_success(fastapi_app: FastAPI, client: AsyncClient) -
     assert body["document_id"] != ""
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ingest_route_applies_active_access_template(
     fastapi_app: FastAPI,
@@ -568,6 +644,7 @@ async def test_ingest_route_applies_active_access_template(
     assert request.direct_viewers == ("user:legal",)
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ingest_route_rejects_empty_file(client: AsyncClient) -> None:
     """Verify `/ingest` rejects empty file upload with 400 Bad Request."""
@@ -584,6 +661,7 @@ async def test_ingest_route_rejects_empty_file(client: AsyncClient) -> None:
     assert "empty" in resp.json()["detail"].lower()
 
 
+@pytest.mark.unit
 def test_ingestion_request_rejects_colon_in_owner_id() -> None:
     """Verify IngestionRequest raises ValueError if owner_id contains colons."""
     with pytest.raises(ValueError, match="owner_id cannot contain ':'"):
@@ -595,6 +673,7 @@ def test_ingestion_request_rejects_colon_in_owner_id() -> None:
         )
 
 
+@pytest.mark.unit
 def test_ingestion_request_rejects_colon_in_direct_viewers() -> None:
     """Verify IngestionRequest raises ValueError if direct_viewers elements contain colons."""
     with pytest.raises(ValueError, match="direct_viewers elements cannot contain ':'"):
@@ -607,6 +686,7 @@ def test_ingestion_request_rejects_colon_in_direct_viewers() -> None:
         )
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ingest_route_rejects_colon_in_owner_id(client: AsyncClient) -> None:
     """Verify `/ingest` rejects owner_id containing colons with 400 Bad Request."""

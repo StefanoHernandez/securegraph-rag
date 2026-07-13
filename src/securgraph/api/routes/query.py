@@ -5,6 +5,8 @@ Allows querying the secure hybrid Graph-RAG system with unified consensus and Re
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import time
 import uuid
@@ -22,8 +24,10 @@ from securgraph.domain import (
     ChannelSummary,
     ConfidenceBlock,
     QueryChannels,
+    QueryExplanation,
     QueryRequest,
     QueryResponse,
+    QueryScopeError,
     Subject,
     classify_query,
     utcnow,
@@ -87,6 +91,20 @@ async def _persist_failure_trace(
 def _graph_context_id(item: Any, attr: str) -> str | None:
     value = getattr(item, attr, None)
     return str(value) if value else None
+
+
+def _evidence_content_hash(value: Any) -> str:
+    """Return a stable digest without persisting the retrieved source text."""
+    if hasattr(value, "model_dump"):
+        serialized = json.dumps(
+            value.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+    else:
+        serialized = str(value)
+    return "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 @router.post(
@@ -179,7 +197,10 @@ async def query_pipeline(
         state_input = {
             "query": request.query,
             "subject": subject,
-            "options": request.options.model_dump(),
+            "options": {
+                **request.options.model_dump(mode="json"),
+                "scope": request.scope.model_dump(mode="json"),
+            },
             "trace_id": trace_id,
             "vector_context": [],
             "vector_draft": None,
@@ -290,6 +311,15 @@ async def query_pipeline(
             )
 
             warnings_list = list(result.get("warnings", []))
+            explanation = (
+                QueryExplanation(
+                    retrieval_mode=request.options.retrieval_mode,
+                    query_type=request.options.query_type,
+                    consensus_verdict=result.get("synthesis_branch"),
+                )
+                if request.options.include_explanation
+                else None
+            )
 
             # 2. Persist completed trace and retrieval evidence — single commit.
             # chain_query_trace is called here (once) when all fields are set.
@@ -320,6 +350,7 @@ async def query_pipeline(
                         original_rank=ev.original_rank,
                         original_score=ev.original_score,
                         included_in_prompt=ev.included_in_prompt,
+                        content_hash=_evidence_content_hash(ev.text or ""),
                         tamper_hash=None,
                     )
                 )
@@ -339,6 +370,7 @@ async def query_pipeline(
                         original_rank=rank,
                         original_score=path_confidence,
                         included_in_prompt=True,
+                        content_hash=_evidence_content_hash(path),
                         tamper_hash=None,
                     )
                 )
@@ -357,6 +389,7 @@ async def query_pipeline(
                         original_rank=rank,
                         original_score=0.0,
                         included_in_prompt=True,
+                        content_hash=_evidence_content_hash(summary),
                         tamper_hash=None,
                     )
                 )
@@ -393,6 +426,7 @@ async def query_pipeline(
                 channels=channels,
                 trace_id=trace_id,
                 warnings=tuple(warnings_list),
+                explanation=explanation,
             )
 
         except HTTPException as he:
@@ -423,6 +457,11 @@ async def query_pipeline(
                 # a policy outcome, not a server fault.
                 raise HTTPException(
                     status_code=status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS,
+                    detail=str(e),
+                ) from e
+            if isinstance(e, QueryScopeError):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=str(e),
                 ) from e
             raise HTTPException(

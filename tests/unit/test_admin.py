@@ -14,7 +14,12 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
-from securgraph.api.dependencies import get_db_session, get_openfga_client
+from securgraph.api.dependencies import (
+    get_db_session,
+    get_openfga_client,
+    get_policy_adapter,
+    get_qdrant_retriever,
+)
 from securgraph.api.routes.auth import (
     AuthenticatedPrincipal,
     require_admin,
@@ -409,15 +414,16 @@ async def test_get_vector_atlas(
     mock_build: AsyncMock, fastapi_app: FastAPI, client: AsyncClient, auth_on: None
 ) -> None:
     mock_build.return_value = {
-        "tenant_id": "MRD",
+        "tenant_id": "mrd",
         "total": 1,
         "dims": 2,
         "projection_method": "pca",
         "points": [{"id": "p1", "x": 0.1, "y": -0.2, "chunk_id": "chunk_1"}],
     }
-    fastapi_app.dependency_overrides[require_admin] = lambda: _tenant_admin()
+    fastapi_app.dependency_overrides[require_admin] = lambda: _super_admin()
+    fastapi_app.dependency_overrides[get_policy_adapter] = lambda: MagicMock()
 
-    resp = await client.get("/admin/vector-atlas?tenant_id=MRD")
+    resp = await client.get("/admin/vector-atlas?tenant_id=mrd")
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 1
@@ -429,17 +435,19 @@ async def test_post_vector_atlas_neighbors(
     mock_neighbors: AsyncMock, fastapi_app: FastAPI, client: AsyncClient, auth_on: None
 ) -> None:
     mock_neighbors.return_value = {
-        "tenant_id": "MRD",
+        "tenant_id": "mrd",
         "query": "what is SecureGraph?",
         "chunk_ids": ["chunk_1"],
         "scores": [0.91],
         "point_ids": ["point-1"],
     }
-    fastapi_app.dependency_overrides[require_admin] = lambda: _tenant_admin()
+    fastapi_app.dependency_overrides[require_admin] = lambda: _super_admin()
+    fastapi_app.dependency_overrides[get_policy_adapter] = lambda: MagicMock()
+    fastapi_app.dependency_overrides[get_qdrant_retriever] = lambda: MagicMock()
 
     resp = await client.post(
         "/admin/vector-atlas/neighbors",
-        json={"tenant_id": "MRD", "query": "what is SecureGraph?", "limit": 5},
+        json={"tenant_id": "mrd", "query": "what is SecureGraph?", "limit": 5},
     )
     assert resp.status_code == 200
     body = resp.json()

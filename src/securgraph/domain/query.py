@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from securgraph.domain.base import SGModel, TenantId, TraceId, UserId
+from securgraph.domain.base import Classification, SGModel, TenantId, TraceId, UserId
 from securgraph.domain.retrieval import Citation
 
 
@@ -26,6 +26,22 @@ RetrievalMode = Literal["auto", "vector", "lexical", "graph", "hybrid"]
 QueryType = Literal["standard", "global"]
 
 
+class QueryScopeError(ValueError):
+    """Raised when a requested scope cannot be honored by a retrieval lane."""
+
+
+class QueryScope(SGModel):
+    """Typed candidate restriction applied before authorization and synthesis."""
+
+    collections: tuple[str, ...] = Field(default_factory=tuple)
+    max_classification: Classification | None = None
+    document_ids: tuple[str, ...] = Field(default_factory=tuple)
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.collections or self.max_classification or self.document_ids)
+
+
 class QueryOptions(SGModel):
     include_explanation: bool = False
     max_graph_depth: int = Field(default=2, ge=1, le=4)
@@ -42,9 +58,17 @@ class QueryRequest(SGModel):
     user_id: UserId
     query: str = Field(min_length=1, max_length=4000)
     scope_collections: tuple[str, ...] = Field(default_factory=tuple)
-    scope_max_classification: str | None = None
+    scope_max_classification: Classification | None = None
     scope_document_ids: tuple[str, ...] = Field(default_factory=tuple)
     options: QueryOptions = Field(default_factory=QueryOptions)
+
+    @property
+    def scope(self) -> QueryScope:
+        return QueryScope(
+            collections=self.scope_collections,
+            max_classification=self.scope_max_classification,
+            document_ids=self.scope_document_ids,
+        )
 
 
 class ConfidenceBlock(SGModel):
@@ -72,6 +96,14 @@ class QueryChannels(SGModel):
     community: ChannelSummary | None = None
 
 
+class QueryExplanation(SGModel):
+    """Compact live-query diagnostic; ``/explain`` remains the full report."""
+
+    retrieval_mode: RetrievalMode
+    query_type: QueryType
+    consensus_verdict: str | None = None
+
+
 class Answer(SGModel):
     """Internal answer object, built before serialization to `QueryResponse`."""
 
@@ -89,6 +121,7 @@ class QueryResponse(SGModel):
     channels: QueryChannels = Field(default_factory=QueryChannels)
     trace_id: TraceId
     warnings: tuple[str, ...] = Field(default_factory=tuple)
+    explanation: QueryExplanation | None = None
 
 
 # ---------------------------------------------------------------------------

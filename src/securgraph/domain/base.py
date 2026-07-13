@@ -69,6 +69,7 @@ class IngestionStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    RECONCILE_REQUIRED = "reconcile_required"
     ALREADY_INGESTED = "already_ingested"
 
 

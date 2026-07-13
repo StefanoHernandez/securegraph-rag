@@ -23,6 +23,7 @@ from securgraph.domain import (
     PolicyObjectType,
     QueryClassification,
     QueryRequest,
+    QueryScope,
     RetrievalEvidence,
     RetrieverId,
     Subject,
@@ -45,6 +46,22 @@ def test_subject_normalizes_fga_user_with_colon() -> None:
 def test_subject_prefixes_bare_user_id() -> None:
     s = Subject(user_id="alice", tenant_id="mrd")
     assert s.fga_user == "user:alice"
+
+
+def test_query_scope_uses_the_backend_classification_enum() -> None:
+    scope = QueryScope(
+        max_classification=Classification.CONFIDENTIAL,
+        document_ids=("doc-1",),
+    )
+
+    assert scope.max_classification is Classification.CONFIDENTIAL
+    with pytest.raises(ValidationError):
+        QueryRequest(
+            tenant_id="mrd",
+            user_id="user:alice",
+            query="Scoped query",
+            scope_max_classification="top_secret",
+        )
 
 
 # ----------------------------------------------------------------------------

@@ -234,8 +234,8 @@ class LLMAdapter(ABC):
 # ---------------------------------------------------------------------------
 
 # Provider id -> module path implementing LLMAdapter. Populated lazily so
-# missing optional deps (e.g. openai, anthropic) don't crash imports when
-# the user runs the default Ollama provider.
+# missing optional provider dependencies do not crash imports until that
+# provider is explicitly instantiated.
 _PROVIDER_MODULES: dict[str, str] = {
     "ollama": "securgraph.adapters.llm.ollama",
     "openai": "securgraph.adapters.llm.openai",

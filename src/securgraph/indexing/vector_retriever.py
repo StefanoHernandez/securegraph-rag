@@ -10,7 +10,50 @@ from qdrant_client.http import models
 
 from securgraph.adapters.embeddings import EmbeddingAdapter
 from securgraph.config import get_settings
-from securgraph.domain import RetrievalEvidence, RetrieverId
+from securgraph.domain import (
+    Classification,
+    QueryScope,
+    QueryScopeError,
+    RetrievalEvidence,
+    RetrieverId,
+)
+
+
+def _build_retrieval_filter(
+    tenant_id: str,
+    *,
+    scope: QueryScope | None = None,
+) -> models.Filter:
+    """Build a Qdrant candidate filter; unsupported scope dimensions fail closed."""
+    conditions: list[models.Condition] = [
+        models.FieldCondition(key="tenant_id", match=models.MatchValue(value=tenant_id))
+    ]
+    if scope is None or scope.is_empty:
+        return models.Filter(must=conditions)
+    if scope.collections:
+        raise QueryScopeError(
+            "Query scope collections are not supported by the Qdrant chunk schema."
+        )
+    if scope.max_classification is not None:
+        allowed = [
+            classification.value
+            for classification in Classification
+            if classification.rank <= scope.max_classification.rank
+        ]
+        conditions.append(
+            models.FieldCondition(
+                key="classification",
+                match=models.MatchAny(any=allowed),
+            )
+        )
+    if scope.document_ids:
+        conditions.append(
+            models.FieldCondition(
+                key="document_id",
+                match=models.MatchAny(any=list(scope.document_ids)),
+            )
+        )
+    return models.Filter(must=conditions)
 
 
 class QdrantRetriever:
@@ -24,6 +67,10 @@ class QdrantRetriever:
         self._embeddings = embeddings
         self._collection = get_settings().qdrant_collection
 
+    def close(self) -> None:
+        """Release the underlying Qdrant HTTP session during application shutdown."""
+        self._client.close()
+
     async def search_dense(
         self,
         tenant_id: str,
@@ -31,15 +78,14 @@ class QdrantRetriever:
         *,
         limit: int = 10,
         trace_id: str | None = None,
+        scope: QueryScope | None = None,
     ) -> list[RetrievalEvidence]:
         """Perform a dense semantic vector search for the query, filtered by tenant_id."""
         trace = trace_id or "trace_system"
         query_vector = self._embeddings.embed_text(query)
 
         # Force strict scoping for multi-tenancy
-        tenant_filter = models.Filter(
-            must=[models.FieldCondition(key="tenant_id", match=models.MatchValue(value=tenant_id))]
-        )
+        tenant_filter = _build_retrieval_filter(tenant_id, scope=scope)
 
         response = self._client.query_points(
             collection_name=self._collection,
@@ -74,17 +120,17 @@ class QdrantRetriever:
         *,
         limit: int = 10,
         trace_id: str | None = None,
+        scope: QueryScope | None = None,
     ) -> list[RetrievalEvidence]:
         """Perform a lexical keyword search using Qdrant's multilingual full-text index."""
         trace = trace_id or "trace_system"
 
         # Filter: match tenant_id AND perform full-text match on the text field
-        lexical_filter = models.Filter(
-            must=[
-                models.FieldCondition(key="tenant_id", match=models.MatchValue(value=tenant_id)),
-                models.FieldCondition(key="text", match=models.MatchText(text=query)),
-            ]
-        )
+        lexical_filter = _build_retrieval_filter(tenant_id, scope=scope)
+        lexical_filter.must = [
+            *(lexical_filter.must or []),
+            models.FieldCondition(key="text", match=models.MatchText(text=query)),
+        ]
 
         # Scrolling returns points matching the filter.
         # We scroll up to limit items. Unsorted in Qdrant's native scroll, scored in fusion.

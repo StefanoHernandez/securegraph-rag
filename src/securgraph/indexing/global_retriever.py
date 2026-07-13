@@ -3,18 +3,58 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+import hashlib
+from dataclasses import dataclass
+from typing import Any, cast
 
 from neo4j import AsyncDriver
 from openfga_sdk.client.models import ClientCheckRequest
 
+from securgraph.domain.base import utcnow
 from securgraph.domain.community import Community, CommunitySummaryResponse
 from securgraph.domain.policy import (
     OpenFGAPolicyAdapter,
+    PolicyDecision,
+    PolicyDecisionValue,
+    PolicyObjectType,
 )
 from securgraph.logging import get_logger
 
 _LOG = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class CommunityRetrievalResult:
+    """Authorized community summaries plus the complete candidate audit trail."""
+
+    communities: list[CommunitySummaryResponse]
+    decisions: list[PolicyDecision]
+
+
+def _community_digest(community: Community) -> str:
+    return "sha256:" + hashlib.sha256(community.summary.encode("utf-8")).hexdigest()
+
+
+def _community_decision(
+    community: Community,
+    *,
+    subject: Any,
+    trace_id: str,
+    allowed: bool,
+    reason_code: str,
+) -> PolicyDecision:
+    return PolicyDecision(
+        decision_id=f"dec_community_{community.community_id}_{utcnow().timestamp()}",
+        trace_id=trace_id,
+        tenant_id=subject.tenant_id,
+        user_id=subject.user_id,
+        object_type=PolicyObjectType.COMMUNITY,
+        object_id=community.community_id,
+        decision=PolicyDecisionValue.ALLOW if allowed else PolicyDecisionValue.DENY,
+        reason_code=reason_code,
+        retriever_id="community",
+        resource_hash=_community_digest(community),
+    )
 
 
 class AuthorizedCommunityRetriever:
@@ -29,7 +69,8 @@ class AuthorizedCommunityRetriever:
         subject: Any,
         level: int | None = None,
         trace_id: str | None = None,
-    ) -> list[CommunitySummaryResponse]:
+        return_decisions: bool = False,
+    ) -> list[CommunitySummaryResponse] | CommunityRetrievalResult:
         """Fetch communities filtered by tenant_id and authorized by ReBAC."""
         _LOG.info(
             "retrieve_communities_started",
@@ -69,13 +110,29 @@ class AuthorizedCommunityRetriever:
         class_keys = {c.policy_class_key for c in communities}
         allowed_keys = await self.authorized_classes(subject, class_keys)
         in_class = [c for c in communities if c.policy_class_key in allowed_keys]
+        trace = trace_id or "trace_global"
+        decisions = [
+            _community_decision(
+                community,
+                subject=subject,
+                trace_id=trace,
+                allowed=False,
+                reason_code="community_policy_class_denied",
+            )
+            for community in communities
+            if community.policy_class_key not in allowed_keys
+        ]
 
         # 3. Defense-in-depth: per-community ReBAC check
-        authorized_comms = await self.filter_communities(
-            subject, in_class, trace_id or "trace_global"
+        filtered = await self.filter_communities(
+            subject, in_class, trace, return_decisions=True
         )
+        authorized_comms, direct_decisions = cast(
+            tuple[list[Community], list[PolicyDecision]], filtered
+        )
+        decisions.extend(direct_decisions)
 
-        return [
+        summaries = [
             CommunitySummaryResponse(
                 community_id=c.community_id,
                 title=c.title,
@@ -86,6 +143,9 @@ class AuthorizedCommunityRetriever:
             )
             for c in authorized_comms
         ]
+        if return_decisions:
+            return CommunityRetrievalResult(communities=summaries, decisions=decisions)
+        return summaries
 
     async def authorized_classes(self, subject: Any, class_keys: set[str]) -> set[str]:
         """Return the subset of class keys the subject may view (one check each)."""
@@ -117,10 +177,11 @@ class AuthorizedCommunityRetriever:
         subject: Any,
         communities: list[Community],
         trace_id: str,
-    ) -> list[Community]:
+        return_decisions: bool = False,
+    ) -> list[Community] | tuple[list[Community], list[PolicyDecision]]:
         """Verify that the user has permission to read the communities."""
         if not communities:
-            return []
+            return ([], []) if return_decisions else []
 
         async def check_community(c: Community) -> tuple[Community, bool]:
             # Construct check request: Can user Bob view community c_001?
@@ -158,5 +219,17 @@ class AuthorizedCommunityRetriever:
 
         # Execute authorization checks concurrently
         results = await asyncio.gather(*(check_community(c) for c in communities))
-
-        return [c for c, allowed in results if allowed]
+        authorized = [community for community, allowed in results if allowed]
+        if not return_decisions:
+            return authorized
+        decisions = [
+            _community_decision(
+                community,
+                subject=subject,
+                trace_id=trace_id,
+                allowed=allowed,
+                reason_code="community_openfga_ok" if allowed else "community_openfga_denied",
+            )
+            for community, allowed in results
+        ]
+        return authorized, decisions

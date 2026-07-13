@@ -357,6 +357,7 @@ async def test_delete_provider_credential_removes_row(
     mock_session = AsyncMock()
     mock_session.get.return_value = tenant
     mock_session.execute.side_effect = [empty_runtime, cred_result, empty_runtime]
+    mock_session.add = MagicMock()
     mock_session.delete = AsyncMock()
 
     async def override_db():
@@ -416,4 +417,3 @@ async def test_delete_provider_credential_blocks_runtime_references(
     )
 
     assert response.status_code == 409
-

@@ -20,6 +20,7 @@ from securgraph.domain import (
     ConsensusReport,
     GraphPath,
     NLILabel,
+    QueryScopeError,
     RetrievalEvidence,
     RetrieverId,
     VerifierStatus,
@@ -164,6 +165,14 @@ async def test_query_route_success(
         assert body["channels"]["graph"]["draft_summary"] == "Stefano works on personal projects."
         assert len(body["channels"]["graph"]["paths"]) == 1
 
+        # ``include_explanation`` returns a compact live-query summary; the
+        # full auditable report remains available from /explain/{trace_id}.
+        assert body["explanation"] == {
+            "retrieval_mode": "hybrid",
+            "query_type": "standard",
+            "consensus_verdict": None,
+        }
+
         # Verify trace identity and warnings
         assert body["trace_id"] != ""
         assert "Low database connections" in body["warnings"]
@@ -227,6 +236,62 @@ async def test_query_uses_authenticated_identity_not_payload_identity(
     assert response.status_code == 200
     state = workflow.ainvoke.call_args.args[0]
     assert state["subject"].user_id == "user:alice"
+
+
+async def test_query_passes_typed_scope_to_workflow(fastapi_app, client: AsyncClient) -> None:
+    workflow = AsyncMock()
+    workflow.ainvoke.return_value = {
+        "vector_context": [],
+        "graph_context": [],
+        "consensus_report": None,
+        "final_answer": Answer(text="Scoped answer", citations=()),
+        "warnings": [],
+    }
+
+    with patch("securgraph.api.routes.query.compile_workflow", return_value=workflow):
+        response = await client.post(
+            "/query",
+            json={
+                "tenant_id": "mrd",
+                "user_id": "user:alice",
+                "query": "Only confidential documents",
+                "scope_max_classification": "confidential",
+                "scope_document_ids": ["doc-1"],
+                "options": {"retrieval_mode": "vector"},
+            },
+        )
+
+    assert response.status_code == 200
+    state = workflow.ainvoke.call_args.args[0]
+    assert state["options"]["scope"] == {
+        "collections": [],
+        "max_classification": "confidential",
+        "document_ids": ["doc-1"],
+    }
+
+
+async def test_query_returns_422_for_scope_not_applicable_to_global_retrieval(
+    client: AsyncClient,
+) -> None:
+    workflow = AsyncMock()
+    workflow.ainvoke.side_effect = QueryScopeError(
+        "Query scope is not applicable to global community retrieval."
+    )
+
+    with patch("securgraph.api.routes.query.compile_workflow", return_value=workflow):
+        response = await client.post(
+            "/query",
+            json={
+                "tenant_id": "mrd",
+                "user_id": "user:alice",
+                "query": "Scoped global query",
+                "scope_document_ids": ["doc-1"],
+                "options": {"query_type": "global"},
+            },
+        )
+
+    assert response.status_code == 422
+    assert "not applicable" in response.json()["detail"]
 
 
 async def test_query_rejects_cross_tenant_principal(fastapi_app, client: AsyncClient) -> None:

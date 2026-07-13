@@ -15,12 +15,19 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from securgraph.api.dependencies import get_db_session, get_openfga_client, get_qdrant_retriever
+from securgraph.api.dependencies import (
+    get_db_session,
+    get_openfga_client,
+    get_policy_adapter,
+    get_qdrant_retriever,
+)
 from securgraph.api.routes.auth import (
     AuthenticatedPrincipal,
     require_admin,
     require_super_admin,
 )
+from securgraph.domain import Subject
+from securgraph.domain.policy import OpenFGAPolicyAdapter
 from securgraph.indexing.db import (
     AdminAuditEventRow,
     PolicyDecisionRow,
@@ -416,6 +423,7 @@ async def get_vector_atlas(
     document_id: str | None = Query(None, description="Filter by document_id"),
     classification: str | None = Query(None, description="Filter by classification"),
     session: AsyncSession = Depends(get_db_session),
+    policy: OpenFGAPolicyAdapter = Depends(get_policy_adapter),
     admin: AuthenticatedPrincipal | None = Depends(require_admin),
 ) -> dict[str, Any]:
     """Scroll tenant Qdrant points and return a 2D projected atlas map."""
@@ -432,6 +440,13 @@ async def get_vector_atlas(
             client,
             session,
             tenant_id=tenant_id,
+            subject=Subject(
+                tenant_id=tenant_id,
+                user_id=admin.user_id if admin is not None else "system:auth-disabled",
+                roles=(admin.role,) if admin is not None else (),
+            ),
+            policy=policy,
+            trace_id=f"atlas_{uuid.uuid4().hex}",
             dims=dims,
             limit=limit,
             document_id=document_id,
@@ -443,12 +458,15 @@ async def get_vector_atlas(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to build vector atlas.",
         ) from exc
+    finally:
+        client.close()
 
 
 @router.post("/vector-atlas/neighbors")
 async def post_vector_atlas_neighbors(
     req: VectorAtlasNeighborsRequest,
     retriever: Annotated[Any, Depends(get_qdrant_retriever)],
+    policy: OpenFGAPolicyAdapter = Depends(get_policy_adapter),
     admin: AuthenticatedPrincipal | None = Depends(require_admin),
 ) -> dict[str, Any]:
     """Return dense retrieval neighbors for query highlight on the atlas."""
@@ -460,6 +478,13 @@ async def post_vector_atlas_neighbors(
             retriever,
             tenant_id=req.tenant_id,
             query=req.query,
+            subject=Subject(
+                tenant_id=req.tenant_id,
+                user_id=admin.user_id if admin is not None else "system:auth-disabled",
+                roles=(admin.role,) if admin is not None else (),
+            ),
+            policy=policy,
+            trace_id=f"atlas_neighbors_{uuid.uuid4().hex}",
             limit=req.limit,
         )
     except Exception as exc:

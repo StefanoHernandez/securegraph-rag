@@ -17,7 +17,7 @@ from qdrant_client.http import models
 from securgraph.adapters.embeddings import EmbeddingAdapter
 from securgraph.adapters.qdrant_init import init_qdrant_collection
 from securgraph.config import get_settings
-from securgraph.domain import Chunk, Classification, RetrieverId
+from securgraph.domain import Chunk, Classification, QueryScope, RetrieverId
 from securgraph.indexing.qdrant_writer import upsert_chunks_to_qdrant
 from securgraph.indexing.vector_retriever import QdrantRetriever
 
@@ -38,6 +38,36 @@ class MockEmbeddingAdapter(EmbeddingAdapter):
 
     def embed_chunks(self, chunks: list[str]) -> list[list[float]]:
         return [self.embed_text(c) for c in chunks]
+
+
+def test_qdrant_retriever_closes_its_client() -> None:
+    from unittest.mock import MagicMock
+
+    client = MagicMock()
+    retriever = QdrantRetriever(client, MockEmbeddingAdapter())
+
+    retriever.close()
+
+    client.close.assert_called_once()
+
+
+def test_qdrant_scope_filter_limits_classification_and_documents() -> None:
+    from securgraph.indexing.vector_retriever import _build_retrieval_filter
+
+    query_filter = _build_retrieval_filter(
+        "tenant-a",
+        scope=QueryScope(
+            max_classification=Classification.CONFIDENTIAL,
+            document_ids=("doc-1", "doc-2"),
+        ),
+    )
+
+    payload = query_filter.model_dump(mode="json")
+    assert payload["must"][0]["key"] == "tenant_id"
+    assert payload["must"][1]["key"] == "classification"
+    assert payload["must"][1]["match"]["any"] == ["public", "internal", "confidential"]
+    assert payload["must"][2]["key"] == "document_id"
+    assert payload["must"][2]["match"]["any"] == ["doc-1", "doc-2"]
 
 
 @pytest.fixture(autouse=True)

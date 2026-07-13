@@ -10,7 +10,7 @@ import hashlib
 from neo4j import AsyncDriver
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from securgraph.domain import OpenFGAPolicyAdapter, Subject
+from securgraph.domain import Chunk, OpenFGAPolicyAdapter, QueryScope, QueryScopeError, Subject
 from securgraph.domain.base import utcnow
 from securgraph.domain.graph import GraphPath
 from securgraph.domain.policy import (
@@ -111,6 +111,22 @@ class AuthorizedGraphRetriever:
         self.fga = fga
         self._raw_retriever = Neo4jGraphRetriever(driver)
 
+    @staticmethod
+    def _apply_scope_to_chunks(chunks: list[Chunk], scope: QueryScope) -> list[Chunk]:
+        if scope.collections:
+            raise QueryScopeError(
+                "Query scope collections are not supported by graph source metadata."
+            )
+        return [
+            chunk
+            for chunk in chunks
+            if (not scope.document_ids or chunk.document_id in scope.document_ids)
+            and (
+                scope.max_classification is None
+                or chunk.classification.rank <= scope.max_classification.rank
+            )
+        ]
+
     async def traverse_authorized_subgraph(
         self,
         session: AsyncSession,
@@ -118,11 +134,18 @@ class AuthorizedGraphRetriever:
         seed_entities: list[str],
         trace_id: str,
         max_depth: int = 2,
+        scope: QueryScope | None = None,
     ) -> list[GraphPath]:
         """Fetch raw paths from Neo4j, apply batch FGA check on all source chunks.
 
         Enforce path-cut on unauthorized entities/relationships.
         """
+        scope = scope or QueryScope()
+        if scope.collections:
+            raise QueryScopeError(
+                "Query scope collections are not supported by graph source metadata."
+            )
+
         # 1. Fetch raw paths from Neo4j
         raw_paths = await self._raw_retriever.traverse_subgraph(
             subject.tenant_id, seed_entities, max_depth=max_depth
@@ -138,7 +161,7 @@ class AuthorizedGraphRetriever:
 
         if not all_edge_ids:
             # Single-node paths (no edges) have no relationships to restrict.
-            return raw_paths
+            return raw_paths if scope.is_empty else []
 
         # 3. Retrieve chunks mapping for each edge from Neo4j
         edge_chunks: dict[str, list[str]] = {}
@@ -161,6 +184,7 @@ class AuthorizedGraphRetriever:
 
         # 5. Fetch full Chunk domain models from Postgres in a single batch
         chunks = await fetch_chunks_by_ids(session, subject.tenant_id, list(all_chunk_ids))
+        chunks = self._apply_scope_to_chunks(chunks, scope)
 
         # 6. Filter chunks through OpenFGA
         authorized_chunks, decisions = await self.fga.filter_chunks(subject, chunks, trace_id)

@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,12 @@ from securgraph.corpus.qa import (  # noqa: E402
 
 DEFAULT_CORPUS_ROOT = REPO_ROOT / "corpus" / "mrd_v1"
 DEFAULT_RESULTS_DIR = Path(__file__).resolve().parent / "results"
+
+_SUBMISSION_MODELS = {
+    "generation": {"provider": "mistral", "model": "mistral-small-latest"},
+    "extraction": {"provider": "mistral", "model": "mistral-small-latest"},
+    "judge": {"provider": "openai", "model": "gpt-4o-mini"},
+}
 
 
 class SemanticJudge(Protocol):
@@ -98,6 +105,29 @@ def _build_run_manifest(
     }
 
 
+def _validate_submission_manifest(manifest: dict[str, Any], corpus_root: Path) -> None:
+    """Reject configurations that cannot support the frozen submission protocol."""
+    models = manifest.get("models")
+    if not isinstance(models, dict):
+        raise SystemExit("Evaluation manifest is missing model metadata")
+    for role, expected in _SUBMISSION_MODELS.items():
+        if models.get(role) != expected:
+            raise SystemExit(
+                f"Submission evaluation requires {role}={expected['provider']}/"
+                f"{expected['model']}"
+            )
+
+    if corpus_root.name != "mrd_heldout_v1":
+        return
+    if manifest.get("git_dirty"):
+        raise SystemExit("Held-out evaluation requires a clean git worktree")
+    configuration = manifest.get("configuration")
+    if not isinstance(configuration, dict) or configuration.get("baseline_templates"):
+        raise SystemExit("Held-out evaluation must run with baseline templates disabled")
+    if not configuration.get("semantic_judge"):
+        raise SystemExit("Held-out evaluation requires the configured OpenAI semantic judge")
+
+
 def _load_result_rows(path: Path) -> dict[str, dict[str, Any]]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -114,8 +144,24 @@ def _load_result_rows(path: Path) -> dict[str, dict[str, Any]]:
     for item in raw:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
             raise SystemExit("Each result row needs an id")
+        if item["id"] in rows:
+            raise SystemExit(f"Result file contains a duplicate id: {item['id']}")
         rows[item["id"]] = item
     return rows
+
+
+def _validate_result_rows(
+    pairs: tuple[CorpusQaPair, ...], result_rows: dict[str, dict[str, Any]]
+) -> None:
+    """Require exactly one result for every frozen corpus case before scoring."""
+    expected_ids = {pair.id for pair in pairs}
+    received_ids = set(result_rows)
+    missing_ids = sorted(expected_ids - received_ids)
+    unexpected_ids = sorted(received_ids - expected_ids)
+    if missing_ids:
+        raise SystemExit(f"Result file is missing results for: {', '.join(missing_ids)}")
+    if unexpected_ids:
+        raise SystemExit(f"Result file contains unexpected result ids: {', '.join(unexpected_ids)}")
 
 
 def _citation_sources(body: dict[str, Any]) -> list[str]:
@@ -132,6 +178,36 @@ def _citation_sources(body: dict[str, Any]) -> list[str]:
                 sources.append(value)
                 break
     return sources
+
+
+def _confidence_diagnostics(body: dict[str, Any]) -> dict[str, Any]:
+    """Keep C2 diagnostics needed for calibration, never drafts or evidence text."""
+    diagnostics: dict[str, Any] = {}
+    confidence = body.get("confidence")
+    if isinstance(confidence, dict):
+        safe_confidence: dict[str, Any] = {}
+        for field in ("agreement_score", "entity_overlap", "claim_nli_score", "evidence_coverage"):
+            value = confidence.get(field)
+            if value is None or (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and 0.0 <= float(value) <= 1.0
+            ):
+                safe_confidence[field] = value
+        if isinstance(confidence.get("high_trust"), bool):
+            safe_confidence["high_trust"] = confidence["high_trust"]
+        if safe_confidence:
+            diagnostics["confidence"] = safe_confidence
+
+    explanation = body.get("explanation")
+    if isinstance(explanation, dict):
+        retrieval_mode = explanation.get("retrieval_mode")
+        consensus_verdict = explanation.get("consensus_verdict")
+        if isinstance(retrieval_mode, str):
+            diagnostics["retrieval_mode"] = retrieval_mode
+        if isinstance(consensus_verdict, str) or consensus_verdict is None:
+            diagnostics["consensus_verdict"] = consensus_verdict
+    return diagnostics
 
 
 async def _run_live_queries(
@@ -157,6 +233,7 @@ async def _run_live_queries(
                     "retrieval_mode": retrieval_mode,
                     "top_k": top_k,
                     "consensus_threshold": 0.6,
+                    "include_explanation": True,
                 },
             }
             try:
@@ -180,6 +257,7 @@ async def _run_live_queries(
                 "trace_id": body.get("trace_id") if isinstance(body, dict) else None,
                 "answer": answer if isinstance(answer, str) else "",
                 "cited_sources": _citation_sources(body) if isinstance(body, dict) else [],
+                **(_confidence_diagnostics(body) if isinstance(body, dict) else {}),
             }
     return rows
 
@@ -285,6 +363,16 @@ def _write_report(
     }
     if scores is not None:
         passed = sum(1 for score in scores if score.passed)
+        pair_by_id = {pair.id: pair for pair in pairs}
+        case_types = {
+            case_type: {"total": 0, "passed": 0, "failed": 0}
+            for case_type in ("answer_quality", "authorization_denial", "source_isolation")
+        }
+        for score in scores:
+            case_type = pair_by_id[score.pair_id].case_type
+            bucket = case_types[case_type]
+            bucket["total"] += 1
+            bucket["passed" if score.passed else "failed"] += 1
         payload["score"] = {
             "passed": passed,
             "failed": len(scores) - passed,
@@ -302,6 +390,7 @@ def _write_report(
                 and next(pair for pair in pairs if pair.id == score.pair_id).case_type
                 == "authorization_denial"
             ),
+            "case_types": case_types,
             "rows": [asdict(score) for score in scores],
         }
     if result_rows is not None:
@@ -380,27 +469,6 @@ def main() -> None:
         raise SystemExit("--results-json and --live-query-url are mutually exclusive")
 
     pairs = load_corpus_qa_pairs(args.corpus)
-    scores = None
-    result_rows = None
-    if args.results_json is not None:
-        result_rows = _load_result_rows(args.results_json)
-    elif args.live_query_url is not None:
-        result_rows = asyncio.run(
-            _run_live_queries(
-                pairs,
-                query_url=args.live_query_url,
-                tenant_id=args.tenant_id,
-                bearer_token=args.bearer_token,
-                retrieval_mode=args.retrieval_mode,
-                top_k=args.top_k,
-                timeout_seconds=args.timeout_seconds,
-            )
-        )
-    if result_rows is not None:
-        if args.semantic_judge:
-            judge = get_llm_adapter_for("judge", tenant_id=args.tenant_id)
-            asyncio.run(_annotate_semantic_leakage(pairs, result_rows, judge))
-        scores = _score_pairs(pairs, result_rows)
     run_manifest = _build_run_manifest(
         corpus_root=args.corpus,
         generation_provider=args.generation_provider,
@@ -418,8 +486,36 @@ def main() -> None:
             "timeout_seconds": args.timeout_seconds,
             "mode": "live" if args.live_query_url else "saved" if args.results_json else "validate",
             "semantic_judge": args.semantic_judge,
+            "baseline_templates": os.environ.get(
+                "SECURGRAPH_EVAL_BASELINE_TEMPLATES", ""
+            ).strip().lower()
+            in {"1", "true", "yes", "on"},
         },
     )
+    # Freeze the held-out protocol before contacting its live API endpoint.
+    _validate_submission_manifest(run_manifest, args.corpus)
+    scores = None
+    result_rows = None
+    if args.results_json is not None:
+        result_rows = _load_result_rows(args.results_json)
+    elif args.live_query_url is not None:
+        result_rows = asyncio.run(
+            _run_live_queries(
+                pairs,
+                query_url=args.live_query_url,
+                tenant_id=args.tenant_id,
+                bearer_token=args.bearer_token,
+                retrieval_mode=args.retrieval_mode,
+                top_k=args.top_k,
+                timeout_seconds=args.timeout_seconds,
+            )
+        )
+    if result_rows is not None:
+        _validate_result_rows(pairs, result_rows)
+        if args.semantic_judge:
+            judge = get_llm_adapter_for("judge", tenant_id=args.tenant_id)
+            asyncio.run(_annotate_semantic_leakage(pairs, result_rows, judge))
+        scores = _score_pairs(pairs, result_rows)
     json_path, md_path = _write_report(
         pairs,
         scores,

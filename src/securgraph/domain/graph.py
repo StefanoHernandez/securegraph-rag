@@ -77,7 +77,11 @@ class GraphPath(SGModel):
 class ExtractedEntity(BaseModel):
     """An entity extracted from a chunk by LLM."""
 
-    name: str = Field(description="Normalized name of the entity")
+    name: str = Field(
+        min_length=1,
+        pattern=r".*\S.*",
+        description="Normalized name of the entity",
+    )
     label: str = Field(
         description="Category of the entity (e.g. Server, Project, Person, Database)"
     )

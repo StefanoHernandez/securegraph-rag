@@ -19,8 +19,7 @@ jobs:
           python-version: "3.11"
 
       - name: Create venv and install deps
-        run: |
-          uv sync --python 3.11 --frozen --extra dev --extra parsers
+        run: make venv
 
       - name: Lint (ruff)
         run: make lint
@@ -29,10 +28,12 @@ jobs:
         run: make type
 
       # test-unit is Docker-free: conftest sets SECURGRAPH_ENV=test and all
-      # backing stores are mocked. Do NOT switch to `make test`/`make ci`,
-      # which assume live containers.
+      # backing stores are mocked. `make ci` invokes these same three checks.
       - name: Unit tests
         run: make test-unit
+
+      - name: Coverage gate (70%)
+        run: make cov
 
   web:
     name: Web (lint + i18n + build)

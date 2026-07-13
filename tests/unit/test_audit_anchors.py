@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
 from securgraph.indexing.anchors import (
     AnchorStorageResult,
     LocalAnchorStorage,
+    MinioObjectLockAnchorStorage,
     anchor_current_chain_heads,
     compute_merkle_root,
     is_anchor_due,
@@ -29,6 +31,11 @@ class FakeStorage:
             storage_uri="s3://securegraph-audit/anchors/mrd/root.json",
             object_version="v1",
         )
+
+
+def test_minio_object_lock_storage_requires_a_bucket() -> None:
+    with pytest.raises(RuntimeError, match="MinIO Object Lock bucket"):
+        MinioObjectLockAnchorStorage(bucket="", endpoint="https://minio.example")
 
 
 def test_compute_merkle_root_is_order_independent() -> None:
@@ -88,7 +95,7 @@ async def test_anchor_current_chain_heads_persists_row() -> None:
 async def test_local_anchor_storage_rejected_in_production() -> None:
     storage = LocalAnchorStorage(environment="prod")
 
-    with pytest.raises(RuntimeError, match="S3 Object Lock"):
+    with pytest.raises(RuntimeError, match="MinIO Object Lock"):
         await storage.write_anchor({"tenant_id": "mrd"})
 
 
@@ -132,3 +139,62 @@ def test_anchor_due_after_event_threshold() -> None:
         interval_seconds=3600,
         event_threshold=10_000,
     )
+
+
+async def test_anchor_due_ledgers_scopes_discovery_and_each_tenant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from securgraph.ingestion.worker import anchor_due_ledgers
+
+    session = MagicMock()
+    session.execute = AsyncMock(
+        return_value=MagicMock(
+            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=["a", "b"])))
+        )
+    )
+    session.commit = AsyncMock()
+
+    class SessionContext:
+        async def __aenter__(self) -> MagicMock:
+            return session
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    set_context = AsyncMock()
+    should_anchor = AsyncMock(side_effect=[True, False])
+    write_anchor = AsyncMock()
+    monkeypatch.setattr("securgraph.ingestion.worker.set_tenant_rls_context", set_context)
+    monkeypatch.setattr(
+        "securgraph.indexing.anchors.should_anchor_current_chain_heads", should_anchor
+    )
+    monkeypatch.setattr(
+        "securgraph.indexing.anchors.anchor_current_chain_heads", write_anchor
+    )
+
+    result = await anchor_due_ledgers({"session_maker": lambda: SessionContext()})
+
+    assert result == {"anchored": 1}
+    assert set_context.await_args_list == [
+        call(session, tenant_id=None, is_super_admin=True),
+        call(session, tenant_id="a", is_super_admin=False),
+        call(session, tenant_id="b", is_super_admin=False),
+    ]
+    write_anchor.assert_awaited_once_with(session, "a")
+    session.commit.assert_awaited_once()
+
+
+async def test_worker_startup_applies_audit_hygiene_before_initializing_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from securgraph.ingestion.worker import startup
+
+    settings = MagicMock()
+    guard = MagicMock(side_effect=RuntimeError("MinIO Object Lock is required"))
+    monkeypatch.setattr("securgraph.ingestion.worker.get_settings", lambda: settings)
+    monkeypatch.setattr("securgraph.ingestion.worker.enforce_audit_hygiene", guard)
+
+    with pytest.raises(RuntimeError, match="MinIO Object Lock"):
+        await startup({})
+
+    guard.assert_called_once_with(settings)

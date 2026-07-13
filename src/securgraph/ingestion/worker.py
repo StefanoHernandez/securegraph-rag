@@ -15,10 +15,16 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from securgraph.adapters.embeddings import get_embedding_adapter
 from securgraph.adapters.neo4j import get_neo4j_driver
 from securgraph.api.dependencies import set_tenant_rls_context
+from securgraph.api.main import enforce_audit_hygiene
 from securgraph.config import get_settings
 from securgraph.domain import Classification, DocumentType
-from securgraph.indexing.postgres_writer import update_ingestion_job
-from securgraph.ingestion.service import IngestionRequest, ingest_document
+from securgraph.indexing.postgres_writer import record_ingestion_saga_step, update_ingestion_job
+from securgraph.ingestion.saga import SagaJournal
+from securgraph.ingestion.service import (
+    IngestionCompensationError,
+    IngestionRequest,
+    ingest_document,
+)
 from securgraph.logging import configure_logging, get_logger
 
 _LOG = get_logger(__name__)
@@ -27,6 +33,7 @@ _LOG = get_logger(__name__)
 async def startup(ctx: dict[Any, Any]) -> None:
     """Bootstrap connection pools and external clients in the worker context."""
     settings = get_settings()
+    enforce_audit_hygiene(settings)
     configure_logging(level=settings.log_level, json_logs=settings.env != "dev")
     _LOG.info("worker_startup_begun", env=settings.env)
 
@@ -54,6 +61,44 @@ async def shutdown(ctx: dict[Any, Any]) -> None:
     if "neo4j_driver" in ctx:
         await ctx["neo4j_driver"].close()
     _LOG.info("worker_shutdown_completed")
+
+
+def build_saga_journal(session_maker: Any, *, job_id: str, tenant_id: str) -> SagaJournal:
+    """Create a worker journal that survives the ingest transaction rollback."""
+
+    async def journal(
+        step: str,
+        status: str,
+        resource_ids: dict[str, object],
+        compensation_status: str | None,
+        error: str | None,
+    ) -> None:
+        async with session_maker() as journal_session:
+            await set_tenant_rls_context(
+                journal_session,
+                tenant_id=tenant_id,
+                is_super_admin=False,
+            )
+            await record_ingestion_saga_step(
+                journal_session,
+                job_id=job_id,
+                tenant_id=tenant_id,
+                step=step,
+                status=status,
+                resource_ids=resource_ids,
+                compensation_status=compensation_status,
+                error=error,
+            )
+            await journal_session.commit()
+
+    return journal
+
+
+def ingestion_failure_status(error: Exception) -> str:
+    """Keep jobs out of automatic retry when an external residue is possible."""
+    if isinstance(error, IngestionCompensationError):
+        return "reconcile_required"
+    return "failed"
 
 
 async def async_ingest_task(
@@ -118,6 +163,11 @@ async def async_ingest_task(
                 qdrant_client=ctx.get("qdrant_client"),
                 embeddings=ctx.get("embeddings"),
                 neo4j_driver=ctx.get("neo4j_driver"),
+                saga_journal=build_saga_journal(
+                    session_maker,
+                    job_id=job_id,
+                    tenant_id=request_dict["tenant_id"],
+                ),
             )
             print(f"!!! [WORKER] ingest_document returned successfully. status={result.status} !!!")
 
@@ -149,7 +199,7 @@ async def async_ingest_task(
                 await update_ingestion_job(
                     fail_session,
                     job_id=job_id,
-                    status="failed",
+                    status=ingestion_failure_status(e),
                     error=str(e),
                 )
                 await fail_session.commit()
@@ -169,8 +219,16 @@ async def anchor_due_ledgers(ctx: dict[Any, Any]) -> dict[str, int]:
     session_maker = ctx["session_maker"]
     anchored = 0
     async with session_maker() as session:
+        # Tenant discovery is the one cross-tenant operation. The actual
+        # read/write for each chain immediately returns to tenant scope.
+        await set_tenant_rls_context(session, tenant_id=None, is_super_admin=True)
         tenants = list((await session.execute(select(TenantRow.id))).scalars().all())
         for tenant_id in tenants:
+            await set_tenant_rls_context(
+                session,
+                tenant_id=tenant_id,
+                is_super_admin=False,
+            )
             if not await should_anchor_current_chain_heads(session, tenant_id):
                 continue
             await anchor_current_chain_heads(session, tenant_id)

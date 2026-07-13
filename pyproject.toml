@@ -130,12 +130,10 @@ load_test = [
 ]
 # ---------------------------------------------------------------------------
 # LLM provider extras (blueprint §5.2: "LLM providers through stable
-# abstractions"). The default provider is Ollama, which needs no extra deps
-# (already in the core dependencies). Install the extras for the cloud
-# providers you want to enable:
-#   uv pip install -e ".[llm_openai,llm_google,llm_anthropic]"
-# Mistral reuses the OpenAI SDK (OpenAI-compatible endpoint), so it has no
-# separate extra.
+# abstractions"). The submission defaults are Mistral for generation and
+# extraction plus OpenAI for judging; both use the OpenAI-compatible SDK.
+# `make venv` and `make sync` install `llm_openai` for that profile. The other
+# extras are available only for explicitly selected, non-default providers.
 # ---------------------------------------------------------------------------
 llm_openai = [
     "openai>=1.50",

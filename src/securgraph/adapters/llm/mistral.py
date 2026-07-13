@@ -38,7 +38,7 @@ class MistralLLMAdapter(OpenAILLMAdapter):
             raise RuntimeError(
                 "Mistral adapter selected but neither MISTRAL_API_KEY nor "
                 "OPENAI_API_KEY is set. Set one of them or switch "
-                "SECURGRAPH_LLM_PROVIDER back to 'ollama'."
+                "SECURGRAPH_LLM_PROVIDER to an installed cloud provider."
             )
         # Build a shallow settings clone with the Mistral endpoint + key.
         # Pydantic settings models are immutable by default; use model_copy.

@@ -39,6 +39,70 @@ async def write_graph_slice(
         )
 
 
+async def delete_document_graph(
+    driver: AsyncDriver,
+    tenant_id: str,
+    document_id: str,
+    chunk_ids: list[str],
+) -> None:
+    """Remove graph effects belonging to the specified ingested chunks only."""
+    if not chunk_ids:
+        return
+    async with driver.session() as session:
+        await session.execute_write(
+            _delete_document_graph_transaction,
+            tenant_id=tenant_id,
+            document_id=document_id,
+            chunk_ids=chunk_ids,
+        )
+
+
+async def _delete_document_graph_transaction(
+    tx: Any,
+    tenant_id: str,
+    document_id: str,
+    chunk_ids: list[str],
+) -> None:
+    # Relationships can be shared by several chunks. Remove only this ingest's
+    # evidence IDs and delete the relationship only when no provenance remains.
+    await tx.run(
+        """
+        MATCH ()-[r:RELATED_TO]->()
+        WHERE any(chunk_id IN $chunk_ids WHERE chunk_id IN coalesce(r.source_chunk_ids, []))
+        SET r.source_chunk_ids = [
+            chunk_id IN coalesce(r.source_chunk_ids, []) WHERE NOT chunk_id IN $chunk_ids
+        ]
+        WITH r
+        WHERE size(r.source_chunk_ids) = 0
+        DELETE r
+        """,
+        chunk_ids=chunk_ids,
+    )
+    await tx.run(
+        """
+        MATCH (d:Document {document_id: $document_id, tenant_id: $tenant_id})
+        OPTIONAL MATCH (d)-[:CONTAINS]->(c:Chunk)
+        WHERE c.chunk_id IN $chunk_ids
+        OPTIONAL MATCH (c)-[mention:MENTIONS]->(entity:Entity)
+        DELETE mention
+        WITH d, collect(DISTINCT c) AS chunks, collect(DISTINCT entity) AS entities
+        FOREACH (chunk IN chunks | DETACH DELETE chunk)
+        WITH d, entities
+        OPTIONAL MATCH (d)-[:CONTAINS]->(remaining:Chunk)
+        WITH d, entities, count(remaining) AS remaining_count
+        FOREACH (_ IN CASE WHEN remaining_count = 0 THEN [1] ELSE [] END | DETACH DELETE d)
+        WITH entities
+        UNWIND entities AS entity
+        WITH DISTINCT entity
+        WHERE NOT ()-[:MENTIONS]->(entity)
+        DETACH DELETE entity
+        """,
+        tenant_id=tenant_id,
+        document_id=document_id,
+        chunk_ids=chunk_ids,
+    )
+
+
 async def _write_transaction(
     tx: Any,
     tenant_id: str,

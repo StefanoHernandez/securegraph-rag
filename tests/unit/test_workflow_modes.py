@@ -5,10 +5,31 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from securgraph.domain import Citation, RetrievalEvidence, RetrieverId, Subject
+from securgraph.domain import (
+    Citation,
+    Classification,
+    QueryScope,
+    RetrievalEvidence,
+    RetrieverId,
+    Subject,
+)
+from securgraph.domain.policy import (
+    PolicyDecision,
+    PolicyDecisionValue,
+    PolicyObjectType,
+)
 from securgraph.orchestration.workflow import compile_workflow
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _disable_rls_database_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep workflow mode tests unit-level; RLS SQL is covered by integration tests."""
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.set_tenant_rls_context",
+        AsyncMock(),
+    )
 
 
 def _empty_state(mode: str) -> dict[str, Any]:
@@ -93,6 +114,36 @@ async def test_lexical_mode_skips_dense_and_graph(monkeypatch: pytest.MonkeyPatc
     qdrant.search_dense.assert_not_awaited()
     qdrant.search_lexical.assert_awaited()
     graph.traverse_authorized_subgraph.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_vector_mode_applies_query_scope_to_both_vector_lanes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    qdrant, graph = _build_mocks()
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("scoped answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("scoped answer"),
+    )
+    state = _empty_state("vector")
+    state["options"]["scope"] = QueryScope(
+        max_classification=Classification.INTERNAL,
+        document_ids=("doc-1",),
+    ).model_dump(mode="json")
+
+    workflow = compile_workflow(qdrant, graph)
+    await workflow.ainvoke(state)
+
+    expected_scope = QueryScope(
+        max_classification=Classification.INTERNAL,
+        document_ids=("doc-1",),
+    )
+    assert qdrant.search_dense.await_args.kwargs["scope"] == expected_scope
+    assert qdrant.search_lexical.await_args.kwargs["scope"] == expected_scope
 
 
 @pytest.mark.asyncio
@@ -193,6 +244,82 @@ async def test_vector_policy_audit_failure_aborts_query(
 
 
 @pytest.mark.asyncio
+async def test_vector_deny_audit_keeps_the_original_retriever_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    qdrant, graph = _build_mocks()
+    evidence = RetrievalEvidence(
+        evidence_id="ev-lexical",
+        trace_id="tr1",
+        tenant_id="t1",
+        evidence_type="chunk",
+        object_id="chunk-lexical",
+        retriever_id=RetrieverId.LEXICAL,
+        retrieval_strategy="full_text",
+        original_rank=0,
+        original_score=1.0,
+        policy_check_id="pending",
+    )
+    qdrant.search_dense.return_value = []
+    qdrant.search_lexical.return_value = [evidence]
+    decision = PolicyDecision(
+        decision_id="dec-lexical",
+        trace_id="tr1",
+        tenant_id="t1",
+        user_id="user:alice",
+        object_type=PolicyObjectType.CHUNK,
+        object_id="chunk-lexical",
+        decision=PolicyDecisionValue.DENY,
+        reason_code="unauthorized_rbac",
+    )
+    graph.fga.filter_chunk_ids = AsyncMock(return_value=(set(), [decision]))
+
+    class FakeSessionContext:
+        def __init__(self) -> None:
+            self.session = MagicMock()
+            self.session.commit = AsyncMock()
+
+        async def __aenter__(self) -> MagicMock:
+            return self.session
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    sessions = [FakeSessionContext(), FakeSessionContext(), FakeSessionContext()]
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.AsyncSessionLocal",
+        lambda: sessions.pop(0),
+    )
+    monkeypatch.setattr(
+        "securgraph.indexing.postgres_writer.fetch_chunk_text_hashes",
+        AsyncMock(return_value={"chunk-lexical": "sha256:chunk"}),
+    )
+    write_decisions = AsyncMock()
+    monkeypatch.setattr(
+        "securgraph.indexing.postgres_writer.write_policy_decisions", write_decisions
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.build_authorized_citations",
+        AsyncMock(return_value=()),
+    )
+
+    workflow = compile_workflow(qdrant, graph)
+    await workflow.ainvoke(_empty_state("vector"))
+
+    persisted = write_decisions.await_args.args[1]
+    assert persisted[0].retriever_id == "lexical"
+    assert persisted[0].resource_hash == "sha256:chunk"
+
+
+@pytest.mark.asyncio
 async def test_synthesis_attaches_deterministic_citations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -249,6 +376,10 @@ async def test_synthesis_attaches_deterministic_citations(
         lambda: FakeSessionContext(),
     )
     monkeypatch.setattr(
+        "securgraph.orchestration.workflow.set_tenant_rls_context",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
         "securgraph.orchestration.workflow.build_authorized_citations",
         fake_build_citations,
     )
@@ -258,6 +389,35 @@ async def test_synthesis_attaches_deterministic_citations(
 
     final_answer = result["final_answer"]
     assert final_answer.citations[0].source_uri == "documents/01_policy.md"
+
+
+@pytest.mark.asyncio
+async def test_citation_lookup_binds_tenant_rls_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    from securgraph.orchestration.workflow import _build_citations_for_state
+
+    session = MagicMock()
+
+    class FakeSessionContext:
+        async def __aenter__(self) -> MagicMock:
+            return session
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    set_context = AsyncMock()
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.AsyncSessionLocal",
+        lambda: FakeSessionContext(),
+    )
+    monkeypatch.setattr("securgraph.orchestration.workflow.set_tenant_rls_context", set_context)
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.build_authorized_citations",
+        AsyncMock(return_value=()),
+    )
+
+    await _build_citations_for_state(_empty_state("vector"))
+
+    set_context.assert_awaited_once_with(session, tenant_id="t1", is_super_admin=False)
 
 
 def test_auto_route_identifier_query_boosts_lexical() -> None:

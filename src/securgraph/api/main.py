@@ -70,9 +70,26 @@ def enforce_auth_hygiene(settings: Settings) -> None:
         )
 
 
+def enforce_worker_hygiene(settings: Settings) -> None:
+    """Require the durable ARQ ingest path in stage and production.
+
+    The synchronous path is intentionally kept for local development and
+    hermetic tests. It cannot persist the cross-store saga journal in an
+    independent transaction, so release deployments must route ingest through
+    workers.
+    """
+    if settings.env in ("stage", "prod") and not settings.feature_workers_enabled:
+        raise RuntimeError(
+            "SECURGRAPH_FEATURE_WORKERS_ENABLED=true is required in stage/prod "
+            "for the durable ingestion saga."
+        )
+
+
 # Model names that only exist on a local Ollama daemon. Sending one of these
 # to a cloud provider is always a misconfiguration (the request 404s at query
-# time with no obvious cause) — catch it at startup instead.
+# time with no obvious cause) — catch it at startup instead. Ollama itself is
+# intentionally unavailable in stage/prod: it is a legacy local adapter, not a
+# submission or release provider.
 _OLLAMA_SHAPED_MODEL = re.compile(r"^(gemma|qwen|granite|llama|phi|deepseek)|.+:", re.I)
 _CLOUD_PROVIDERS = frozenset({"openai", "mistral", "anthropic", "google"})
 
@@ -99,7 +116,12 @@ def check_provider_model_coherence(settings: Settings) -> list[str]:
     ]
     problems: list[str] = []
     for stage, provider, model in pairs:
-        if provider in _CLOUD_PROVIDERS and _OLLAMA_SHAPED_MODEL.match(model):
+        if provider == "ollama":
+            problems.append(
+                f"LLM {stage} stage: provider 'Ollama' is a legacy local adapter; "
+                "use Mistral or OpenAI for stage/prod."
+            )
+        elif provider in _CLOUD_PROVIDERS and _OLLAMA_SHAPED_MODEL.match(model):
             problems.append(
                 f"LLM {stage} stage: provider '{provider}' with model '{model}' — "
                 "this looks like a local Ollama model name and will 404 on the "
@@ -129,8 +151,8 @@ def enforce_audit_hygiene(settings: Settings) -> None:
             "MinIO Object Lock anchor configuration is required; set "
             "SECURGRAPH_AUDIT_ANCHOR_BUCKET and SECURGRAPH_AUDIT_ANCHOR_ENDPOINT."
         )
-    secret = settings.audit_anchor_s3_secret_key.get_secret_value()
-    if not settings.audit_anchor_s3_access_key or not secret:
+    secret = settings.audit_anchor_secret_key.get_secret_value()
+    if not settings.audit_anchor_access_key or not secret:
         raise RuntimeError(
             "SECURGRAPH_AUDIT_ANCHOR_ACCESS_KEY and SECURGRAPH_AUDIT_ANCHOR_SECRET_KEY "
             f"are required in env={settings.env}."
@@ -148,6 +170,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log = get_logger(__name__)
     enforce_secret_hygiene(settings)
     enforce_auth_hygiene(settings)
+    enforce_worker_hygiene(settings)
     enforce_audit_hygiene(settings)
     if (
         settings.env in ("dev", "test")
@@ -203,6 +226,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await _redis_pool.close()
         except Exception:
             log.exception("redis_pool_teardown_failed")
+        try:
+            from securgraph.api.dependencies import close_qdrant_retriever
+
+            close_qdrant_retriever()
+        except Exception:
+            log.exception("qdrant_retriever_teardown_failed")
+        try:
+            from securgraph.api.dependencies import close_openfga_client
+
+            await close_openfga_client()
+        except Exception:
+            log.exception("openfga_client_teardown_failed")
         shutdown_observability()
 
 

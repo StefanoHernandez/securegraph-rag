@@ -8,7 +8,9 @@
   identity: mrd.junior-tech
   question: What controls does the private architecture require?
   forbidden_sources: [15_private_architecture.md]
-  case_type: source_isolation
+  case_type: authorization_denial
+  forbidden_claims:
+    - Ingestion originals are encrypted at rest, authorization precedes retrieval, and audit chain roots require protected storage.
   outcome: deny
 - id: mrd-03
   identity: mrd.senior-tech
@@ -119,7 +121,9 @@
   identity: mrd.consultant
   question: Where do provider keys remain?
   forbidden_sources: [03_ai_cloud_policy.md]
-  case_type: source_isolation
+  case_type: authorization_denial
+  forbidden_claims:
+    - Provider keys remain outside user-visible configuration.
   outcome: deny
 - id: mrd-20
   identity: mrd.admin

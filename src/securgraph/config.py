@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import AliasChoices, Field, SecretStr, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -74,11 +75,13 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------- redis
     redis_url: str = "redis://localhost:6379/0"
 
-    # ------------------------------------------------------------------- ollama
+    # ------------------------------------------------------------ legacy Ollama
+    # Kept only for explicit development deployments. Submission and production
+    # defaults use the cloud providers declared below.
     ollama_url: str = "http://localhost:11434"
-    llm_model: str = "gemma3:1b"
-    llm_model_extract: str = "gemma3:1b"
-    llm_model_judge: str = "gemma3:1b"
+    llm_model: str = "mistral-small-latest"
+    llm_model_extract: str = "mistral-small-latest"
+    llm_model_judge: str = "gpt-4o-mini"
     llm_num_ctx: int = Field(default=4096, ge=512, le=131072)
     llm_thinking: bool = Field(
         default=True,
@@ -104,14 +107,12 @@ class Settings(BaseSettings):
     # --------------------------------------------------------------- llm provider
     # LLM-agnostic design (blueprint "Recommended Technology
     # Stack"). The pipeline never imports a vendor SDK directly; it asks
-    # `get_llm_adapter()` for an `LLMAdapter` implementation. The default
-    # stays `ollama` so sovereign/offline deployments keep working with zero
-    # extra dependencies. Per-role overrides allow a mixed deployment, e.g.
-    # local Ollama for extraction of sensitive data and a cloud model for the
-    # NLI judge over already-authorized evidence (blueprint §5.2).
-    llm_provider: Literal["ollama", "openai", "google", "mistral", "anthropic"] = "ollama"
-    llm_provider_extract: str = ""
-    llm_provider_judge: str = ""
+    # `get_llm_adapter()` for an `LLMAdapter` implementation. Submission-ready
+    # defaults use Mistral for generation/extraction and OpenAI for NLI judging.
+    # Ollama remains an explicit legacy adapter for local development only.
+    llm_provider: Literal["ollama", "openai", "google", "mistral", "anthropic"] = "mistral"
+    llm_provider_extract: str = "mistral"
+    llm_provider_judge: str = "openai"
     fallback_policy: Literal["block", "default_provider"] = "block"
 
     # Cloud provider API keys. Read by the corresponding adapter lazily; if a
@@ -133,10 +134,9 @@ class Settings(BaseSettings):
     mistral_api_key: SecretStr = Field(default=SecretStr(""), validation_alias="MISTRAL_API_KEY")
 
     # ---------------------------------------------------------------- tokenizer
-    # HuggingFace tokenizer used by the chunker for token budgeting. Default is
-    # Granite 4.0 H-Tiny (matches the granite4.1:3b Ollama default closely
-    # enough; token counts are approximate but stable). First load downloads
-    # the tokenizer; subsequent loads read from the HF cache.
+    # HuggingFace tokenizer used by the chunker for token budgeting. Token
+    # counts are approximate but stable. First load downloads the tokenizer;
+    # subsequent loads read from the HF cache.
     chunker_tokenizer_model: str = "ibm-granite/granite-4.0-h-tiny"
 
     # --------------------------------------------------------------- embeddings
@@ -194,7 +194,7 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         validation_alias="AUDIT_HMAC_KEY",
     )
-    audit_anchor_s3_bucket: str = Field(
+    audit_anchor_bucket: str = Field(
         default="",
         validation_alias=AliasChoices(
             "AUDIT_ANCHOR_BUCKET",
@@ -203,7 +203,7 @@ class Settings(BaseSettings):
             "SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET",
         ),
     )
-    audit_anchor_s3_prefix: str = Field(
+    audit_anchor_prefix: str = Field(
         default="securegraph/audit-anchors",
         validation_alias=AliasChoices(
             "AUDIT_ANCHOR_PREFIX",
@@ -212,7 +212,7 @@ class Settings(BaseSettings):
             "SECURGRAPH_AUDIT_ANCHOR_S3_PREFIX",
         ),
     )
-    audit_anchor_s3_endpoint: str = Field(
+    audit_anchor_endpoint: str = Field(
         default="",
         validation_alias=AliasChoices(
             "AUDIT_ANCHOR_ENDPOINT",
@@ -221,7 +221,7 @@ class Settings(BaseSettings):
             "SECURGRAPH_AUDIT_ANCHOR_S3_ENDPOINT",
         ),
     )
-    audit_anchor_s3_region: str = Field(
+    audit_anchor_region: str = Field(
         default="us-east-1",
         validation_alias=AliasChoices(
             "AUDIT_ANCHOR_REGION",
@@ -230,7 +230,7 @@ class Settings(BaseSettings):
             "SECURGRAPH_AUDIT_ANCHOR_S3_REGION",
         ),
     )
-    audit_anchor_s3_access_key: str = Field(
+    audit_anchor_access_key: str = Field(
         default="",
         validation_alias=AliasChoices(
             "AUDIT_ANCHOR_ACCESS_KEY",
@@ -239,7 +239,7 @@ class Settings(BaseSettings):
             "SECURGRAPH_AUDIT_ANCHOR_S3_ACCESS_KEY",
         ),
     )
-    audit_anchor_s3_secret_key: SecretStr = Field(
+    audit_anchor_secret_key: SecretStr = Field(
         default=SecretStr(""),
         validation_alias=AliasChoices(
             "AUDIT_ANCHOR_SECRET_KEY",
@@ -260,18 +260,24 @@ class Settings(BaseSettings):
         if not isinstance(data, dict):
             return data
         mappings = {
-            "SECURGRAPH_AUDIT_ANCHOR_BUCKET": "audit_anchor_s3_bucket",
-            "SECURGRAPH_AUDIT_ANCHOR_PREFIX": "audit_anchor_s3_prefix",
-            "SECURGRAPH_AUDIT_ANCHOR_ENDPOINT": "audit_anchor_s3_endpoint",
-            "SECURGRAPH_AUDIT_ANCHOR_REGION": "audit_anchor_s3_region",
-            "SECURGRAPH_AUDIT_ANCHOR_ACCESS_KEY": "audit_anchor_s3_access_key",
-            "SECURGRAPH_AUDIT_ANCHOR_SECRET_KEY": "audit_anchor_s3_secret_key",
-            "SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET": "audit_anchor_s3_bucket",
-            "SECURGRAPH_AUDIT_ANCHOR_S3_PREFIX": "audit_anchor_s3_prefix",
-            "SECURGRAPH_AUDIT_ANCHOR_S3_ENDPOINT": "audit_anchor_s3_endpoint",
-            "SECURGRAPH_AUDIT_ANCHOR_S3_REGION": "audit_anchor_s3_region",
-            "SECURGRAPH_AUDIT_ANCHOR_S3_ACCESS_KEY": "audit_anchor_s3_access_key",
-            "SECURGRAPH_AUDIT_ANCHOR_S3_SECRET_KEY": "audit_anchor_s3_secret_key",
+            "SECURGRAPH_AUDIT_ANCHOR_BUCKET": "audit_anchor_bucket",
+            "SECURGRAPH_AUDIT_ANCHOR_PREFIX": "audit_anchor_prefix",
+            "SECURGRAPH_AUDIT_ANCHOR_ENDPOINT": "audit_anchor_endpoint",
+            "SECURGRAPH_AUDIT_ANCHOR_REGION": "audit_anchor_region",
+            "SECURGRAPH_AUDIT_ANCHOR_ACCESS_KEY": "audit_anchor_access_key",
+            "SECURGRAPH_AUDIT_ANCHOR_SECRET_KEY": "audit_anchor_secret_key",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_BUCKET": "audit_anchor_bucket",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_PREFIX": "audit_anchor_prefix",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_ENDPOINT": "audit_anchor_endpoint",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_REGION": "audit_anchor_region",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_ACCESS_KEY": "audit_anchor_access_key",
+            "SECURGRAPH_AUDIT_ANCHOR_S3_SECRET_KEY": "audit_anchor_secret_key",
+            "audit_anchor_s3_bucket": "audit_anchor_bucket",
+            "audit_anchor_s3_prefix": "audit_anchor_prefix",
+            "audit_anchor_s3_endpoint": "audit_anchor_endpoint",
+            "audit_anchor_s3_region": "audit_anchor_region",
+            "audit_anchor_s3_access_key": "audit_anchor_access_key",
+            "audit_anchor_s3_secret_key": "audit_anchor_secret_key",
         }
         normalized = dict(data)
         for source, target in mappings.items():
@@ -281,18 +287,10 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def audit_anchor_bucket(self) -> str:
-        return self.audit_anchor_s3_bucket
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def audit_anchor_endpoint(self) -> str:
-        return self.audit_anchor_s3_endpoint
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
     def audit_anchor_backend(self) -> str:
-        if self.audit_anchor_s3_bucket and self.audit_anchor_s3_endpoint:
+        endpoint_host = urlparse(self.audit_anchor_endpoint).hostname or ""
+        is_aws_endpoint = endpoint_host.lower().endswith("amazonaws.com")
+        if self.audit_anchor_bucket and self.audit_anchor_endpoint and not is_aws_endpoint:
             return "minio"
         return "local"
 

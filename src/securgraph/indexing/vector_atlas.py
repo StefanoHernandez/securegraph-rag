@@ -11,6 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.config import get_settings
+from securgraph.domain import Subject
+from securgraph.domain.policy import OpenFGAPolicyAdapter
 from securgraph.indexing.db import DocumentRow, QueryTraceRow, RetrievalEvidenceRow
 from securgraph.indexing.vector_projection import (
     MATRIX_PROJECTION_THRESHOLD,
@@ -133,6 +135,9 @@ async def build_vector_atlas(
     session: AsyncSession,
     *,
     tenant_id: str,
+    subject: Subject,
+    policy: OpenFGAPolicyAdapter,
+    trace_id: str,
     dims: int = 2,
     limit: int = ATLAS_MAX_POINTS,
     document_id: str | None = None,
@@ -152,6 +157,22 @@ async def build_vector_atlas(
             client, tenant_filter, limit=limit, with_vectors=True
         )
 
+    chunk_ids = [
+        str(point.payload.get("chunk_id"))
+        for point in raw_points
+        if point.payload and point.payload.get("chunk_id")
+    ]
+    authorized_chunk_ids, _ = await policy.filter_chunk_ids(
+        subject=subject,
+        chunk_ids=chunk_ids,
+        trace_id=trace_id,
+    )
+    raw_points = [
+        point
+        for point in raw_points
+        if point.payload and str(point.payload.get("chunk_id")) in authorized_chunk_ids
+    ]
+
     if not raw_points:
         return {
             "tenant_id": tenant_id,
@@ -166,9 +187,16 @@ async def build_vector_atlas(
 
     if use_matrix:
         settings = get_settings()
+        tenant_conditions = list(tenant_filter.must or [])
+        authorized_filter = models.Filter(
+            must=[
+                *tenant_conditions,
+                models.HasIdCondition(has_id=[point.id for point in raw_points]),
+            ]
+        )
         matrix = client.search_matrix_pairs(
             collection_name=settings.qdrant_collection,
-            query_filter=tenant_filter,
+            query_filter=authorized_filter,
             sample=len(raw_points),
             limit=len(raw_points),
         )
@@ -231,11 +259,20 @@ async def search_atlas_neighbors(
     *,
     tenant_id: str,
     query: str,
+    subject: Subject,
+    policy: OpenFGAPolicyAdapter,
+    trace_id: str,
     limit: int = 10,
 ) -> dict[str, Any]:
     """Dense neighbor search using the production retriever."""
     limit = max(1, min(limit, 50))
     hits = await retriever.search_dense(tenant_id, query, limit=limit)
+    authorized_chunk_ids, _ = await policy.filter_chunk_ids(
+        subject=subject,
+        chunk_ids=[hit.object_id for hit in hits],
+        trace_id=trace_id,
+    )
+    hits = [hit for hit in hits if hit.object_id in authorized_chunk_ids]
     return {
         "tenant_id": tenant_id,
         "query": query,

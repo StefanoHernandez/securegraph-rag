@@ -7,12 +7,12 @@ via ``settings.openai_base_url`` — see :mod:`securgraph.adapters.llm.mistral`
 for the thin Mistral specialization.
 
 Security note (blueprint §5.6 "Privacy Rules"): cloud providers receive only
-*already-authorized* evidence. Extraction of raw sensitive documents should
-stay on a local provider (Ollama); this adapter is intended for the online
-query path and the NLI judge over authorized context, or for deployments
-where the corpus is non-sensitive. The per-role config
-(``SECURGRAPH_LLM_PROVIDER_EXTRACT`` vs ``_JUDGE``) lets operators enforce
-that split without code changes.
+*already-authorized* evidence. The submission profile uses this adapter's
+OpenAI-compatible path for Mistral generation/extraction and OpenAI NLI
+judging. Deployments that send protected data to a cloud provider must enforce
+their authorization and egress policy before the adapter is invoked. The
+per-role configuration (``SECURGRAPH_LLM_PROVIDER_EXTRACT`` and ``_JUDGE``)
+keeps those provider choices explicit.
 """
 
 from __future__ import annotations
@@ -112,8 +112,7 @@ class OpenAILLMAdapter(LLMAdapter):
         if not api_key:
             raise RuntimeError(
                 "OpenAI adapter selected but OPENAI_API_KEY is not set. "
-                "Either set the key or switch SECURGRAPH_LLM_PROVIDER back to "
-                "'ollama'."
+                "Set the key or select an installed cloud provider."
             )
         self._client = _get_openai_client(settings.openai_base_url, api_key)
 

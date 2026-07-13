@@ -8,13 +8,15 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from securgraph.adapters.llm import get_llm_adapter, get_llm_adapter_for
-from securgraph.api.dependencies import AsyncSessionLocal
+from securgraph.api.dependencies import AsyncSessionLocal, set_tenant_rls_context
 from securgraph.domain import (
     Answer,
     Citation,
     Claim,
     ConsensusReport,
     NLILabel,
+    QueryScope,
+    QueryScopeError,
     Subject,
     VerifierStatus,
 )
@@ -305,6 +307,11 @@ def _heuristic_seeds(query: str) -> list[str]:
 async def _build_citations_for_state(state: QueryState) -> tuple[Citation, ...]:
     try:
         async with AsyncSessionLocal() as session:
+            await set_tenant_rls_context(
+                session,
+                tenant_id=state["subject"].tenant_id,
+                is_super_admin=False,
+            )
             return await build_authorized_citations(
                 session,
                 tenant_id=state["subject"].tenant_id,
@@ -394,6 +401,14 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
         m = _routed_options(state).get("retrieval_mode") or "hybrid"
         return "hybrid" if m == "auto" else m
 
+    def _query_scope(state: QueryState) -> QueryScope:
+        raw_scope = state["options"].get("scope")
+        if raw_scope is None:
+            return QueryScope()
+        if isinstance(raw_scope, QueryScope):
+            return raw_scope
+        return QueryScope.model_validate(raw_scope)
+
     async def vector_retrieval_node(state: QueryState) -> dict[str, Any]:
         if state["options"].get("query_type") == "global":
             return {"vector_context": []}
@@ -406,12 +421,25 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             q: str = state["query"]
             trace: str = state["trace_id"]
             limit = _routed_options(state).get("top_k", 10)
+            scope = _query_scope(state)
 
             if mode == "lexical":
                 dense = []
             else:
-                dense = await qdrant.search_dense(subject.tenant_id, q, limit=limit, trace_id=trace)
-            lexical = await qdrant.search_lexical(subject.tenant_id, q, limit=limit, trace_id=trace)
+                dense = await qdrant.search_dense(
+                    subject.tenant_id,
+                    q,
+                    limit=limit,
+                    trace_id=trace,
+                    scope=scope,
+                )
+            lexical = await qdrant.search_lexical(
+                subject.tenant_id,
+                q,
+                limit=limit,
+                trace_id=trace,
+                scope=scope,
+            )
 
             from securgraph.indexing.fusion import fuse_rankings
 
@@ -448,10 +476,14 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                         for decision in decisions
                         if decision.decision == PolicyDecisionValue.DENY
                     ]
-                    ev_map = {ev.object_id: ev.retriever_id.value for ev in fused}
                     hash_map: dict[str, str] = {}
                     if denied_ids:
                         async with AsyncSessionLocal() as hash_session:
+                            await set_tenant_rls_context(
+                                hash_session,
+                                tenant_id=subject.tenant_id,
+                                is_super_admin=False,
+                            )
                             hash_map = await fetch_chunk_text_hashes(
                                 hash_session, subject.tenant_id, denied_ids
                             )
@@ -472,6 +504,11 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                 from securgraph.indexing.postgres_writer import write_policy_decisions
 
                 async with AsyncSessionLocal() as session:
+                    await set_tenant_rls_context(
+                        session,
+                        tenant_id=subject.tenant_id,
+                        is_super_admin=False,
+                    )
                     await write_policy_decisions(session, decisions)
                     await session.commit()
 
@@ -485,50 +522,46 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
         tracer = get_tracer()
         with tracer.start_as_current_span("graph_retrieval") as span:
             if state["options"].get("query_type") == "global":
+                if not _query_scope(state).is_empty:
+                    raise QueryScopeError(
+                        "Query scope is not applicable to global community retrieval."
+                    )
                 from securgraph.adapters.neo4j import get_neo4j_driver
-                from securgraph.indexing.global_retriever import AuthorizedCommunityRetriever
+                from securgraph.indexing.global_retriever import (
+                    AuthorizedCommunityRetriever,
+                    CommunityRetrievalResult,
+                )
 
                 retriever = AuthorizedCommunityRetriever(
                     driver=getattr(graph, "driver", None) or get_neo4j_driver(),
                     fga=getattr(graph, "fga", None),  # type: ignore[arg-type]
                 )
 
-                summaries = await retriever.retrieve_communities(
+                retrieval_result = await retriever.retrieve_communities(
                     subject=state["subject"],
                     level=1,  # Target Level 1 (high-level themes)
                     trace_id=state["trace_id"],
+                    return_decisions=True,
                 )
+                if isinstance(retrieval_result, CommunityRetrievalResult):
+                    summaries = retrieval_result.communities
+                    community_decisions = retrieval_result.decisions
+                else:  # Backward compatibility for legacy retriever adapters.
+                    summaries = retrieval_result
+                    community_decisions = []
                 span.set_attribute("securgraph.communities_count", len(summaries))
 
-                # Persist an allow decision per returned community so the
-                # provenance report can match evidence rows (object_id =
-                # community_id) to an authorization record instead of
-                # rendering authorized evidence as redacted. Denied
-                # communities never become evidence; their denial is
-                # currently tracked as a metric inside the retriever.
-                if summaries:
-                    from securgraph.domain import utcnow
-                    from securgraph.domain.policy import (
-                        PolicyDecision,
-                        PolicyDecisionValue,
-                        PolicyObjectType,
-                    )
+                # Persist both allowed and denied candidates. Only the
+                # authorized summaries are promoted to synthesis evidence.
+                if community_decisions:
                     from securgraph.indexing.postgres_writer import write_policy_decisions
 
-                    community_decisions = [
-                        PolicyDecision(
-                            decision_id=f"dec_{comm.community_id}_{utcnow().timestamp()}",
-                            trace_id=state["trace_id"],
-                            tenant_id=state["subject"].tenant_id,
-                            user_id=state["subject"].user_id,
-                            object_type=PolicyObjectType.COMMUNITY,
-                            object_id=str(comm.community_id),
-                            decision=PolicyDecisionValue.ALLOW,
-                            reason_code="community_policy_class_ok",
-                        )
-                        for comm in summaries
-                    ]
                     async with AsyncSessionLocal() as decision_session:
+                        await set_tenant_rls_context(
+                            decision_session,
+                            tenant_id=state["subject"].tenant_id,
+                            is_super_admin=False,
+                        )
                         await write_policy_decisions(decision_session, community_decisions)
                         await decision_session.commit()
 
@@ -557,12 +590,18 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                 query=state["query"],
             )
             async with AsyncSessionLocal() as session:
+                await set_tenant_rls_context(
+                    session,
+                    tenant_id=state["subject"].tenant_id,
+                    is_super_admin=False,
+                )
                 paths = await graph.traverse_authorized_subgraph(
                     session=session,
                     subject=state["subject"],
                     seed_entities=seeds,
                     trace_id=state["trace_id"],
                     max_depth=_routed_options(state).get("max_graph_depth", 2),
+                    scope=_query_scope(state),
                 )
                 await session.commit()
 

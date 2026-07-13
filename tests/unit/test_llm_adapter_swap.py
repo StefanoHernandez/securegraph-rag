@@ -25,6 +25,7 @@ from securgraph.adapters.llm import (
     get_llm_adapter_for,
     reset_llm_adapter_cache,
 )
+from securgraph.adapters.llm.mistral import MistralLLMAdapter
 from securgraph.adapters.llm.ollama import OllamaLLMAdapter
 from securgraph.runtime_overrides import clear_runtime_overrides, set_runtime_override
 
@@ -42,6 +43,7 @@ def _isolate_llm_env(monkeypatch):
 
     monkeypatch.setenv("SECURGRAPH_ENV", "test")
     monkeypatch.setenv("SECURGRAPH_OLLAMA_URL", "http://localhost:11434")
+    monkeypatch.setenv("MISTRAL_API_KEY", "test-mistral-key")
 
     from securgraph.config import Settings
 
@@ -60,19 +62,15 @@ def _isolate_llm_env(monkeypatch):
     clear_runtime_overrides()
 
 
-def test_default_provider_is_ollama(monkeypatch):
-    """With no explicit provider, the factory returns the Ollama adapter.
-
-    This pins the sovereign-default guarantee from blueprint §5.2: a fresh
-    checkout with zero cloud credentials must still produce a working adapter.
-    """
+def test_default_provider_is_mistral(monkeypatch):
+    """With no explicit provider, generation uses the cloud Mistral adapter."""
     monkeypatch.delenv("SECURGRAPH_LLM_PROVIDER", raising=False)
     from securgraph.config import get_settings
 
     get_settings.cache_clear()
     adapter = get_llm_adapter()
-    assert isinstance(adapter, OllamaLLMAdapter)
-    assert adapter.provider_name == "ollama"
+    assert isinstance(adapter, MistralLLMAdapter)
+    assert adapter.provider_name == "mistral"
 
 
 def test_factory_returns_llmadapter_abc():
@@ -93,9 +91,9 @@ def test_provider_swap_changes_adapter_class(monkeypatch):
     factory selects the right module and raises the expected credential error
     (which proves the lookup happened, i.e. the swap took effect).
     """
-    # First call: default ollama → OllamaLLMAdapter
-    adapter_ollama = get_llm_adapter()
-    assert isinstance(adapter_ollama, OllamaLLMAdapter)
+    # First call: default Mistral → MistralLLMAdapter.
+    adapter_mistral = get_llm_adapter()
+    assert isinstance(adapter_mistral, MistralLLMAdapter)
 
     # Swap to openai without an API key → should raise the credential error
     # from OpenAILLMAdapter.__init__, proving the factory actually instantiated
@@ -121,7 +119,7 @@ def test_per_role_provider_override(monkeypatch):
     get_settings.cache_clear()
     reset_llm_adapter_cache()
 
-    # generation role → default ollama
+    # generation role -> explicit legacy Ollama adapter
     gen_adapter = get_llm_adapter("generation")
     assert isinstance(gen_adapter, OllamaLLMAdapter)
 
@@ -132,7 +130,8 @@ def test_per_role_provider_override(monkeypatch):
 
 def test_tenant_runtime_provider_override_does_not_leak(monkeypatch):
     """Tenant-scoped runtime provider overrides affect only that tenant."""
-    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER", "mistral")
+    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER_JUDGE", "mistral")
     monkeypatch.setenv("OPENAI_API_KEY", "")
     from securgraph.config import get_settings
 
@@ -144,12 +143,12 @@ def test_tenant_runtime_provider_override_does_not_leak(monkeypatch):
         get_llm_adapter_for("judge", tenant_id="mrd-lab")
 
     adapter = get_llm_adapter_for("judge", tenant_id="other-tenant")
-    assert isinstance(adapter, OllamaLLMAdapter)
+    assert isinstance(adapter, MistralLLMAdapter)
 
 
 def test_tenant_fallback_policy_defaults_to_block(monkeypatch):
     """Role-provider failures stay fail-closed unless fallback is explicit."""
-    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER", "mistral")
     monkeypatch.setenv("OPENAI_API_KEY", "")
     from securgraph.config import get_settings
 
@@ -164,7 +163,7 @@ def test_tenant_fallback_policy_defaults_to_block(monkeypatch):
 
 def test_tenant_fallback_policy_can_use_default_provider(monkeypatch):
     """Explicit fallback_policy=default_provider falls back from role provider."""
-    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER", "mistral")
     monkeypatch.setenv("OPENAI_API_KEY", "")
     from securgraph.config import get_settings
 
@@ -175,7 +174,18 @@ def test_tenant_fallback_policy_can_use_default_provider(monkeypatch):
 
     adapter = get_llm_adapter_for("judge", tenant_id="mrd-lab")
 
-    assert isinstance(adapter, OllamaLLMAdapter)
+    assert isinstance(adapter, MistralLLMAdapter)
+
+
+def test_explicit_ollama_provider_remains_available(monkeypatch):
+    """Ollama remains a legacy adapter only when operators select it explicitly."""
+    monkeypatch.setenv("SECURGRAPH_LLM_PROVIDER", "ollama")
+    from securgraph.config import get_settings
+
+    get_settings.cache_clear()
+    reset_llm_adapter_cache()
+
+    assert isinstance(get_llm_adapter(), OllamaLLMAdapter)
 
 
 def test_unknown_provider_raises_value_error(monkeypatch):

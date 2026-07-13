@@ -294,9 +294,6 @@ def test_authorization_denial_passes_for_clean_refusal() -> None:
     [
         "No authorized evidence was found to answer this query. "
         "The accessible sources do not contain relevant content.",
-        "No information available.",
-        "No information is available.",
-        "No information.",
     ],
 )
 def test_system_refusal_phrases_are_detected(answer: str) -> None:
@@ -304,6 +301,17 @@ def test_system_refusal_phrases_are_detected(answer: str) -> None:
 
     assert score.refusal_detected
     assert score.passed
+
+
+@pytest.mark.parametrize(
+    "answer",
+    ["No information available.", "No information is available.", "No information."],
+)
+def test_generic_retrieval_misses_are_not_authorization_refusals(answer: str) -> None:
+    score = score_qa_result(_deny_pair(), answer=answer, cited_sources=[])
+
+    assert not score.refusal_detected
+    assert not score.passed
 
 
 def test_authorization_denial_fails_when_refusal_leaks_protected_claim() -> None:
@@ -320,13 +328,26 @@ def test_authorization_denial_fails_when_refusal_leaks_protected_claim() -> None
     assert not score.passed
 
 
-def test_source_isolation_does_not_require_refusal() -> None:
-    score = score_qa_result(
-        _deny_pair(case_type="source_isolation"),
-        answer="The public launch process uses rotating credentials.",
+def test_source_isolation_requires_an_answer_from_authorized_sources() -> None:
+    pair = CorpusQaPair(
+        id="source-isolation-1",
+        identity="mrd.external",
+        question="When is the public launch briefing published?",
+        outcome="deny",
+        expected="The public launch briefing is published at 06:00 UTC.",
+        source_documents=("public.md",),
+        forbidden_sources=("restricted.md",),
+        case_type="source_isolation",
+    )
+
+    missing_answer = score_qa_result(pair, answer="", cited_sources=[])
+    valid_answer = score_qa_result(
+        pair,
+        answer="The public launch briefing is published at 06:00 UTC.",
         cited_sources=["public.md"],
     )
 
-    assert not score.refusal_detected
-    assert not score.forbidden_source_leaked
-    assert score.passed
+    assert not missing_answer.passed
+    assert not valid_answer.refusal_detected
+    assert not valid_answer.forbidden_source_leaked
+    assert valid_answer.passed

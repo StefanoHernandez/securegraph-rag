@@ -10,7 +10,7 @@ from openfga_sdk import OpenFgaClient
 from openfga_sdk.client.models import ClientCheckRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from securgraph.domain import Chunk, Classification, Subject
+from securgraph.domain import Chunk, Classification, QueryScope, Subject
 from securgraph.domain.policy import (
     OpenFGAPolicyAdapter,
     PolicyDecision,
@@ -286,6 +286,7 @@ async def test_authorized_graph_retriever_path_cut() -> None:
             subject=subject,
             seed_entities=["Seed"],
             trace_id=trace_id,
+            scope=QueryScope(document_ids=("doc_1",)),
         )
 
         # Path-cut enforcement assert:
@@ -303,6 +304,8 @@ async def test_authorized_graph_retriever_path_cut() -> None:
         assert args[0] == mock_session_db
         assert args[1] == "tenant_1"
         assert sorted(args[2]) == ["chk_1", "chk_2", "chk_3"]
+        checked_chunks = mock_fga.filter_chunks.call_args.args[1]
+        assert [chunk.chunk_id for chunk in checked_chunks] == ["chk_1"]
 
         # Two persisted decision batches: chunk-level checks, then the
         # path-level outcomes the provenance report matches evidence against.

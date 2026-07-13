@@ -71,9 +71,11 @@ async def client(fastapi_app: FastAPI) -> AsyncIterator[AsyncClient]:
 async def cleanup_engine() -> AsyncIterator[None]:
     """Dispose global database engine after each test to avoid closed event loop errors."""
     yield
-    from securgraph.api.dependencies import engine
+    from securgraph.api.dependencies import close_openfga_client, close_qdrant_retriever, engine
 
     await engine.dispose()
+    close_qdrant_retriever()
+    await close_openfga_client()
     # Also clear the LLM adapter cache so provider swaps in one test don't leak
     # into the next.
     with suppress(Exception):

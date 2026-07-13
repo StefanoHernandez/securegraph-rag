@@ -67,3 +67,16 @@ def upsert_chunks_to_qdrant(
         points=points,
         wait=True,
     )
+
+
+def delete_chunks_from_qdrant(client: QdrantClient, chunk_ids: list[str]) -> None:
+    """Delete exactly the stable Qdrant points created for an ingest attempt."""
+    if not chunk_ids:
+        return
+    settings = get_settings()
+    point_ids = [str(uuid.uuid5(uuid.NAMESPACE_DNS, chunk_id)) for chunk_id in chunk_ids]
+    client.delete(
+        collection_name=settings.qdrant_collection,
+        points_selector=models.PointIdsList(points=point_ids),
+        wait=True,
+    )
