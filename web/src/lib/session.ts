@@ -7,8 +7,14 @@ export function clearSession(): void {
   if (typeof window === "undefined") {
     return;
   }
-  localStorage.removeItem("securgraph_user");
-  localStorage.removeItem("securgraph_tenant");
+  for (const storage of [localStorage, sessionStorage]) {
+    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
+      (key): key is string => key !== null && key.startsWith("securgraph_")
+    );
+    for (const key of keys) {
+      storage.removeItem(key);
+    }
+  }
 }
 
 export function getSessionUser(): SessionUser | null {

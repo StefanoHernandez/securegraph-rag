@@ -13,10 +13,17 @@ import {
   Grid
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SuggestInput } from "@/components/ui/suggest-input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
-import { adminApi } from "@/lib/api";
+import { adminApi, controlPlaneApi, tenantApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  documentToFgaObject,
+  loadGroupSubjectsForTenant,
+  searchUserSubjects,
+  uniqueStrings,
+} from "@/lib/suggestions";
+import type { Suggestion } from "@/components/ui/suggest-input";
 
 interface FGATuple {
   user: string;
@@ -40,6 +47,8 @@ export default function PermissionsPage() {
   // Matrix State
   const [matrixUsers, setMatrixUsers] = useState<string[]>([]);
   const [matrixDocs, setMatrixDocs] = useState<string[]>([]);
+  const [subjectSuggestions, setSubjectSuggestions] = useState<Suggestion[]>([]);
+  const [objectSuggestions, setObjectSuggestions] = useState<Suggestion[]>([]);
 
   const fetchTuples = useCallback(async () => {
     setLoading(true);
@@ -66,6 +75,15 @@ export default function PermissionsPage() {
         )
       );
       setMatrixUsers(users);
+      setSubjectSuggestions(
+        users.map((user) => ({
+          value: user,
+          label: user.replace(/^user:/, ""),
+        }))
+      );
+      setObjectSuggestions(
+        docs.map((doc) => documentToFgaObject(doc))
+      );
     } catch (err: unknown) {
       console.error(err);
       setError(
@@ -76,6 +94,8 @@ export default function PermissionsPage() {
       setTuples([]);
       setMatrixDocs([]);
       setMatrixUsers([]);
+      setSubjectSuggestions([]);
+      setObjectSuggestions([]);
     } finally {
       setLoading(false);
     }
@@ -85,6 +105,50 @@ export default function PermissionsPage() {
     const timer = window.setTimeout(() => void fetchTuples(), 0);
     return () => window.clearTimeout(timer);
   }, [fetchTuples]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCatalog = async () => {
+      try {
+        const [users, tenants] = await Promise.all([
+          controlPlaneApi.searchUsers(""),
+          tenantApi.listTenants(),
+        ]);
+        if (cancelled) return;
+
+        const tenantIds = uniqueStrings(
+          tenants.slice(0, 4).map((tenant) => tenant.id)
+        );
+        const groupBatches = await Promise.all(
+          tenantIds.map((tenantId) => loadGroupSubjectsForTenant(tenantId))
+        );
+        const catalog = [
+          ...users.map((user) => ({
+            value: `user:${user.id}`,
+            label: user.display_name,
+            hint: user.username,
+          })),
+          ...groupBatches.flat(),
+        ];
+        setSubjectSuggestions((current) => {
+          const seen = new Set(current.map((item) => item.value));
+          const merged = [...current];
+          for (const item of catalog) {
+            if (seen.has(item.value)) continue;
+            seen.add(item.value);
+            merged.push(item);
+          }
+          return merged;
+        });
+      } catch {
+        // Tuple-derived suggestions remain available.
+      }
+    };
+    void loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleGrant = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -190,30 +254,17 @@ export default function PermissionsPage() {
                 <label className="mono-meta block">
                   {t("subject")}
                 </label>
-                <div className="relative">
-                  <Users className="absolute left-2.5 top-2.5 h-4 w-4 text-bone-dim" />
-                  <Input
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    placeholder="e.g. user:bob or group:marketing#member"
-                    className="pl-9 bg-vault-raised border-hairline text-bone text-xs font-mono h-9 focus-visible:border-signal-amber"
-                    required
-                  />
-                </div>
-                <div className="flex gap-2 pt-1 flex-wrap">
-                  {matrixUsers.slice(0, 5).map((usr) => (
-                    <Button
-                      key={usr}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSubject(usr)}
-                      className="h-6 px-2 font-mono text-[10px]"
-                    >
-                      {usr.replace("user:", "")}
-                    </Button>
-                  ))}
-                </div>
+                <SuggestInput
+                  value={subject}
+                  onChange={setSubject}
+                  suggestions={subjectSuggestions}
+                  onQuery={searchUserSubjects}
+                  placeholder="e.g. user:bob or group:marketing#member"
+                  inputClassName="pl-9 bg-vault-raised border-hairline text-bone text-xs font-mono h-9 focus-visible:border-signal-amber"
+                  required
+                  leftIcon={<Users className="h-4 w-4" />}
+                  emptyLabel={t("noSubjectMatches")}
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -236,32 +287,16 @@ export default function PermissionsPage() {
                 <label className="mono-meta block">
                   {t("object")}
                 </label>
-                <div className="relative">
-                  <FileText className="absolute left-2.5 top-2.5 h-4 w-4 text-bone-dim" />
-                  <Input
-                    value={object}
-                    onChange={(e) => setObject(e.target.value)}
-                    placeholder="e.g. document:sec_doc_01"
-                    className="pl-9 bg-vault-raised border-hairline text-bone text-xs font-mono h-9 focus-visible:border-signal-amber"
-                    required
-                  />
-                </div>
-                {matrixDocs.length > 0 && (
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {matrixDocs.map((doc) => (
-                      <Button
-                        key={doc}
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setObject(doc)}
-                        className="h-6 px-2 font-mono text-[10px] max-w-28 truncate"
-                      >
-                        {doc.replace("document:", "")}
-                      </Button>
-                    ))}
-                  </div>
-                )}
+                <SuggestInput
+                  value={object}
+                  onChange={setObject}
+                  suggestions={objectSuggestions}
+                  placeholder="e.g. document:sec_doc_01"
+                  inputClassName="pl-9 bg-vault-raised border-hairline text-bone text-xs font-mono h-9 focus-visible:border-signal-amber"
+                  required
+                  leftIcon={<FileText className="h-4 w-4" />}
+                  emptyLabel={t("noObjectMatches")}
+                />
               </div>
 
               {formSuccess && (

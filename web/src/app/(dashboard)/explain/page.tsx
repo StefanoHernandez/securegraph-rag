@@ -11,12 +11,16 @@ import { CustodyTimeline } from "@/components/explain/CustodyTimeline";
 import { explainApi } from "@/lib/api";
 import { ExplainReport } from "@/lib/types";
 import { getErrorMessage } from "@/lib/errors";
+import { useTenant } from "@/context/TenantProvider";
+import { useSessionUser } from "@/lib/session";
 
 function ExplainContent() {
   const t = useTranslations("explainPage");
   const searchParams = useSearchParams();
   const router = useRouter();
   const traceIdParam = searchParams.get("trace_id");
+  const { tenantId } = useTenant();
+  const sessionUser = useSessionUser();
 
   const [traceId, setTraceId] = useState(traceIdParam || "");
   const [loading, setLoading] = useState(false);
@@ -27,15 +31,8 @@ function ExplainContent() {
     setLoading(true);
     setError(null);
     try {
-      const storedUser = localStorage.getItem("securgraph_user");
-      const storedTenant = localStorage.getItem("securgraph_tenant");
-      let uId = "anonymous";
-      let tId = "default";
-      if (storedUser) {
-        const parsed = JSON.parse(storedUser);
-        uId = parsed.id || parsed.username || "anonymous";
-        tId = storedTenant || parsed.tenant_id || "default";
-      }
+      const uId = sessionUser?.id || sessionUser?.username || "anonymous";
+      const tId = tenantId || "default";
       const res = await explainApi.getReport(tid, tId, uId);
       setReport(res);
     } catch (err: unknown) {
@@ -50,7 +47,7 @@ function ExplainContent() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [sessionUser, t, tenantId]);
 
   useEffect(() => {
     if (!traceIdParam) return;

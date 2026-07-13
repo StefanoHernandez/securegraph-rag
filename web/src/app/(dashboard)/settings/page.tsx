@@ -17,7 +17,7 @@ import {
   EgressStage,
   EmbeddingReindexPlan,
 } from "@/lib/types";
-import { useTenantSelection } from "@/lib/useTenantSelection";
+import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 
 const PROVIDERS: ProviderName[] = ["openai", "anthropic", "gemini", "mistral", "ollama"];
 const RUNTIME_KEYS = [

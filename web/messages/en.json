@@ -54,7 +54,10 @@
     "clearanceRestricted": "clearance restricted",
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
-    "toggleNavigation": "Toggle navigation"
+    "toggleNavigation": "Toggle navigation",
+    "closeNavigation": "Close navigation",
+    "navigation": "Primary navigation",
+    "verifyingClearance": "Verifying clearance"
   },
   "settingsPage": {
     "eyebrow": "section 08 · tenant control plane",
@@ -180,7 +183,8 @@
     "updateError": "Unable to update membership.",
     "resetError": "Unable to reset password.",
     "searchError": "Unable to search users.",
-    "attachError": "Unable to attach user to tenant."
+    "attachError": "Unable to attach user to tenant.",
+    "noUserMatches": "No matching users."
   },
   "tenantsPage": {
     "eyebrow": "section 11 · organization boundary",
@@ -229,7 +233,8 @@
     "createError": "Unable to create group.",
     "addError": "Unable to add member.",
     "removeError": "Unable to remove member.",
-    "updateError": "Unable to update group."
+    "updateError": "Unable to update group.",
+    "noUserMatches": "No matching users."
   },
   "accessTemplatesPage": {
     "eyebrow": "section 13 · access defaults",
@@ -255,7 +260,9 @@
     "empty": "No templates recorded for this tenant.",
     "loadError": "Unable to load access templates.",
     "createError": "Unable to create access template.",
-    "updateError": "Unable to update access template."
+    "updateError": "Unable to update access template.",
+    "addViewer": "Add viewer by name or id…",
+    "noUserMatches": "No matching users."
   },
   "operationsPage": {
     "eyebrow": "section 14 · durable operations",
@@ -372,7 +379,9 @@
     "grantError": "Unable to write the FGA relationship.",
     "revokeConfirm": "Revoke permission: {user} -> {relation} -> {object}?",
     "revokeError": "Unable to revoke the FGA relationship.",
-    "loadError": "Failed to retrieve FGA tuples from the store."
+    "loadError": "Failed to retrieve FGA tuples from the store.",
+    "noSubjectMatches": "No matching users or groups.",
+    "noObjectMatches": "No matching documents."
   },
   "chatPage": {
     "eyebrow": "section 01 · query console",
@@ -391,6 +400,29 @@
     "processing": "engine · processing",
     "workflow": "langgraph workflow running",
     "placeholder": "Interrogate the framework (e.g. security access policies…)",
+    "queryInput": "Query input",
+    "sendQuery": "Send query",
+    "suggestionSecurity": "What security policies govern access to sensitive data?",
+    "suggestionConsensus": "Retrieve the consensus report for the latest high-trust query.",
+    "suggestionDenied": "List denied accesses for this tenant today.",
+    "suggestionGraph": "Show the relationship between OpenFGA policies and Neo4j nodes.",
+    "pipelineRouting": "Query classification and scope routing",
+    "pipelineRoutingDetail": "Parsing intent",
+    "pipelineRetrieval": "Dual-lane retrieval and FGA pruning",
+    "pipelineRetrievalDetail": "Vector, lexical, and graph retrieval",
+    "pipelineConsensus": "Cross-lane consensus audit",
+    "pipelineConsensusDetail": "Bidirectional NLI consensus",
+    "pipelineSynthesis": "Secure synthesis and lineage anchoring",
+    "pipelineSynthesisDetail": "Persisting the provenance trace",
+    "modeAuto": "Auto router",
+    "modeHybrid": "Hybrid lane fusion",
+    "modeVector": "Vector only",
+    "modeLexical": "Lexical only",
+    "modeGraph": "Graph only",
+    "queryTypeStandard": "Standard RAG",
+    "queryTypeGlobal": "Global graph summary",
+    "collectionPlaceholder": "For example: policy, finance",
+    "documentPlaceholder": "For example: doc_123, doc_456",
     "engineConfig": "engine config",
     "retrievalMode": "retrieval lane mode",
     "queryStrategy": "query strategy",
@@ -407,7 +439,11 @@
     "documentsHelp": "Comma-separated list of unique doc IDs.",
     "queryError": "**Retrieval error:** Query could not be completed.\n\nError detail: `{detail}`.\n\nMake sure backend and database containers (Postgres, Neo4j, Qdrant) are running.",
     "advancedModes": "advanced modes",
-    "singleLaneWarning": "single-lane modes bypass cross-retriever consensus: the trust verdict is not meaningful. Use for diagnostics only."
+    "singleLaneWarning": "single-lane modes bypass cross-retriever consensus: the trust verdict is not meaningful. Use for diagnostics only.",
+    "addCollection": "Add collection from templates…",
+    "addDocument": "Add document id from intake…",
+    "noCollectionMatches": "No matching collections.",
+    "noDocumentMatches": "No matching documents."
   },
   "ingestPage": {
     "eyebrow": "section 02 · evidence intake",
@@ -417,6 +453,22 @@
     "error": "intake error",
     "panel": "document intake · vector store + neo4j",
     "drop": "drop evidence here · or click to browse",
+    "fileInput": "Choose an evidence file",
+    "removeFile": "Remove selected file",
+    "typePolicy": "Security policy",
+    "typeContract": "Contract agreement",
+    "typeReport": "Analytics report",
+    "typeSpecification": "Technical specification",
+    "typeNote": "Internal note",
+    "typeOther": "Other document",
+    "classificationPublic": "Public",
+    "classificationInternal": "Internal",
+    "classificationRestricted": "Restricted",
+    "ownerPlaceholder": "For example: user:admin",
+    "tenantPlaceholder": "For example: tenant_a",
+    "titlePlaceholder": "Defaults to the filename",
+    "policyTagsPlaceholder": "For example: finance, hr",
+    "errorPrefix": "Error",
     "formats": "txt · md · pdf · docx · xlsx — max 50mb",
     "documentType": "document type",
     "classification": "classification",
@@ -438,8 +490,11 @@
     "uploadError": "Upload failed. Check the server connection.",
     "completed": "✓ COMPLETED",
     "failed": "FAILED",
+    "reconcileRequired": "RECONCILIATION REQUIRED",
     "running": "RUNNING",
-    "queued": "QUEUED"
+    "queued": "QUEUED",
+    "noOwnerMatches": "No matching owners.",
+    "noTenantMatches": "No matching tenants."
   },
   "auditPage": {
     "eyebrow": "section 06 · tamper-evident",

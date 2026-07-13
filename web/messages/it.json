@@ -54,7 +54,10 @@
     "clearanceRestricted": "clearance restricted",
     "expandSidebar": "Espandi navigazione",
     "collapseSidebar": "Comprimi navigazione",
-    "toggleNavigation": "Apri navigazione"
+    "toggleNavigation": "Apri navigazione",
+    "closeNavigation": "Chiudi navigazione",
+    "navigation": "Navigazione principale",
+    "verifyingClearance": "Verifica clearance in corso"
   },
   "settingsPage": {
     "eyebrow": "section 08 · control plane tenant",
@@ -180,7 +183,8 @@
     "updateError": "Impossibile aggiornare la membership.",
     "resetError": "Impossibile resettare la password.",
     "searchError": "Impossibile cercare gli utenti.",
-    "attachError": "Impossibile collegare l'utente al tenant."
+    "attachError": "Impossibile collegare l'utente al tenant.",
+    "noUserMatches": "Nessun utente corrispondente."
   },
   "tenantsPage": {
     "eyebrow": "section 11 · confine organizzazione",
@@ -229,7 +233,8 @@
     "createError": "Impossibile creare il gruppo.",
     "addError": "Impossibile aggiungere il membro.",
     "removeError": "Impossibile rimuovere il membro.",
-    "updateError": "Impossibile aggiornare il gruppo."
+    "updateError": "Impossibile aggiornare il gruppo.",
+    "noUserMatches": "Nessun utente corrispondente."
   },
   "accessTemplatesPage": {
     "eyebrow": "section 13 · default accesso",
@@ -255,7 +260,9 @@
     "empty": "Nessun template registrato per questo tenant.",
     "loadError": "Impossibile caricare i template di accesso.",
     "createError": "Impossibile creare il template di accesso.",
-    "updateError": "Impossibile aggiornare il template di accesso."
+    "updateError": "Impossibile aggiornare il template di accesso.",
+    "addViewer": "Aggiungi viewer per nome o id…",
+    "noUserMatches": "Nessun utente corrispondente."
   },
   "operationsPage": {
     "eyebrow": "section 14 · operazioni durevoli",
@@ -372,7 +379,9 @@
     "grantError": "Impossibile scrivere la relazione FGA.",
     "revokeConfirm": "Revocare il permesso: {user} -> {relation} -> {object}?",
     "revokeError": "Impossibile revocare la relazione FGA.",
-    "loadError": "Impossibile recuperare le tuple FGA dallo store."
+    "loadError": "Impossibile recuperare le tuple FGA dallo store.",
+    "noSubjectMatches": "Nessun utente o gruppo corrispondente.",
+    "noObjectMatches": "Nessun documento corrispondente."
   },
   "chatPage": {
     "eyebrow": "section 01 · console query",
@@ -391,6 +400,29 @@
     "processing": "motore · elaborazione",
     "workflow": "workflow langgraph in esecuzione",
     "placeholder": "Interroga il framework (es. policy accessi sicurezza…)",
+    "queryInput": "Input query",
+    "sendQuery": "Invia query",
+    "suggestionSecurity": "Quali policy di sicurezza regolano l'accesso ai dati sensibili?",
+    "suggestionConsensus": "Recupera il report di consenso dell'ultima query ad alta fiducia.",
+    "suggestionDenied": "Elenca gli accessi negati per questo tenant oggi.",
+    "suggestionGraph": "Mostra la relazione tra policy OpenFGA e nodi Neo4j.",
+    "pipelineRouting": "Classificazione query e routing dello scope",
+    "pipelineRoutingDetail": "Analisi dell'intento",
+    "pipelineRetrieval": "Retrieval dual-lane e pruning FGA",
+    "pipelineRetrievalDetail": "Retrieval vectoriale, lessicale e grafo",
+    "pipelineConsensus": "Audit di consenso cross-lane",
+    "pipelineConsensusDetail": "Consenso NLI bidirezionale",
+    "pipelineSynthesis": "Sintesi sicura e ancoraggio della lineage",
+    "pipelineSynthesisDetail": "Persistenza della traccia di provenienza",
+    "modeAuto": "Router automatico",
+    "modeHybrid": "Fusione lane ibrida",
+    "modeVector": "Solo vettoriale",
+    "modeLexical": "Solo lessicale",
+    "modeGraph": "Solo grafo",
+    "queryTypeStandard": "RAG standard",
+    "queryTypeGlobal": "Riepilogo globale del grafo",
+    "collectionPlaceholder": "Ad esempio: policy, finance",
+    "documentPlaceholder": "Ad esempio: doc_123, doc_456",
     "engineConfig": "config motore",
     "retrievalMode": "modalità retrieval lane",
     "queryStrategy": "strategia query",
@@ -407,7 +439,11 @@
     "documentsHelp": "Lista di ID documento univoci separati da virgola.",
     "queryError": "**Errore di recupero:** Non è stato possibile completare la query.\n\nDettaglio errore: `{detail}`.\n\nAssicurati che backend e database container (Postgres, Neo4j, Qdrant) siano attivi.",
     "advancedModes": "modalità avanzate",
-    "singleLaneWarning": "le modalità a corsia singola saltano il consenso cross-retriever: il verdetto di fiducia non è significativo. Solo per diagnostica."
+    "singleLaneWarning": "le modalità a corsia singola saltano il consenso cross-retriever: il verdetto di fiducia non è significativo. Solo per diagnostica.",
+    "addCollection": "Aggiungi collezione dai template…",
+    "addDocument": "Aggiungi document id dall'intake…",
+    "noCollectionMatches": "Nessuna collezione corrispondente.",
+    "noDocumentMatches": "Nessun documento corrispondente."
   },
   "ingestPage": {
     "eyebrow": "section 02 · intake evidenze",
@@ -417,6 +453,22 @@
     "error": "errore intake",
     "panel": "intake documento · vector store + neo4j",
     "drop": "rilascia evidenza qui · o clicca per sfogliare",
+    "fileInput": "Scegli un file di evidenza",
+    "removeFile": "Rimuovi il file selezionato",
+    "typePolicy": "Policy di sicurezza",
+    "typeContract": "Accordo contrattuale",
+    "typeReport": "Report analitico",
+    "typeSpecification": "Specifica tecnica",
+    "typeNote": "Nota interna",
+    "typeOther": "Altro documento",
+    "classificationPublic": "Pubblico",
+    "classificationInternal": "Interno",
+    "classificationRestricted": "Riservato",
+    "ownerPlaceholder": "Ad esempio: user:admin",
+    "tenantPlaceholder": "Ad esempio: tenant_a",
+    "titlePlaceholder": "Usa il nome file per default",
+    "policyTagsPlaceholder": "Ad esempio: finance, hr",
+    "errorPrefix": "Errore",
     "formats": "txt · md · pdf · docx · xlsx — max 50mb",
     "documentType": "tipo documento",
     "classification": "classificazione",
@@ -438,8 +490,11 @@
     "uploadError": "Upload fallito. Verifica la connessione al server.",
     "completed": "✓ COMPLETATO",
     "failed": "FAILED",
+    "reconcileRequired": "RICONCILIAZIONE RICHIESTA",
     "running": "RUNNING",
-    "queued": "QUEUED"
+    "queued": "QUEUED",
+    "noOwnerMatches": "Nessun owner corrispondente.",
+    "noTenantMatches": "Nessun tenant corrispondente."
   },
   "auditPage": {
     "eyebrow": "section 06 · tamper-evident",

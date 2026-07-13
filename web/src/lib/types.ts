@@ -15,7 +15,7 @@ export interface QueryRequest {
   user_id: string;
   query: string;
   scope_collections?: string[];
-  scope_max_classification?: string | null;
+  scope_max_classification?: Classification | null;
   scope_document_ids?: string[];
   options?: Partial<QueryOptions>;
 }
@@ -41,6 +41,12 @@ export interface QueryChannels {
   community?: ChannelSummary | null;
 }
 
+export interface QueryExplanation {
+  retrieval_mode: RetrievalMode;
+  query_type: QueryType;
+  consensus_verdict: string | null;
+}
+
 export interface Citation {
   evidence_id: string;
   document_id: string | null;
@@ -59,6 +65,7 @@ export interface QueryResponse {
   channels: QueryChannels;
   trace_id: string;
   warnings: string[];
+  explanation: QueryExplanation | null;
 }
 
 export interface ExplainReport {
@@ -136,7 +143,7 @@ export interface IngestionJob {
   job_id: string;
   document_id: string;
   tenant_id: string;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed" | "reconcile_required";
   progress?: number;
   error?: string | null;
   created_at: string;

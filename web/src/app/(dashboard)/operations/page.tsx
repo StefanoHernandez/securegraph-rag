@@ -17,13 +17,13 @@ import { Panel } from "@/components/forensic";
 import { operationsApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
 import { OperationIngestionJob, OperationJob } from "@/lib/types";
-import { useTenantSelection } from "@/lib/useTenantSelection";
+import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 
 function statusClass(status: string): string {
   if (status === "completed" || status === "already_ingested") {
     return "text-signal-amber";
   }
-  if (status === "failed") {
+  if (status === "failed" || status === "reconcile_required") {
     return "text-seal-red";
   }
   return "text-bone-dim";
@@ -187,12 +187,12 @@ export default function OperationsPage() {
       </header>
 
       {error && (
-        <Panel classification="restricted" label={t("error")}>
+        <Panel classification="restricted" label={t("error")} role="alert">
           <p className="px-5 py-4 font-mono text-xs text-seal-red">{error}</p>
         </Panel>
       )}
       {notice && (
-        <Panel classification="internal" label={t("operationResult")}>
+        <Panel classification="internal" label={t("operationResult")} role="status" aria-live="polite">
           <p className="px-5 py-4 font-mono text-xs text-signal-amber">{notice}</p>
         </Panel>
       )}

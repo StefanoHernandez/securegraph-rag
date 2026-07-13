@@ -27,6 +27,7 @@ import {
   CostEstimateResponse,
   EmbeddingReindexPlan,
 } from "./types";
+import { clearSession } from "./session";
 
 const API_PREFIX = "/api/v1";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -55,7 +56,7 @@ async function tryRefreshSession(): Promise<boolean> {
 }
 
 function redirectToLogin(): void {
-  localStorage.removeItem("securgraph_user");
+  clearSession();
   const path = window.location.pathname + window.location.search;
   const next =
     path && path !== "/login" ? `?next=${encodeURIComponent(path)}` : "";
@@ -374,7 +375,7 @@ export const ingestApi = {
       job_id: string;
       document_id: string;
       tenant_id: string;
-      status: "queued" | "running" | "completed" | "failed";
+      status: "queued" | "running" | "completed" | "failed" | "reconcile_required";
       error?: string | null;
     }>(`/ingest/status/${jobId}`),
 };

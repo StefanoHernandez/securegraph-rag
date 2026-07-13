@@ -8,7 +8,7 @@ import { Panel } from "@/components/forensic";
 import { getErrorMessage } from "@/lib/errors";
 import { settingsApi } from "@/lib/api";
 import { ModelCatalogEntry, ProviderName } from "@/lib/types";
-import { useTenantSelection } from "@/lib/useTenantSelection";
+import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 
 const PROVIDERS: Array<ProviderName | "all"> = [
   "all",

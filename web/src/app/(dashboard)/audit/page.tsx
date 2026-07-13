@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Panel, TamperChain, type ChainStatus } from "@/components/forensic";
 import { adminApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
-import { useTenantSelection } from "@/lib/useTenantSelection";
+import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 
 interface AuditTrace {
   trace_id: string;

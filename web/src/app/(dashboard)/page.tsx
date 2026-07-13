@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Panel, TamperChain, TrustVerdict, type ChainStatus } from "@/components/forensic";
 import { MessageSquare, UploadCloud, ArrowUpRight } from "lucide-react";
 import { adminApi, healthApi, configApi, type ActiveConfig } from "@/lib/api";
-import { useTenantSelection } from "@/lib/useTenantSelection";
+import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 import { displayName, useSessionUser } from "@/lib/session";
 
 interface TraceRow {

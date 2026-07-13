@@ -1,14 +1,17 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
+const e2ePort = process.env.E2E_PORT ?? "3001";
+const baseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${e2ePort}`;
 const webServerUrl = process.env.E2E_WEB_SERVER_URL ?? baseURL;
-const webServerCommand = process.env.E2E_WEB_SERVER_COMMAND ?? "npm run dev";
+const webServerCommand =
+  process.env.E2E_WEB_SERVER_COMMAND ??
+  `npm run dev -- --webpack --hostname 127.0.0.1 --port ${e2ePort}`;
 const skipWebServer = process.env.E2E_SKIP_WEB_SERVER === "1";
 
 /**
  * Playwright E2E configuration for the Forensic Vault UI.
  *
- * Tests run against the Next.js dev server on :3000 and the FastAPI
+ * Tests run against an isolated Next.js dev server on :3001 and the FastAPI
  * backend on :8000. Start both before running:
  *   make api     # terminal 1
  *   make web-dev # terminal 2
@@ -28,8 +31,12 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium",
+      name: "desktop-chromium",
       use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "mobile-chromium",
+      use: { ...devices["Pixel 5"] },
     },
   ],
   webServer: skipWebServer

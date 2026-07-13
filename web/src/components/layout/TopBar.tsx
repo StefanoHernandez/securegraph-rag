@@ -22,7 +22,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 interface TopBarProps {
-  setSidebarCollapsed: () => void;
+  mobileNavigationOpen: boolean;
+  onToggleMobileNavigation: () => void;
 }
 
 const TITLES: Record<string, { eyebrow: string; titleKey: string }> = {
@@ -45,7 +46,10 @@ const TITLES: Record<string, { eyebrow: string; titleKey: string }> = {
   "/profile": { eyebrow: "operator", titleKey: "profile" },
 };
 
-export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
+export default function TopBar({
+  mobileNavigationOpen,
+  onToggleMobileNavigation,
+}: TopBarProps) {
   const topbar = useTranslations("topbar");
   const shell = useTranslations("shell");
   const pathname = usePathname();
@@ -77,9 +81,11 @@ export default function TopBar({ setSidebarCollapsed }: TopBarProps) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={setSidebarCollapsed}
+          onClick={onToggleMobileNavigation}
           className="md:hidden text-bone-dim"
-          aria-label={shell("toggleNavigation")}
+          aria-label={mobileNavigationOpen ? shell("closeNavigation") : shell("toggleNavigation")}
+          aria-controls="primary-navigation"
+          aria-expanded={mobileNavigationOpen}
         >
           <Menu className="h-5 w-5" />
         </Button>

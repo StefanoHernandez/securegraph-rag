@@ -15,10 +15,13 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SuggestInput } from "@/components/ui/suggest-input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
 import { ingestApi, operationsApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
+import { searchTenantSuggestions, searchUserSubjects } from "@/lib/suggestions";
 import { useTenant } from "@/context/TenantProvider";
+import { useSessionUser } from "@/lib/session";
 import type { OperationIngestionJob } from "@/lib/types";
 
 interface IngestionTrackerJob {
@@ -31,19 +34,10 @@ interface IngestionTrackerJob {
   owner_id: string;
   classification: string;
   document_type: string;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed" | "reconcile_required";
   error?: string | null;
   created_at: string;
 }
-
-const DOCUMENT_TYPES = [
-  { value: "policy", label: "Security Policy" },
-  { value: "contract", label: "Contract Agreement" },
-  { value: "report", label: "Analytics Report" },
-  { value: "specification", label: "Technical Specification" },
-  { value: "note", label: "Internal Note" },
-  { value: "other", label: "Other Document" }
-];
 
 function mapApiJob(job: OperationIngestionJob): IngestionTrackerJob {
   return {
@@ -60,7 +54,8 @@ function mapApiJob(job: OperationIngestionJob): IngestionTrackerJob {
       job.status === "queued" ||
       job.status === "running" ||
       job.status === "completed" ||
-      job.status === "failed"
+      job.status === "failed" ||
+      job.status === "reconcile_required"
         ? job.status
         : "failed",
     error: job.error,
@@ -95,7 +90,16 @@ function loadStoredIdentity(): { tenantId: string; ownerId: string } {
 export default function IngestPage() {
   const t = useTranslations("ingestPage");
   const { tenantId: selectedTenantId } = useTenant();
+  const sessionUser = useSessionUser();
   const [initialIdentity] = useState(loadStoredIdentity);
+  const documentTypes = [
+    { value: "policy", label: t("typePolicy") },
+    { value: "contract", label: t("typeContract") },
+    { value: "report", label: t("typeReport") },
+    { value: "specification", label: t("typeSpecification") },
+    { value: "note", label: t("typeNote") },
+    { value: "other", label: t("typeOther") },
+  ];
   const [file, setFile] = useState<File | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -113,6 +117,19 @@ export default function IngestPage() {
   // Jobs Tracker
   const [jobs, setJobs] = useState<IngestionTrackerJob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (selectedTenantId) {
+      setTenantId(selectedTenantId);
+    }
+  }, [selectedTenantId]);
+
+  useEffect(() => {
+    const id = sessionUser?.id || sessionUser?.username;
+    if (id) {
+      setOwnerId(`user:${id}`);
+    }
+  }, [sessionUser]);
 
   useEffect(() => {
     if (!selectedTenantId) {
@@ -303,6 +320,8 @@ export default function IngestPage() {
         return <span className="stamp text-signal-amber">{t("completed")}</span>;
       case "failed":
         return <span className="stamp text-seal-red">{t("failed")}</span>;
+      case "reconcile_required":
+        return <span className="stamp text-seal-red">{t("reconcileRequired")}</span>;
       case "running":
         return (
           <span className="stamp text-bone-dim">
@@ -333,6 +352,15 @@ export default function IngestPage() {
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
                 onClick={triggerFileSelect}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    triggerFileSelect();
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={t("fileInput")}
                 className={`border border-dashed p-8 text-center cursor-pointer transition-colors flex flex-col items-center justify-center min-h-48 ${
                   isDragActive
                     ? "border-signal-amber bg-[rgba(232,178,58,0.06)]"
@@ -341,7 +369,9 @@ export default function IngestPage() {
               >
                 <input
                   ref={fileInputRef}
+                  id="ingest-file"
                   type="file"
+                  aria-label={t("fileInput")}
                   onChange={handleFileChange}
                   accept=".txt,.md,.markdown,.pdf,.docx,.xlsx"
                   className="hidden"
@@ -360,6 +390,7 @@ export default function IngestPage() {
                       <button
                         type="button"
                         onClick={removeFile}
+                        aria-label={t("removeFile")}
                         className="p-1 text-bone-dim hover:text-seal-red transition-colors"
                       >
                         <X className="h-4 w-4" />
@@ -386,25 +417,26 @@ export default function IngestPage() {
               </div>
 
               {errorMessage && (
-                <div className="border border-seal-red/40 bg-vault-sunk px-3 py-2.5">
+                <div className="border border-seal-red/40 bg-vault-sunk px-3 py-2.5" role="alert">
                   <p className="font-mono text-xs text-seal-red">⚠ {errorMessage}</p>
                 </div>
               )}
               {successMessage && (
-                <div className="border border-signal-amber/40 bg-vault-sunk px-3 py-2.5">
+                <div className="border border-signal-amber/40 bg-vault-sunk px-3 py-2.5" role="status" aria-live="polite">
                   <p className="font-mono text-xs text-signal-amber">✓ {successMessage}</p>
                 </div>
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="mono-meta block">{t("documentType")}</label>
+                  <label className="mono-meta block" htmlFor="document-type">{t("documentType")}</label>
                   <select
+                    id="document-type"
                     value={documentType}
                     onChange={(e) => setDocumentType(e.target.value)}
                     className="w-full bg-vault-raised border border-hairline px-2.5 py-2 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
                   >
-                    {DOCUMENT_TYPES.map(opt => (
+                    {documentTypes.map(opt => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
@@ -412,64 +444,73 @@ export default function IngestPage() {
 
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <label className="mono-meta block">{t("classification")}</label>
+                    <label className="mono-meta block" htmlFor="classification">{t("classification")}</label>
                     <ClassificationStamp level={classification} />
                   </div>
                   <select
+                    id="classification"
                     value={classification}
                     onChange={(e) => setClassification(e.target.value)}
                     className="w-full bg-vault-raised border border-hairline px-2.5 py-2 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
                   >
-                    <option value="public">Public (Unrestricted)</option>
-                    <option value="internal">Internal (Default)</option>
-                    <option value="restricted">Restricted (High-Confidentiality)</option>
+                    <option value="public">{t("classificationPublic")}</option>
+                    <option value="internal">{t("classificationInternal")}</option>
+                    <option value="restricted">{t("classificationRestricted")}</option>
                   </select>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="mono-meta flex items-center gap-1">
+                  <label className="mono-meta flex items-center gap-1" htmlFor="owner-id">
                     <User className="h-3 w-3" /> {t("ownerId")}
                   </label>
-                  <Input
+                  <SuggestInput
+                    id="owner-id"
                     value={ownerId}
-                    onChange={(e) => setOwnerId(e.target.value)}
-                    placeholder="e.g. user:admin"
-                    className="bg-vault-raised border-hairline font-mono text-xs"
+                    onChange={setOwnerId}
+                    onQuery={searchUserSubjects}
+                    placeholder={t("ownerPlaceholder")}
+                    inputClassName="bg-vault-raised border-hairline font-mono text-xs"
                     required
+                    emptyLabel={t("noOwnerMatches")}
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="mono-meta flex items-center gap-1">
+                  <label className="mono-meta flex items-center gap-1" htmlFor="tenant-id">
                     <Database className="h-3 w-3" /> {t("tenantId")}
                   </label>
-                  <Input
+                  <SuggestInput
+                    id="tenant-id"
                     value={tenantId}
-                    onChange={(e) => setTenantId(e.target.value)}
-                    placeholder="e.g. tenant_a"
-                    className="bg-vault-raised border-hairline font-mono text-xs"
+                    onChange={setTenantId}
+                    onQuery={searchTenantSuggestions}
+                    placeholder={t("tenantPlaceholder")}
+                    inputClassName="bg-vault-raised border-hairline font-mono text-xs"
                     required
+                    emptyLabel={t("noTenantMatches")}
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="mono-meta block">{t("titleOverride")}</label>
+                  <label className="mono-meta block" htmlFor="title-override">{t("titleOverride")}</label>
                   <Input
+                    id="title-override"
                     value={titleOverride}
                     onChange={(e) => setTitleOverride(e.target.value)}
-                    placeholder="Defaults to filename"
+                    placeholder={t("titlePlaceholder")}
                     className="bg-vault-raised border-hairline font-mono text-xs"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="mono-meta flex items-center gap-1">
+                  <label className="mono-meta flex items-center gap-1" htmlFor="policy-tags">
                     <Tag className="h-3 w-3" /> {t("policyTags")}
                   </label>
                   <Input
+                    id="policy-tags"
                     value={policyTags}
                     onChange={(e) => setPolicyTags(e.target.value)}
-                    placeholder="e.g. finance, hr (comma separated)"
+                    placeholder={t("policyTagsPlaceholder")}
                     className="bg-vault-raised border-hairline font-mono text-xs"
                   />
                 </div>
@@ -513,7 +554,7 @@ export default function IngestPage() {
                 <span className="mono-meta">{t("empty")}</span>
               </div>
             ) : (
-              <ul className="divide-y divide-hairline max-h-[580px] overflow-y-auto custom-scrollbar">
+              <ul className="divide-y divide-hairline max-h-[580px] overflow-y-auto custom-scrollbar" aria-live="polite">
                 {jobs.map((job) => (
                   <li key={job.job_id} className="px-5 py-4 space-y-3">
                     <div className="flex justify-between items-start gap-4">
@@ -551,7 +592,7 @@ export default function IngestPage() {
                       </div>
                       {job.error && (
                         <div className="pt-1.5 border-t border-hairline mt-1 leading-normal text-seal-red">
-                          error: {job.error}
+                          {t("errorPrefix")}: {job.error}
                         </div>
                       )}
                     </div>

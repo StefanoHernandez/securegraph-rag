@@ -2,14 +2,16 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
-import { KeyRound, Link2, Plus, RefreshCw, Search, ShieldCheck, UserX } from "lucide-react";
+import { KeyRound, Link2, Plus, RefreshCw, ShieldCheck, UserX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SuggestInput } from "@/components/ui/suggest-input";
 import { Panel } from "@/components/forensic";
 import { controlPlaneApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
-import { TenantRole, TenantUser, UserSearchResult } from "@/lib/types";
-import { useTenantSelection } from "@/lib/useTenantSelection";
+import { searchUserIds } from "@/lib/suggestions";
+import { TenantRole, TenantUser } from "@/lib/types";
+import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 
 const ROLES: TenantRole[] = ["viewer", "analyst", "tenant_admin", "super_admin"];
 
@@ -21,8 +23,6 @@ export default function UsersPage() {
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<TenantRole>("viewer");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const [selectedExistingUserId, setSelectedExistingUserId] = useState("");
   const [attachRole, setAttachRole] = useState<TenantRole>("viewer");
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
@@ -108,18 +108,6 @@ export default function UsersPage() {
     }
   };
 
-  const searchExistingUsers = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setError(null);
-    try {
-      const results = await controlPlaneApi.searchUsers(searchQuery);
-      setSearchResults(results);
-      setSelectedExistingUserId(results[0]?.id ?? "");
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, t("searchError")));
-    }
-  };
-
   const attachExistingUser = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!tenantId || !selectedExistingUserId) {
@@ -137,9 +125,7 @@ export default function UsersPage() {
         const others = items.filter((item) => item.id !== attached.id);
         return [...others, attached].sort((a, b) => a.username.localeCompare(b.username));
       });
-      setSearchResults([]);
       setSelectedExistingUserId("");
-      setSearchQuery("");
       setAttachRole("viewer");
     } catch (err: unknown) {
       setError(getErrorMessage(err, t("attachError")));
@@ -220,30 +206,17 @@ export default function UsersPage() {
 
       <Panel classification="internal" label={t("attachExistingUser")}>
         <div className="px-5 py-5 space-y-4">
-          <form onSubmit={searchExistingUsers} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
-            <label className="space-y-1.5">
-              <span className="mono-meta block">{t("search")}</span>
-              <Input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="bg-vault-raised border-hairline text-bone font-mono text-xs h-10" />
-            </label>
-            <div className="flex items-end">
-              <Button type="submit" disabled={!searchQuery} className="gap-2">
-                <Search className="h-4 w-4" />
-                {t("search")}
-              </Button>
-            </div>
-          </form>
           <form onSubmit={attachExistingUser} className="grid grid-cols-1 md:grid-cols-[1fr_12rem_auto] gap-3 items-end">
             <label className="space-y-1.5">
               <span className="mono-meta block">{t("user")}</span>
-              <select value={selectedExistingUserId} onChange={(event) => setSelectedExistingUserId(event.target.value)} className="h-10 w-full bg-vault-raised border border-hairline px-3 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber">
-                <option value="">{t("selectUser")}</option>
-                {searchResults.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.display_name} · {user.username}
-                    {user.is_active ? "" : ` · ${t("inactive")}`}
-                  </option>
-                ))}
-              </select>
+              <SuggestInput
+                value={selectedExistingUserId}
+                onChange={setSelectedExistingUserId}
+                onQuery={searchUserIds}
+                placeholder={t("search")}
+                inputClassName="bg-vault-raised border-hairline text-bone font-mono text-xs h-10"
+                emptyLabel={t("noUserMatches")}
+              />
             </label>
             <label className="space-y-1.5">
               <span className="mono-meta block">{t("role")}</span>

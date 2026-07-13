@@ -5,11 +5,13 @@ import { useTranslations } from "next-intl";
 import { ClipboardList, Plus, RefreshCw, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SuggestInput } from "@/components/ui/suggest-input";
 import { Panel } from "@/components/forensic";
 import { controlPlaneApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
+import { appendCsvValue, searchUserIds } from "@/lib/suggestions";
 import { AccessTemplate, Classification, TenantGroup } from "@/lib/types";
-import { useTenantSelection } from "@/lib/useTenantSelection";
+import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 
 const CLASSIFICATIONS: Classification[] = ["public", "internal", "confidential", "restricted"];
 const OWNER_RULES = ["uploader", "tenant_admin"] as const;
@@ -19,6 +21,10 @@ function splitIds(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function appendCsvIds(current: string, value: string): string {
+  return appendCsvValue(current, value);
 }
 
 export default function AccessTemplatesPage() {
@@ -32,6 +38,7 @@ export default function AccessTemplatesPage() {
   const [ownerRule, setOwnerRule] = useState<(typeof OWNER_RULES)[number]>("uploader");
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [directViewerIds, setDirectViewerIds] = useState("");
+  const [viewerPicker, setViewerPicker] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +46,15 @@ export default function AccessTemplatesPage() {
   const groupNames = useMemo(
     () => new Map(groups.map((group) => [group.id, group.display_name])),
     [groups]
+  );
+
+  const documentTypeSuggestions = useMemo(
+    () =>
+      Array.from(new Set(templates.map((template) => template.document_type))).map((value) => ({
+        value,
+        label: value,
+      })),
+    [templates]
   );
 
   const loadTemplates = useCallback(async () => {
@@ -154,7 +170,12 @@ export default function AccessTemplatesPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <label className="space-y-1.5">
               <span className="mono-meta block">{t("documentType")}</span>
-              <Input value={documentType} onChange={(event) => setDocumentType(event.target.value)} className="bg-vault-raised border-hairline text-bone font-mono text-xs h-10" />
+              <SuggestInput
+                value={documentType}
+                onChange={setDocumentType}
+                suggestions={documentTypeSuggestions}
+                inputClassName="bg-vault-raised border-hairline text-bone font-mono text-xs h-10"
+              />
             </label>
             <label className="space-y-1.5">
               <span className="mono-meta block">{t("displayName")}</span>
@@ -193,6 +214,18 @@ export default function AccessTemplatesPage() {
             <label className="space-y-1.5">
               <span className="mono-meta block">{t("directViewers")}</span>
               <Input value={directViewerIds} onChange={(event) => setDirectViewerIds(event.target.value)} placeholder="usr_1, usr_2" className="bg-vault-raised border-hairline text-bone font-mono text-xs h-10" />
+              <SuggestInput
+                value={viewerPicker}
+                onChange={setViewerPicker}
+                onQuery={searchUserIds}
+                onPick={(item) => {
+                  setDirectViewerIds((current) => appendCsvIds(current, item.value));
+                  setViewerPicker("");
+                }}
+                placeholder={t("addViewer")}
+                inputClassName="bg-vault-raised border-hairline text-bone font-mono text-xs h-9"
+                emptyLabel={t("noUserMatches")}
+              />
             </label>
             <Button type="submit" disabled={saving || !tenantId || !documentType || !displayName} className="gap-2">
               <Plus className="h-4 w-4" />
@@ -251,6 +284,7 @@ function TemplateCard({
   const [ownerRule, setOwnerRule] = useState<(typeof OWNER_RULES)[number]>(template.owner_rule);
   const [groupIds, setGroupIds] = useState<string[]>(template.allowed_group_ids);
   const [directViewers, setDirectViewers] = useState(template.direct_viewer_ids.join(", "));
+  const [viewerPicker, setViewerPicker] = useState("");
   const [active, setActive] = useState(template.is_active);
 
   const toggleGroup = (groupId: string) => {
@@ -303,6 +337,18 @@ function TemplateCard({
           <label className="space-y-1.5">
             <span className="mono-meta block">{t("direct")}</span>
             <Input value={directViewers} onChange={(event) => setDirectViewers(event.target.value)} className="bg-vault-raised border-hairline text-bone font-mono text-xs h-9" />
+            <SuggestInput
+              value={viewerPicker}
+              onChange={setViewerPicker}
+              onQuery={searchUserIds}
+              onPick={(item) => {
+                setDirectViewers((current) => appendCsvIds(current, item.value));
+                setViewerPicker("");
+              }}
+              placeholder={t("addViewer")}
+              inputClassName="bg-vault-raised border-hairline text-bone font-mono text-xs h-8"
+              emptyLabel={t("noUserMatches")}
+            />
           </label>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto_auto] gap-3 items-end">

@@ -21,7 +21,7 @@ import type { AtlasPoint, AtlasViewMode } from "@/components/vectors/atlasPoint"
 import { adminApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
-import { useTenantSelection } from "@/lib/useTenantSelection";
+import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 
 const VectorScene3D = dynamic(() => import("@/components/vectors/VectorScene3D"), {
   ssr: false,

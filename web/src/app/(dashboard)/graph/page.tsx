@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
 import { adminApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
-import { useTenantSelection } from "@/lib/useTenantSelection";
+import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 import type {
   ForceGraphMethods,
   LinkObject,

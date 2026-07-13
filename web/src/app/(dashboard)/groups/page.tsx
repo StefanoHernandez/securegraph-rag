@@ -5,11 +5,13 @@ import { useTranslations } from "next-intl";
 import { Plus, RefreshCw, Save, UserMinus, UserPlus, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SuggestInput } from "@/components/ui/suggest-input";
 import { Panel } from "@/components/forensic";
 import { controlPlaneApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
+import { searchUserIds } from "@/lib/suggestions";
 import { GroupKind, TenantGroup, TenantUser } from "@/lib/types";
-import { useTenantSelection } from "@/lib/useTenantSelection";
+import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 
 const KINDS: GroupKind[] = ["functional", "project"];
 
@@ -252,14 +254,19 @@ export default function GroupsPage() {
               />
             )}
             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
-              <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)} className="h-10 w-full bg-vault-raised border border-hairline px-3 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber">
-                <option value="">{t("selectUser")}</option>
-                {addableUsers.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.display_name} · {user.username}
-                  </option>
-                ))}
-              </select>
+              <SuggestInput
+                value={selectedUserId}
+                onChange={setSelectedUserId}
+                suggestions={addableUsers.map((user) => ({
+                  value: user.id,
+                  label: user.display_name,
+                  hint: user.username,
+                }))}
+                onQuery={searchUserIds}
+                placeholder={t("selectUser")}
+                inputClassName="bg-vault-raised border-hairline text-bone font-mono text-xs h-10"
+                emptyLabel={t("noUserMatches")}
+              />
               <Button type="button" onClick={() => void addMember()} disabled={!selectedGroupId || !selectedUserId} className="gap-2">
                 <UserPlus className="h-4 w-4" />
                 {t("add")}
