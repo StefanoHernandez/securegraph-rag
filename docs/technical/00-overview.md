@@ -67,7 +67,7 @@ The full component breakdown is in [Architecture](01-architecture.md).
 | [05 — Ingestion](05-ingestion.md) | Upload → parse → chunk → embed → graph extraction → FGA tuples; sync vs async; self-healing. |
 | [06 — Security Model](06-security-model.md) | Threat model and every enforcement mechanism (C1/C2/C3, tamper chain, RLS, SSRF guard, rate limiting, startup guards). |
 | [07 — Deployment](07-deployment.md) | Docker Compose profiles, configuration surface, health endpoints, production checklist. |
-| [08 — Development](08-development.md) | Environment setup, test taxonomy, CI, conventions, how to contribute. |
+| [08 — Development](08-development.md) | Environment setup, test taxonomy, local verification, conventions, how to contribute. |
 | [09 — Evaluation](09-evaluation.md) | The MRD corpus, scoring methodology, current results, how to reproduce. |
 
 ## Quick start

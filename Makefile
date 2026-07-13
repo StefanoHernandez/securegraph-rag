@@ -255,11 +255,11 @@ web-build: ## Production build of the web frontend.
 web-e2e: ## Run Playwright E2E tests (needs API + web running).
 	npm --prefix web run test:e2e
 
-##@ CI
+##@ Local verification
 
 .PHONY: ci
-# test-unit (not test): the unit suite is Docker-free, matching .github/workflows/ci.yml.
-ci: lint type test-unit ## Run the same checks as GitHub Actions CI (Docker-free).
+# test-unit (not test): the unit suite is Docker-free and can run without containers.
+ci: lint type test-unit ## Run the Docker-free local verification checks.
 
 ##@ Eval (M8)
 

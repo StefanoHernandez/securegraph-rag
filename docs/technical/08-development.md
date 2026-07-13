@@ -21,7 +21,7 @@ make api                    # uvicorn on :8000 (reload)
 npm --prefix web install && make web-dev   # Next.js on :3000
 ```
 
-All Python commands go through `.venv/bin/…` — never install project dependencies globally. Dependencies are declared in `pyproject.toml` and locked in `uv.lock` (tracked): `make venv`/`make sync` and CI all install with `uv sync --frozen`, so builds are reproducible. After editing `pyproject.toml`, regenerate the lock (`uv lock`) and commit it with the change. The eval harness keeps its own lockfile under `eval/`.
+All Python commands go through `.venv/bin/…` — never install project dependencies globally. Dependencies are declared in `pyproject.toml` and locked in `uv.lock` (tracked): `make venv` and `make sync` install with `uv sync --frozen`, so local verification is reproducible. After editing `pyproject.toml`, regenerate the lock (`uv lock`) and commit it with the change. The eval harness keeps its own lockfile under `eval/`.
 
 The API connects as the least-privilege PostgreSQL role `securgraph_app` (granted by migration `f6a7b8c9d0e1`); migrations run under the superuser DSN (`SECURGRAPH_POSTGRES_MIGRATE_DSN`). Keep the two DSNs distinct — row-level security is only meaningful when the app role cannot bypass it.
 
@@ -42,7 +42,7 @@ The API connects as the least-privilege PostgreSQL role `securgraph_app` (grante
 | `make test-sgh06` | Cross-store failure-injection bundle (fail-closed ingestion). |
 | `make test-ingest-chaos-live` | Live ingest reconcile/worker chaos tests. |
 | `make mrd-seed-live` / `make mrd-live` | Seed the MRD corpus into a live stack / run the 50-case MRD QA smoke against `/query` (writes `eval/results/`). |
-| `make ci` | `lint + type + test-unit` — mirrors the primary GitHub Actions checks. |
+| `make ci` | Docker-free local aggregate: `lint + type + test-unit`. |
 | `make cov` | Docker-free unit/adversarial branch-coverage gate, minimum 70% (terminal + HTML). |
 | `make web-lint` / `make web-i18n` / `make web-build` / `make web-e2e` | Frontend gates (Playwright E2E needs API + web running). |
 | `make eval-venv` / `make eval` / `make baseline` | Isolated eval environment and evaluation runs (see [09 — Evaluation](09-evaluation.md)). |
@@ -51,13 +51,13 @@ The API connects as the least-privilege PostgreSQL role `securgraph_app` (grante
 
 Markers are declared in `pyproject.toml` and enforced by `make` targets:
 
-| Marker | Contract | Runs in CI? |
+| Marker | Contract | Local release gate? |
 | --- | --- | --- |
 | `unit` | No external services, no network. Everything is mocked, including DNS lookups made by the SSRF guard. Must pass offline. | Yes |
-| `integration` | Requires live Docker backends (`make up`). | No (local only) |
-| `adversarial` | Hypothesis property tests pinning security invariants (C3 no-leakage). | No (local gate, run before release) |
-| `live` | Real LLM/network calls. Explicit opt-in. | No |
-| `slow` | Long-running. Explicit opt-in. | No |
+| `integration` | Requires live Docker backends (`make up`). | Manual |
+| `adversarial` | Hypothesis property tests pinning security invariants (C3 no-leakage). | Yes, before release |
+| `live` | Real LLM/network calls. Explicit opt-in. | Manual |
+| `slow` | Long-running. Explicit opt-in. | Manual |
 
 Layout: `tests/unit/` (route-level security, workflow logic, domain), `tests/integration/` (real stores, consensus, tamper chain), `tests/adversarial/` (C3 property test).
 
@@ -66,14 +66,15 @@ Conventions worth knowing before writing tests:
 - `tests/conftest.py` sets `SECURGRAPH_ENV=test`; unit tests construct `Settings(...)` explicitly. Settings fields use validation aliases — pass the *env-var name* as the kwarg (e.g. `Settings(JWT_SECRET="…")`), and pass every `llm_model*` kwarg explicitly so values from a developer's `.env` cannot leak into assertions.
 - Route tests use the FastAPI dependency-override pattern already present in `tests/unit/test_query_route.py` and `test_admin.py`.
 
-## Continuous integration
+## Local verification
 
-`.github/workflows/ci.yml` runs on pushes/PRs to `main` and `feat/**`, two parallel jobs:
+SecureGraph does not run GitHub Actions. Before a release or manual review,
+run the following local verification gates:
 
 - **backend** — Python 3.11 provisioned with `uv sync --frozen` from `uv.lock`: `make lint`, `make type`, `make test-unit`, and `make cov` (70% minimum). The unit suite and coverage gate are intentionally Docker-free; do not switch the job to `make test`.
 - **web** — Node 20: `npm run lint`, `npm run check:i18n`, `npm run build` (the build runs the typed-routes typegen, which covers `tsc`).
 
-Run `make ci && make cov` locally to reproduce the backend job bit-for-bit.
+Run `make ci && make cov` locally for the backend baseline.
 
 ## Code conventions
 
@@ -89,7 +90,7 @@ Run `make ci && make cov` locally to reproduce the backend job bit-for-bit.
 2. Implement with tests: unit for logic, integration when a real store matters, adversarial when a security invariant moves.
 3. Gate locally: `make ci && make cov` (backend) and `make web-lint && make web-i18n && make web-build` when the UI changed.
 4. If retrieval, policy, or synthesis behavior changed, re-run the MRD evaluation with `make mrd-live` ([09 — Evaluation](09-evaluation.md)) — the leakage-zero and deny invariants are release-blocking.
-5. Open a PR to `main`; CI must be green.
+5. Open a PR to `main` after recording the applicable local gate results.
 
 ## Troubleshooting quick hits
 

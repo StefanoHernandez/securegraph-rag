@@ -12,7 +12,7 @@ Engineering documentation for people who want to **run, understand, extend, or a
 | 05 | [Ingestion](05-ingestion.md) | Upload → parse → chunk → embed → graph extraction → FGA tuples; sync/async; self-healing. |
 | 06 | [Security Model](06-security-model.md) | Threat model and every enforcement mechanism, with residual risks stated. |
 | 07 | [Deployment](07-deployment.md) | Compose services/profiles, configuration surface, health probes, production checklist. |
-| 08 | [Development](08-development.md) | Environment setup, test taxonomy, CI, conventions, contribution flow. |
+| 08 | [Development](08-development.md) | Environment setup, test taxonomy, local verification, conventions, contribution flow. |
 | 09 | [Evaluation](09-evaluation.md) | MRD corpus, scoring, current results with honest caveats, C3 ablation, reproduction. |
 
 Suggested paths: *using it* → 00, 07, 03. *Working on it* → 00, 01, 04/05, 08. *Auditing it* → 06, 02, 09.
