@@ -10,7 +10,9 @@
 
 Do **not** open a public GitHub issue for security-sensitive reports.
 
-Email the maintainers with:
+Open a private GitHub security advisory at
+`https://github.com/StefanoHernandez/securegraph-rag/security/advisories/new`
+and include:
 
 - Affected component (API, web UI, ingestion worker, evaluation harness)
 - Reproduction steps or proof-of-concept

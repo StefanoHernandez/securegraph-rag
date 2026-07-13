@@ -2,15 +2,15 @@ cff-version: 1.2.0
 title: SecureGraph
 message: "If you use this software, please cite it as below."
 authors:
-  - family-names: SecureGraph
-    given-names: Contributors
-repository-code: "https://github.com/stefano/SecureGraph"
+  - family-names: Hernandez
+    given-names: Stefano
+repository-code: "https://github.com/StefanoHernandez/securegraph-rag"
 license: Apache-2.0
 preferred-citation:
   type: software
   title: "SecureGraph: Verifiable Hybrid Graph RAG with ReBAC and Tamper-Evident Audit"
   authors:
-    - family-names: SecureGraph
-      given-names: Contributors
+    - family-names: Hernandez
+      given-names: Stefano
   year: 2026
-  url: "https://github.com/stefano/SecureGraph"
+  url: "https://github.com/StefanoHernandez/securegraph-rag"

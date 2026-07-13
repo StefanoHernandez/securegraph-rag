@@ -9,7 +9,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.13"
 license = { text = "Apache-2.0" }
 authors = [
-    { name = "Meridian Labs Foundation", email = "service@meridianlabs.org" },
+    { name = "Stefano Hernandez" },
 ]
 keywords = [
     "rag",
@@ -158,9 +158,9 @@ aws = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/meridianlabs/securgraph"
-Repository = "https://github.com/meridianlabs/securgraph"
-Documentation = "https://github.com/meridianlabs/securgraph/tree/main/docs"
+Homepage = "https://github.com/StefanoHernandez/securegraph-rag"
+Repository = "https://github.com/StefanoHernandez/securegraph-rag"
+Documentation = "https://github.com/StefanoHernandez/securegraph-rag/tree/main/docs"
 
 [project.scripts]
 securgraph = "securgraph.cli:main"
