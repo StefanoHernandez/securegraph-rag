@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""Ragas Offline Quality Evaluation Pipeline.
-
-Executes end-to-end RAG queries against the local SecurGraph FastAPI service,
-gathers context and generated answers, and computes quality metrics using Ragas
-leveraging our local Ollama instance.
-"""
+"""Ragas cloud quality evaluation pipeline for the SecureGraph API."""
 
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -21,12 +17,16 @@ from securgraph.api.main import create_app
 
 # Ragas imports
 try:
-    from langchain_community.embeddings import OllamaEmbeddings
-    from langchain_community.llms import Ollama
+    from langchain_openai import ChatOpenAI, OpenAIEmbeddings
     from ragas import evaluate
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.llms import LangchainLLMWrapper
-    from ragas.metrics import answer_relevance, context_precision, context_recall, faithfulness
+    from ragas.metrics.collections import (
+        answer_relevancy,
+        context_precision,
+        context_recall,
+        faithfulness,
+    )
 
     RAGAS_AVAILABLE = True
 except ImportError:
@@ -161,26 +161,40 @@ async def main() -> None:
 
     dataset = Dataset.from_dict(data)
 
-    # 4. Run Ragas evaluation using local Ollama model if available
+    # 4. Run Ragas evaluation with the independent OpenAI judge.
     if RAGAS_AVAILABLE:
-        print("\nInitializing Ragas quality evaluation with local Ollama LLM...")
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            print("\nOPENAI_API_KEY is required for Ragas quality evaluation.")
+            _print_raw_report(test_cases)
+            return
+
+        judge_model = os.environ.get("RAGAS_JUDGE_MODEL", "gpt-4o-mini")
+        embedding_model = os.environ.get("RAGAS_EMBEDDING_MODEL", "text-embedding-3-small")
+        base_url = os.environ.get("OPENAI_BASE_URL") or None
+        print(f"\nInitializing Ragas quality evaluation with OpenAI {judge_model}...")
         try:
-            # Wrap our local Ollama LLM and Embeddings
-            local_llm = Ollama(model="granite4.1:3b", base_url="http://localhost:11434")
-            local_emb = OllamaEmbeddings(model="granite4.1:3b", base_url="http://localhost:11434")
+            ragas_llm = LangchainLLMWrapper(
+                ChatOpenAI(
+                    model=judge_model,
+                    temperature=0.0,
+                    api_key=api_key,
+                    base_url=base_url,
+                )
+            )
+            ragas_emb = LangchainEmbeddingsWrapper(
+                OpenAIEmbeddings(model=embedding_model, api_key=api_key, base_url=base_url)
+            )
 
-            ragas_llm = LangchainLLMWrapper(local_llm)
-            ragas_emb = LangchainEmbeddingsWrapper(local_emb)
-
-            # Configure metrics with our local wrappers
+            # Configure metrics with the independent cloud judge and embeddings.
             faithfulness.llm = ragas_llm
-            answer_relevance.llm = ragas_llm
-            answer_relevance.embeddings = ragas_emb
+            answer_relevancy.llm = ragas_llm
+            answer_relevancy.embeddings = ragas_emb
             context_precision.llm = ragas_llm
             context_precision.embeddings = ragas_emb
             context_recall.llm = ragas_llm
 
-            metrics = [faithfulness, answer_relevance, context_precision, context_recall]
+            metrics = [faithfulness, answer_relevancy, context_precision, context_recall]
 
             print(
                 "Computing Ragas quality metrics "

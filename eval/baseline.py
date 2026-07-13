@@ -1,34 +1,15 @@
-"""Five-mode baseline harness: vector / lexical / graph / hybrid / global.
+"""Five-mode cloud baseline: vector / lexical / graph / hybrid / global.
 
-Re-runs the same QA corpus five times through the production /query endpoint,
-each time with a different `retrieval_mode`, and computes RAGAS core metrics.
-Writes `eval/results/baseline-<UTC-date>.csv` and a markdown table.
+The harness re-runs one QA corpus through the production ``/query`` endpoint
+with each retrieval mode, then computes RAGAS core metrics and writes CSV and
+Markdown results. Synthesis remains inside the production workflow so the
+comparison isolates retrieval behavior.
 
-Synthesis is held fixed by going through the production workflow; only the
-retrieval branch differs. This experimental design lets the paper attribute
-deltas to the retriever, not to the synthesizer.
-
-Two independent LLM layers, each configurable separately:
-
-1. **Pipeline LLM** (extract / draft / synthesis / NLI judge): configured via
-   `SECURGRAPH_LLM_PROVIDER` (default `ollama`; can be `mistral` / `openai` /
-   `google` / `anthropic` for cloud runs). See `docs/research/model_substitution.md`.
-
-2. **RAGAS eval judge + embeddings**: configured via `RAGAS_JUDGE_PROVIDER`
-   (default `openai`; can be `ollama` for a fully-local, zero-cost run).
-
-Judge independence (P1.4): the RAGAS judge is a different provider/model from
-the pipeline's internal NLI judge. For the local-only run the separation is
-achieved by using different Ollama models (pipeline judge = granite4.1:3b,
-RAGAS judge = qwen3.5:2b). For the cloud run the separation is by provider.
-
-Run profiles:
-  - **Local-only** (zero cloud cost): SECURGRAPH_LLM_PROVIDER=ollama,
-    RAGAS_JUDGE_PROVIDER=ollama.
-  - **Cloud pipeline, cloud RAGAS**: SECURGRAPH_LLM_PROVIDER=mistral,
-    RAGAS_JUDGE_PROVIDER=openai, MISTRAL_API_KEY=..., OPENAI_API_KEY=...
-  - **Local pipeline, cloud RAGAS**: SECURGRAPH_LLM_PROVIDER=ollama,
-    RAGAS_JUDGE_PROVIDER=openai, OPENAI_API_KEY=...
+The pipeline uses the SecureGraph cloud defaults (Mistral generation and
+extraction, OpenAI NLI). RAGAS always uses OpenAI, independently configured as
+``gpt-4o-mini`` with ``text-embedding-3-small`` by default. This entrypoint is
+for submission experiments and intentionally does not provide local-model
+profiles.
 """
 from __future__ import annotations
 
@@ -66,76 +47,6 @@ try:
 except ImportError as e:
     print(f"ragas/langchain-openai not installed in this env: {e}")
     sys.exit(2)
-
-# Optional: Ollama-backed RAGAS judge for the local-only run profile.
-# Imported lazily so the ollama package isn't required when RAGAS_JUDGE_PROVIDER
-# is "openai" (the default).
-try:
-    from langchain_community.embeddings import OllamaEmbeddings
-    from langchain_core.callbacks import (
-        AsyncCallbackManagerForLLMRun,
-        CallbackManagerForLLMRun,
-    )
-    from langchain_core.language_models.llms import LLM
-    from ollama import AsyncClient as OllamaAsyncClient
-
-    _OLLAMA_RAGAS_AVAILABLE = True
-except ImportError:
-    _OLLAMA_RAGAS_AVAILABLE = False
-
-
-class OllamaThinkOff(LLM):
-    """Minimal langchain LLM that calls Ollama with ``think=False``.
-
-    Used only when RAGAS_JUDGE_PROVIDER=ollama. The RAGAS judge model
-    (qwen3.5:2b) is a thinking model; leaving thinking enabled balloons
-    latency on long prompts and causes RAGAS to time out.
-    ``langchain_community.Ollama`` does not surface the ``think`` kwarg at the
-    top level of the request body, so we call the official ollama client
-    directly here.
-    """
-
-    model: str = "qwen3.5:2b"
-    base_url: str = "http://localhost:11434"
-    num_ctx: int = 16384
-    temperature: float = 0.0
-
-    @property
-    def _llm_type(self) -> str:
-        return "ollama-think-off"
-
-    def _call(
-        self,
-        prompt: str,
-        stop: list[str] | None = None,
-        run_manager: CallbackManagerForLLMRun | None = None,
-        **kwargs,
-    ) -> str:
-        return asyncio.run(self._acall(prompt, stop=stop, run_manager=None, **kwargs))
-
-    async def _acall(
-        self,
-        prompt: str,
-        stop: list[str] | None = None,
-        run_manager: AsyncCallbackManagerForLLMRun | None = None,
-        **kwargs,
-    ) -> str:
-        client = OllamaAsyncClient(host=self.base_url)
-        opts: dict[str, object] = {
-            "num_ctx": self.num_ctx,
-            "temperature": self.temperature,
-        }
-        if stop:
-            opts["stop"] = stop
-        resp = await client.chat(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            options=opts,
-            think=False,
-            keep_alive=0,
-        )
-        return resp.message.content or ""
-
 
 MODES = ("vector", "lexical", "graph", "hybrid", "global")
 CORPUS_ROOT = Path(
@@ -222,75 +133,34 @@ async def _run_mode(
 
 
 def _ragas_evaluate(rows: list[dict]) -> pd.DataFrame:
-    """Compute RAGAS core metrics on the collected rows, grouped by mode.
-
-    Two judge backends, selected by ``RAGAS_JUDGE_PROVIDER``:
-
-    - ``openai`` (default): ``ChatOpenAI`` + ``OpenAIEmbeddings``. Requires
-      ``OPENAI_API_KEY``. Models via ``RAGAS_JUDGE_MODEL`` (default
-      ``gpt-4o-mini``) and ``RAGAS_EMBEDDING_MODEL`` (default
-      ``text-embedding-3-small``).
-
-    - ``ollama``: ``OllamaThinkOff`` + ``OllamaEmbeddings``. Requires the
-      local Ollama service. Models via ``RAGAS_JUDGE_MODEL`` (default
-      ``qwen3.5:2b``) and ``RAGAS_EMBEDDING_MODEL`` (default
-      ``nomic-embed-text``).
-
-    Judge independence (P1.4): the RAGAS judge is a different provider/model
-    from the pipeline's internal NLI judge regardless of which backend is
-    selected.
-    """
+    """Compute RAGAS core metrics through the independent OpenAI judge."""
     judge_provider = os.environ.get("RAGAS_JUDGE_PROVIDER", "openai").lower()
-    judge_model = os.environ.get(
-        "RAGAS_JUDGE_MODEL", "gpt-4o-mini" if judge_provider == "openai" else "qwen3.5:2b"
-    )
-    embedding_model = os.environ.get(
-        "RAGAS_EMBEDDING_MODEL",
-        "text-embedding-3-small" if judge_provider == "openai" else "nomic-embed-text",
-    )
-
-    if judge_provider == "ollama":
-        if not _OLLAMA_RAGAS_AVAILABLE:
-            print(
-                "RAGAS_JUDGE_PROVIDER=ollama but langchain-community / ollama "
-                "packages are not installed in the eval venv."
-            )
-            sys.exit(2)
-        ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-        print(f"  RAGAS judge: Ollama {judge_model} @ {ollama_url}")
-        llm = LangchainLLMWrapper(
-            OllamaThinkOff(model=judge_model, num_ctx=16384, base_url=ollama_url)
-        )
-        emb = LangchainEmbeddingsWrapper(
-            OllamaEmbeddings(model=embedding_model, base_url=ollama_url)
-        )
-    elif judge_provider == "openai":
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-        base_url = os.environ.get("OPENAI_BASE_URL") or None
-        if not api_key:
-            print(
-                "RAGAS_JUDGE_PROVIDER=openai but OPENAI_API_KEY is not set. "
-                "Either set the key or switch RAGAS_JUDGE_PROVIDER=ollama."
-            )
-            sys.exit(2)
-        print(f"  RAGAS judge: OpenAI {judge_model}")
-        llm = LangchainLLMWrapper(
-            ChatOpenAI(
-                model=judge_model,
-                temperature=0.0,
-                api_key=api_key,
-                base_url=base_url,
-            )
-        )
-        emb = LangchainEmbeddingsWrapper(
-            OpenAIEmbeddings(model=embedding_model, api_key=api_key, base_url=base_url)
-        )
-    else:
+    if judge_provider != "openai":
         print(
             f"Unknown RAGAS_JUDGE_PROVIDER={judge_provider!r}. "
-            "Supported: 'openai', 'ollama'."
+            "Submission evaluation supports only 'openai'."
         )
         sys.exit(2)
+
+    judge_model = os.environ.get("RAGAS_JUDGE_MODEL", "gpt-4o-mini")
+    embedding_model = os.environ.get("RAGAS_EMBEDDING_MODEL", "text-embedding-3-small")
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    base_url = os.environ.get("OPENAI_BASE_URL") or None
+    if not api_key:
+        print("RAGAS_JUDGE_PROVIDER=openai but OPENAI_API_KEY is not set.")
+        sys.exit(2)
+    print(f"  RAGAS judge: OpenAI {judge_model}")
+    llm = LangchainLLMWrapper(
+        ChatOpenAI(
+            model=judge_model,
+            temperature=0.0,
+            api_key=api_key,
+            base_url=base_url,
+        )
+    )
+    emb = LangchainEmbeddingsWrapper(
+        OpenAIEmbeddings(model=embedding_model, api_key=api_key, base_url=base_url)
+    )
 
     faithfulness_metric = Faithfulness()
     answer_relevance_metric = AnswerRelevancy()
