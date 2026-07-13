@@ -36,13 +36,18 @@ async function proxy(request: NextRequest, context: RouteContext) {
   const body =
     method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();
 
-  const upstream = await fetch(target, {
-    method,
-    headers,
-    body,
-    redirect: "manual",
-    cache: "no-store",
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, {
+      method,
+      headers,
+      body,
+      redirect: "manual",
+      cache: "no-store",
+    });
+  } catch {
+    return NextResponse.json({ detail: "Backend service unavailable." }, { status: 503 });
+  }
 
   const responseHeaders = new Headers();
   upstream.headers.forEach((value, key) => {

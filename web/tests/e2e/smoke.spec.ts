@@ -32,6 +32,15 @@ async function loginAsDemoAdmin(page: Page) {
 }
 
 test.describe("Forensic Vault smoke", () => {
+  test("API proxy returns JSON 503 when the backend is unavailable", async ({ request }) => {
+    test.skip(Boolean(process.env.E2E_LIVE), "Requires an unavailable backend");
+
+    const response = await request.get("/api/v1/auth/me");
+
+    expect(response.status()).toBe(503);
+    await expect(response.json()).resolves.toEqual({ detail: "Backend service unavailable." });
+  });
+
   test("login page renders with forensic vault branding", async ({ page }) => {
     await gotoLogin(page);
     await expect(page).toHaveTitle(/SecureGraph|Forensic/i);
@@ -89,7 +98,7 @@ test.describe("Forensic Vault smoke", () => {
     for (const path of pages) {
       await page.goto(path, { waitUntil: "domcontentloaded" });
       await expect(page.locator("body")).toBeVisible();
-      expect(errors.filter((e) => !e.includes("ENVIRONMENT_FALLBACK"))).toEqual([]);
+      expect(errors).toEqual([]);
     }
   });
 });

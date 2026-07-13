@@ -2,6 +2,7 @@ import { hasLocale, NextIntlClientProvider } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import { LocaleHtmlAttributes } from "@/components/i18n/LocaleHtmlAttributes";
 import { routing } from "@/i18n/routing";
 
 export function generateStaticParams() {
@@ -22,7 +23,8 @@ export default async function LocaleLayout({
   const messages = await getMessages();
 
   return (
-    <NextIntlClientProvider locale={locale} messages={messages}>
+    <NextIntlClientProvider locale={locale} messages={messages} timeZone="UTC">
+      <LocaleHtmlAttributes locale={locale} />
       {children}
     </NextIntlClientProvider>
   );
