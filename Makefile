@@ -6,6 +6,7 @@ VENV ?= .venv
 UV ?= uv
 
 COMPOSE := docker compose -f docker/docker-compose.yml --env-file .env
+COMPOSE_LIVE := $(COMPOSE) --profile workers --profile anchor
 ENV_FILE := .env
 
 EMBEDDING_MODEL ?= BAAI/bge-m3
@@ -47,6 +48,12 @@ sync: ## Sync deps from uv.lock (frozen).
 up: env postgres-init ## Start backend containers (qdrant, neo4j, openfga, postgres, jaeger).
 	$(COMPOSE) up -d
 	@$(MAKE) wait-healthy
+	@$(MAKE) init-qdrant
+
+.PHONY: up-live
+up-live: env postgres-init ## Start acceptance stack (base services, Redis, and MinIO; never Ollama).
+	$(COMPOSE_LIVE) up -d
+	@$(MAKE) COMPOSE="$(COMPOSE_LIVE)" wait-healthy
 	@$(MAKE) init-qdrant
 
 .PHONY: postgres-init

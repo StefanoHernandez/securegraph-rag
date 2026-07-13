@@ -10,7 +10,7 @@ Reproduce MRD dev and Helios held-out evaluation from a clean stack.
 ## Bootstrap
 
 ```bash
-make nuke && make up && make migrate
+make nuke && make up-live && make migrate
 .venv/bin/python -c "from securgraph.adapters.qdrant_init import init_qdrant_collection; init_qdrant_collection()"
 ```
 

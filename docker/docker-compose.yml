@@ -1,6 +1,6 @@
 # SecurGraph RAG — local dev stack.
 # Minimal-hardware mode (<16 GB RAM): aggressive resource limits applied.
-# Ollama runs NATIVE on host by default. Container variant: `--profile ollama-container`.
+# Ollama is a legacy optional profile only; it is never part of the default or acceptance stack.
 
 name: securgraph
 
@@ -182,7 +182,7 @@ services:
   # ===========================================================================
   # MinIO — S3-compatible Object Lock anchor storage for audit Merkle roots.
   # Profile-gated: enable with `--profile anchor`.
-  # Swap endpoint/credentials to AWS S3 for production.
+  # Production uses a separate self-hosted MinIO Object Lock deployment.
   # ===========================================================================
   minio:
     image: minio/minio:latest
