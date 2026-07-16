@@ -13,6 +13,7 @@ from httpx import AsyncClient
 
 from securgraph.api.dependencies import get_db_session
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
+from securgraph.config import get_settings
 from securgraph.domain import (
     Answer,
     Claim,
@@ -27,6 +28,30 @@ from securgraph.domain import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_query_trace_model_snapshot_uses_tenant_effective_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from securgraph.api.routes import query as query_routes
+
+    tenant_settings = get_settings().model_copy(
+        update={
+            "llm_model": "tenant-generation-model",
+            "llm_model_judge": "tenant-judge-model",
+        }
+    )
+    monkeypatch.setattr(
+        query_routes,
+        "get_effective_settings",
+        lambda tenant_id: tenant_settings,
+        raising=False,
+    )
+
+    assert query_routes._trace_model_snapshot("helios-orion-lab") == (
+        "tenant-generation-model",
+        "tenant-judge-model",
+    )
 
 
 @pytest.fixture

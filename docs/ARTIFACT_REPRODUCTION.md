@@ -5,7 +5,15 @@ Reproduce MRD dev and Helios held-out evaluation from a clean stack.
 ## Prerequisites
 
 - Docker, Python 3.11, `uv`, Mistral + OpenAI API keys in `.env`
-- No Ollama in the acceptance path
+- The API must resolve generation/extraction to `mistral/mistral-small-latest`
+  and NLI to `openai/gpt-4o-mini`; no Ollama in the acceptance path.
+
+Each live `mrd_qa_smoke.py` run preflights
+`GET /api/v1/config?tenant_id=<tenant>` before its first query. It rejects an
+API whose effective tenant configuration differs from those fixed providers
+and models, then stores the observed snapshot in the JSON/Markdown report.
+When `--semantic-judge` is enabled, the runner also rejects a local evaluator
+configuration that is not `openai/gpt-4o-mini`.
 
 ## Bootstrap
 
@@ -45,6 +53,11 @@ make heldout-live   # run twice; security metrics must match
 ```
 
 Reports: `eval/results/mrd-heldout-*.json`
+
+Retain both JSON and Markdown reports. Each must record the same clean commit,
+`git_dirty=false`, corpus hash, result hash, prompt version, seed, and observed
+query-service provider/model snapshot. Do not publish results until
+both held-out reports meet these conditions and have zero source/claim leaks.
 
 ## Offline re-score
 

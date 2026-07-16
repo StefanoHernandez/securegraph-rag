@@ -19,6 +19,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 
@@ -28,12 +29,14 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from securgraph.adapters.llm import get_llm_adapter_for  # noqa: E402
+from securgraph.corpus.manifest import load_corpus_manifest  # noqa: E402
 from securgraph.corpus.qa import (  # noqa: E402
     CorpusQaPair,
     QaScore,
     load_corpus_qa_pairs,
     score_qa_result,
 )
+from securgraph.runtime_overrides import get_effective_settings  # noqa: E402
 
 DEFAULT_CORPUS_ROOT = REPO_ROOT / "corpus" / "mrd_v1"
 DEFAULT_RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -47,6 +50,87 @@ _SUBMISSION_MODELS = {
 
 class SemanticJudge(Protocol):
     async def judge_nli(self, claim: str, reference: str) -> Any: ...
+
+
+def _query_service_models_from_config(config: object) -> dict[str, dict[str, str]]:
+    """Normalize the non-secret config snapshot exposed by the query service."""
+    if not isinstance(config, dict):
+        raise SystemExit("query service runtime configuration is not a JSON object")
+    fields = {"generation": "llm", "extraction": "extract", "judge": "judge"}
+    models: dict[str, dict[str, str]] = {}
+    for role, field in fields.items():
+        raw = config.get(field)
+        if not isinstance(raw, dict):
+            raise SystemExit(f"query service runtime configuration is missing {field}")
+        provider = raw.get("provider")
+        model = raw.get("model")
+        if not isinstance(provider, str) or not provider or not isinstance(model, str) or not model:
+            raise SystemExit(f"query service runtime configuration has invalid {field} metadata")
+        models[role] = {"provider": provider, "model": model}
+    return models
+
+
+def _require_matching_models(
+    expected: dict[str, dict[str, str]],
+    observed: dict[str, dict[str, str]],
+    *,
+    source: str,
+) -> None:
+    """Fail a submission run if an observed runtime differs from its manifest."""
+    for role, expected_model in expected.items():
+        if observed.get(role) != expected_model:
+            raise SystemExit(
+                f"{source} runtime configuration for {role} does not match "
+                f"the submission model requirement"
+            )
+
+
+def _semantic_judge_model(tenant_id: str) -> dict[str, str]:
+    """Resolve the evaluator's own judge, including the tenant override path."""
+    settings = get_effective_settings(tenant_id)
+    return {
+        "provider": settings.llm_provider_judge or settings.llm_provider,
+        "model": settings.llm_model_judge or settings.llm_model,
+    }
+
+
+def _query_service_config_url(query_url: str, tenant_id: str) -> str:
+    parsed = urlsplit(query_url)
+    valid_query_url = (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.netloc)
+        and parsed.path.endswith("/query")
+    )
+    if not valid_query_url:
+        raise SystemExit("--live-query-url must be an absolute URL ending in /query")
+    config_path = f"{parsed.path.rsplit('/', 1)[0]}/config"
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, config_path, urlencode({"tenant_id": tenant_id}), "")
+    )
+
+
+def _fetch_query_service_models(
+    *,
+    query_url: str,
+    tenant_id: str,
+    bearer_token: str | None,
+    timeout_seconds: float,
+) -> dict[str, dict[str, str]]:
+    """Fetch the exact provider/model tuple resolved by the live query service."""
+    headers = {"Authorization": f"Bearer {bearer_token}"} if bearer_token else {}
+    try:
+        response = httpx.get(
+            _query_service_config_url(query_url, tenant_id),
+            headers=headers,
+            timeout=httpx.Timeout(timeout_seconds),
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise SystemExit(f"Could not fetch query service runtime configuration: {exc}") from exc
+    try:
+        return _query_service_models_from_config(response.json())
+    except ValueError as exc:
+        raise SystemExit("query service runtime configuration is not valid JSON") from exc
 
 
 def _hash_corpus(root: Path) -> str:
@@ -410,10 +494,37 @@ def _write_report(
         "(lowercase, markdown/punctuation stripped, key-fact token fallback), "
         "not exact substring. Required-source and deny/leakage checks are exact.",
         "",
+        f"- Commit: `{run_manifest.get('git_commit', 'unknown')}`",
+        f"- Git worktree dirty: `{run_manifest.get('git_dirty', 'unknown')}`",
+        f"- Corpus SHA-256: `{run_manifest.get('corpus_sha256', 'unknown')}`",
+        f"- Results SHA-256: `{payload['results_sha256']}`",
+        f"- Prompt version: `{run_manifest.get('prompt_version', 'unknown')}`",
+        f"- Seed: `{run_manifest.get('seed', 'unknown')}`",
         f"- Pairs: {len(pairs)}",
         f"- Allow: {allow_count}",
         f"- Deny: {deny_count}",
     ]
+    models = run_manifest.get("models")
+    if isinstance(models, dict):
+        for label, role in (
+            ("Generation", "generation"),
+            ("Extraction", "extraction"),
+            ("Judge", "judge"),
+        ):
+            metadata = models.get(role)
+            if not isinstance(metadata, dict):
+                continue
+            provider = metadata.get("provider")
+            model = metadata.get("model")
+            if isinstance(provider, str) and isinstance(model, str):
+                lines.append(f"- {label}: `{provider}/{model}`")
+    configuration = run_manifest.get("configuration")
+    if isinstance(configuration, dict):
+        lines.append(
+            "- Configuration: `"
+            + json.dumps(configuration, sort_keys=True, separators=(",", ":"))
+            + "`"
+        )
     if scores is not None:
         passed = sum(1 for score in scores if score.passed)
         lines.extend(
@@ -468,6 +579,11 @@ def main() -> None:
     if args.results_json is not None and args.live_query_url is not None:
         raise SystemExit("--results-json and --live-query-url are mutually exclusive")
 
+    corpus_manifest = load_corpus_manifest(args.corpus)
+    if args.tenant_id != corpus_manifest.tenant_id:
+        raise SystemExit(
+            "--tenant-id must match the tenant_id declared by the evaluation corpus"
+        )
     pairs = load_corpus_qa_pairs(args.corpus)
     run_manifest = _build_run_manifest(
         corpus_root=args.corpus,
@@ -494,6 +610,47 @@ def main() -> None:
     )
     # Freeze the held-out protocol before contacting its live API endpoint.
     _validate_submission_manifest(run_manifest, args.corpus)
+    declared_models = {
+        "generation": {
+            "provider": args.generation_provider,
+            "model": args.generation_model,
+        },
+        "extraction": {
+            "provider": args.extraction_provider,
+            "model": args.extraction_model,
+        },
+        "judge": {
+            "provider": args.judge_provider,
+            "model": args.judge_model,
+        },
+    }
+    configuration = run_manifest.get("configuration")
+    if not isinstance(configuration, dict):
+        raise SystemExit("Evaluation manifest is missing configuration metadata")
+    if args.live_query_url is not None:
+        query_service_models = _fetch_query_service_models(
+            query_url=args.live_query_url,
+            tenant_id=args.tenant_id,
+            bearer_token=args.bearer_token,
+            timeout_seconds=args.timeout_seconds,
+        )
+        _require_matching_models(
+            declared_models,
+            query_service_models,
+            source="query service",
+        )
+        # The report records the observed query-service snapshot, not merely
+        # the runner's command-line defaults.
+        run_manifest["models"] = query_service_models
+        configuration["query_service_models"] = query_service_models
+    if args.semantic_judge:
+        semantic_judge_runtime = _semantic_judge_model(args.tenant_id)
+        _require_matching_models(
+            {"judge": declared_models["judge"]},
+            {"judge": semantic_judge_runtime},
+            source="semantic judge",
+        )
+        configuration["semantic_judge_runtime"] = semantic_judge_runtime
     scores = None
     result_rows = None
     if args.results_json is not None:

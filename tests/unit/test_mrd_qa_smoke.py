@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from eval import mrd_qa_smoke
 from securgraph.adapters.llm import NLIResult
+from securgraph.config import get_settings
 from securgraph.corpus.qa import CorpusQaPair, QaScore
 
 pytestmark = pytest.mark.unit
@@ -158,6 +160,153 @@ def test_submission_manifest_rejects_non_cloud_models_and_dirty_heldout() -> Non
         mrd_qa_smoke._validate_submission_manifest(manifest, Path("corpus/mrd_heldout_v1"))
 
 
+def test_query_service_runtime_models_must_match_submission_models() -> None:
+    expected = {
+        "generation": {"provider": "mistral", "model": "mistral-small-latest"},
+        "extraction": {"provider": "mistral", "model": "mistral-small-latest"},
+        "judge": {"provider": "openai", "model": "gpt-4o-mini"},
+    }
+    observed = mrd_qa_smoke._query_service_models_from_config(
+        {
+            "llm": expected["generation"],
+            "extract": expected["extraction"],
+            "judge": expected["judge"],
+        }
+    )
+
+    assert observed == expected
+
+    observed["generation"] = {"provider": "ollama", "model": "legacy"}
+    with pytest.raises(SystemExit, match="query service runtime configuration"):
+        mrd_qa_smoke._require_matching_models(expected, observed, source="query service")
+
+
+def test_semantic_judge_uses_effective_tenant_runtime_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_settings = get_settings().model_copy(
+        update={
+            "llm_provider": "mistral",
+            "llm_provider_judge": "openai",
+            "llm_model": "mistral-small-latest",
+            "llm_model_judge": "gpt-4o-mini",
+        }
+    )
+    monkeypatch.setattr(
+        mrd_qa_smoke,
+        "get_effective_settings",
+        lambda tenant_id: tenant_settings,
+        raising=False,
+    )
+
+    assert mrd_qa_smoke._semantic_judge_model("helios-orion-lab") == {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+    }
+
+
+def test_live_heldout_refuses_mismatched_query_service_before_queries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = {
+        "git_dirty": False,
+        "models": {
+            "generation": {"provider": "mistral", "model": "mistral-small-latest"},
+            "extraction": {"provider": "mistral", "model": "mistral-small-latest"},
+            "judge": {"provider": "openai", "model": "gpt-4o-mini"},
+        },
+        "configuration": {"baseline_templates": False, "semantic_judge": True},
+    }
+    monkeypatch.setattr(mrd_qa_smoke, "load_corpus_qa_pairs", lambda _: (_deny_pair(),))
+    monkeypatch.setattr(
+        mrd_qa_smoke,
+        "load_corpus_manifest",
+        lambda _: SimpleNamespace(tenant_id="helios-orion-lab"),
+    )
+    monkeypatch.setattr(mrd_qa_smoke, "_build_run_manifest", lambda **_: manifest)
+    monkeypatch.setattr(
+        mrd_qa_smoke,
+        "_fetch_query_service_models",
+        lambda **_: {
+            "generation": {"provider": "ollama", "model": "legacy"},
+            "extraction": {"provider": "mistral", "model": "mistral-small-latest"},
+            "judge": {"provider": "openai", "model": "gpt-4o-mini"},
+        },
+        raising=False,
+    )
+
+    async def fail_if_live_query_runs(
+        _pairs: tuple[CorpusQaPair, ...], **_: object
+    ) -> dict[str, dict[str, object]]:
+        raise AssertionError("held-out query executed after a mismatched runtime preflight")
+
+    monkeypatch.setattr(mrd_qa_smoke, "_run_live_queries", fail_if_live_query_runs)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mrd-qa-smoke",
+            "--corpus",
+            "mrd_heldout_v1",
+            "--tenant-id",
+            "helios-orion-lab",
+            "--live-query-url",
+            "https://example.invalid/api/v1/query",
+            "--semantic-judge",
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="query service runtime configuration"):
+        mrd_qa_smoke.main()
+
+
+def test_live_evaluation_rejects_a_tenant_different_from_the_corpus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mrd_qa_smoke, "load_corpus_qa_pairs", lambda _: (_deny_pair(),))
+    monkeypatch.setattr(
+        mrd_qa_smoke,
+        "load_corpus_manifest",
+        lambda _: SimpleNamespace(tenant_id="helios-orion-lab"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        mrd_qa_smoke,
+        "_build_run_manifest",
+        lambda **_: {
+            "git_dirty": False,
+            "models": {
+                "generation": {"provider": "mistral", "model": "mistral-small-latest"},
+                "extraction": {"provider": "mistral", "model": "mistral-small-latest"},
+                "judge": {"provider": "openai", "model": "gpt-4o-mini"},
+            },
+            "configuration": {"baseline_templates": False, "semantic_judge": True},
+        },
+    )
+    monkeypatch.setattr(
+        mrd_qa_smoke,
+        "_fetch_query_service_models",
+        lambda **_: (_ for _ in ()).throw(AssertionError("runtime preflight should not run")),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mrd-qa-smoke",
+            "--corpus",
+            "mrd_heldout_v1",
+            "--tenant-id",
+            "mrd-lab",
+            "--live-query-url",
+            "https://example.invalid/api/v1/query",
+            "--semantic-judge",
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="must match the tenant_id"):
+        mrd_qa_smoke.main()
+
+
 def test_heldout_manifest_is_checked_before_live_queries(monkeypatch: pytest.MonkeyPatch) -> None:
     manifest = {
         "git_dirty": True,
@@ -170,6 +319,11 @@ def test_heldout_manifest_is_checked_before_live_queries(monkeypatch: pytest.Mon
     }
 
     monkeypatch.setattr(mrd_qa_smoke, "load_corpus_qa_pairs", lambda _: (_deny_pair(),))
+    monkeypatch.setattr(
+        mrd_qa_smoke,
+        "load_corpus_manifest",
+        lambda _: SimpleNamespace(tenant_id="helios-orion-lab"),
+    )
     monkeypatch.setattr(mrd_qa_smoke, "_build_run_manifest", lambda **_: manifest)
 
     async def fail_if_live_query_runs(
@@ -185,6 +339,8 @@ def test_heldout_manifest_is_checked_before_live_queries(monkeypatch: pytest.Mon
             "mrd-qa-smoke",
             "--corpus",
             "mrd_heldout_v1",
+            "--tenant-id",
+            "helios-orion-lab",
             "--live-query-url",
             "https://example.invalid/query",
             "--semantic-judge",
@@ -266,12 +422,24 @@ def test_report_separates_deny_security_and_source_isolation(tmp_path: Path) -> 
         ),
     )
 
-    json_path, _ = mrd_qa_smoke._write_report(
+    json_path, markdown_path = mrd_qa_smoke._write_report(
         (_deny_pair(), source_isolation),
         scores,
         result_rows=None,
         output_dir=tmp_path,
-        run_manifest={"configuration": {}},
+        run_manifest={
+            "git_commit": "0123456789abcdef",
+            "git_dirty": False,
+            "corpus_sha256": "abc123",
+            "models": {
+                "generation": {"provider": "mistral", "model": "mistral-small-latest"},
+                "extraction": {"provider": "mistral", "model": "mistral-small-latest"},
+                "judge": {"provider": "openai", "model": "gpt-4o-mini"},
+            },
+            "prompt_version": "securegraph-query-v1",
+            "seed": 42,
+            "configuration": {},
+        },
         corpus_root=tmp_path,
     )
 
@@ -286,3 +454,7 @@ def test_report_separates_deny_security_and_source_isolation(tmp_path: Path) -> 
         "passed": 1,
         "failed": 0,
     }
+    markdown = markdown_path.read_text(encoding="utf-8")
+    assert "Commit: `0123456789abcdef`" in markdown
+    assert "Generation: `mistral/mistral-small-latest`" in markdown
+    assert "Judge: `openai/gpt-4o-mini`" in markdown

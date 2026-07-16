@@ -43,6 +43,7 @@ from securgraph.observability.otel import (
 )
 from securgraph.orchestration.workflow import compile_workflow
 from securgraph.policy.egress import EgressBlockedError
+from securgraph.runtime_overrides import get_effective_settings
 
 router = APIRouter(tags=["query"])
 logger = get_logger(__name__)
@@ -105,6 +106,12 @@ def _evidence_content_hash(value: Any) -> str:
     else:
         serialized = str(value)
     return "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _trace_model_snapshot(tenant_id: str) -> tuple[str, str]:
+    """Snapshot the model IDs actually resolved for this tenant's query."""
+    settings = get_effective_settings(tenant_id)
+    return settings.llm_model, settings.llm_model_judge or settings.llm_model
 
 
 @router.post(
@@ -335,8 +342,9 @@ async def query_pipeline(
             trace_row.claim_nli_score = confidence.claim_nli_score
             trace_row.consensus_threshold = request.options.consensus_threshold
             trace_row.consensus_verdict = result.get("synthesis_branch")
-            trace_row.generation_model = settings.llm_model
-            trace_row.judge_model = settings.llm_model_judge or settings.llm_model
+            trace_row.generation_model, trace_row.judge_model = _trace_model_snapshot(
+                request.tenant_id
+            )
 
             evidence_rows = []
             for ev in vector_context:
