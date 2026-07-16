@@ -272,6 +272,7 @@ async def ingest_document(
             document_id=str(resource_ids["document_id"]),
             chunk_ids=_resource_id_list(resource_ids, "chunk_ids"),
             owner_id=str(resource_ids["owner_id"]),
+            group_viewers=tuple(_resource_id_list(resource_ids, "group_viewers")),
             direct_viewers=tuple(_resource_id_list(resource_ids, "direct_viewers")),
             remove_document_acl=bool(resource_ids.get("document_acl_written")),
         )
@@ -327,6 +328,7 @@ async def ingest_document(
             "document_id": document_id,
             "chunk_ids": chunk_ids,
             "owner_id": request.owner_id,
+            "group_viewers": list(request.policy_tags),
             "direct_viewers": list(request.direct_viewers),
             "document_acl_written": False,
         }
@@ -340,6 +342,7 @@ async def ingest_document(
         await _write_document_owner_tuples(
             document_id,
             owner_id=request.owner_id,
+            group_viewers=request.policy_tags,
             direct_viewers=request.direct_viewers,
         )
         await saga.record_completed("openfga", fga_resources)
@@ -445,13 +448,20 @@ def _fga_user_principal(principal: str) -> str:
     return principal if ":" in principal else f"user:{principal}"
 
 
+def _fga_group_userset(group: str) -> str:
+    """Return the canonical OpenFGA ``group#member`` userset reference."""
+    group_id = group.removeprefix("group:").removesuffix("#member")
+    return f"group:{group_id}#member"
+
+
 async def _write_document_owner_tuples(
     doc_id: str,
     *,
     owner_id: str,
+    group_viewers: tuple[str, ...] = (),
     direct_viewers: tuple[str, ...] = (),
 ) -> None:
-    """Write ``document#owner@user`` and ``document#direct_viewer@user`` tuples.
+    """Write the document owner, group-viewer and direct-viewer ACL tuples.
 
     Idempotent: re-ingest of the same corpus may hit "already exists"; we
     log+swallow so reseeding doesn't break.
@@ -468,6 +478,12 @@ async def _write_document_owner_tuples(
     writes: list[ClientTuple] = []
     if owner_id:
         writes.append(ClientTuple(user=_fga_user_principal(owner_id), relation="owner", object=obj))
+    for group in group_viewers:
+        if not group:
+            continue
+        writes.append(
+            ClientTuple(user=_fga_group_userset(group), relation="group_viewer", object=obj)
+        )
     for viewer in direct_viewers:
         if not viewer:
             continue
@@ -483,6 +499,7 @@ async def _write_document_owner_tuples(
         log_fields={
             "doc_id": doc_id,
             "owner_id": owner_id,
+            "group_viewers_count": len(group_viewers),
             "direct_viewers_count": len(direct_viewers),
         },
     )
@@ -524,6 +541,7 @@ async def _delete_ingestion_fga_tuples(
     document_id: str,
     chunk_ids: list[str],
     owner_id: str,
+    group_viewers: tuple[str, ...],
     direct_viewers: tuple[str, ...],
     remove_document_acl: bool,
 ) -> None:
@@ -553,6 +571,15 @@ async def _delete_ingestion_fga_tuples(
                     object=document_object,
                 )
             )
+        deletes.extend(
+            ClientTuple(
+                user=_fga_group_userset(group),
+                relation="group_viewer",
+                object=document_object,
+            )
+            for group in group_viewers
+            if group
+        )
         deletes.extend(
             ClientTuple(
                 user=_fga_user_principal(viewer),

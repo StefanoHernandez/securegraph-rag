@@ -390,6 +390,7 @@ async def test_ingestion_failure_injection_neo4j_aborts_before_provenance() -> N
         data=b"# Neo4j Failure\nGraph writes must not fail silently.",
         document_type=DocumentType.POLICY,
         classification=Classification.INTERNAL,
+        policy_tags=("engineering",),
     )
 
     write_provenance = AsyncMock()
@@ -425,6 +426,7 @@ async def test_ingestion_failure_injection_neo4j_aborts_before_provenance() -> N
 
     fga_chunk.assert_awaited_once()
     fga_owner.assert_awaited_once()
+    assert fga_owner.await_args.kwargs["group_viewers"] == ("engineering",)
     adapter.extract_graph_slice.assert_awaited_once()
     write_provenance.assert_not_awaited()
     complete_job.assert_not_awaited()
@@ -509,6 +511,62 @@ async def test_openfga_duplicate_ingest_tuples_are_skipped(monkeypatch: pytest.M
     )
 
     assert fga_client.write.await_count == 3
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_openfga_document_acl_includes_group_viewers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Document ACLs must mirror policy-tag groups used by C3 classes."""
+    from securgraph.api import dependencies as deps
+    from securgraph.ingestion import service as ingestion_service
+
+    fga_client = MagicMock()
+    fga_client.write = AsyncMock()
+    monkeypatch.setattr(deps, "_fga_client", fga_client)
+
+    await ingestion_service._write_document_owner_tuples(
+        "doc-1",
+        owner_id="alice",
+        group_viewers=("eng", "group:security#member"),
+        direct_viewers=("bob",),
+    )
+
+    request = fga_client.write.await_args.args[0]
+    tuples = {(item.user, item.relation, item.object) for item in request.writes}
+    assert ("user:alice", "owner", "document:doc-1") in tuples
+    assert ("group:eng#member", "group_viewer", "document:doc-1") in tuples
+    assert ("group:security#member", "group_viewer", "document:doc-1") in tuples
+    assert ("user:bob", "direct_viewer", "document:doc-1") in tuples
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_openfga_compensation_removes_group_viewers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Compensation must remove every document ACL tuple written by ingest."""
+    from securgraph.api import dependencies as deps
+    from securgraph.ingestion import service as ingestion_service
+
+    fga_client = MagicMock()
+    fga_client.write = AsyncMock()
+    monkeypatch.setattr(deps, "_fga_client", fga_client)
+
+    await ingestion_service._delete_ingestion_fga_tuples(
+        document_id="doc-1",
+        chunk_ids=["chunk-1"],
+        owner_id="alice",
+        group_viewers=("eng", "group:security#member"),
+        direct_viewers=("bob",),
+        remove_document_acl=True,
+    )
+
+    request = fga_client.write.await_args.args[0]
+    tuples = {(item.user, item.relation, item.object) for item in request.deletes}
+    assert ("group:eng#member", "group_viewer", "document:doc-1") in tuples
+    assert ("group:security#member", "group_viewer", "document:doc-1") in tuples
 
 
 @pytest.mark.unit
