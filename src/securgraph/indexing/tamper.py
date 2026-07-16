@@ -297,13 +297,13 @@ async def chain_policy_decisions(
     session: AsyncSession,
     rows: list[dict[str, Any]],
     tenant_id: str,
-) -> None:
+) -> list[dict[str, Any]]:
     """Compute and set ``tamper_hash`` for a raw batch of policy decision dicts.
 
     Uses ``SELECT FOR UPDATE`` to serialise concurrent writers for the same tenant.
     """
     if not rows:
-        return
+        return []
 
     head = await _lock_chain_head(
         session,
@@ -311,15 +311,32 @@ async def chain_policy_decisions(
         PolicyDecisionRow.__tablename__,
         "genesis_decision",
     )
+    decision_ids = [str(row["decision_id"]) for row in rows]
+    existing_result = await session.execute(
+        select(PolicyDecisionRow.decision_id).where(
+            PolicyDecisionRow.tenant_id == tenant_id,
+            PolicyDecisionRow.decision_id.in_(decision_ids),
+        )
+    )
+    seen_ids = set(existing_result.scalars().all())
+    new_rows: list[dict[str, Any]] = []
+    for row in rows:
+        decision_id = str(row["decision_id"])
+        if decision_id in seen_ids:
+            continue
+        seen_ids.add(decision_id)
+        new_rows.append(row)
+
     prev_hash = head.last_hash
 
-    for r in rows:
+    for r in new_rows:
         r["chain_sequence"] = head.sequence + 1
         r["tamper_version"] = "v2"
         r["tamper_hash"] = compute_payload_hmac(_policy_payload_v2(r), prev_hash)
         prev_hash = r["tamper_hash"]
         head.last_hash = r["tamper_hash"]
         head.sequence = r["chain_sequence"]
+    return new_rows
 
 
 async def backfill_unsealed_chains(session: AsyncSession, tenant_id: str) -> dict[str, int]:

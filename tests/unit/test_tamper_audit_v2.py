@@ -404,7 +404,9 @@ async def test_chain_policy_decision_hashes_denied_candidate_metadata() -> None:
     head_result = MagicMock()
     head_result.scalar_one.return_value = head
     session = AsyncMock()
-    session.execute.side_effect = [MagicMock(), head_result]
+    existing_result = MagicMock()
+    existing_result.scalars.return_value.all.return_value = []
+    session.execute.side_effect = [MagicMock(), head_result, existing_result]
     row: dict[str, object] = {
         "decision_id": "decision-v2",
         "trace_id": "trace-v2",
@@ -422,7 +424,7 @@ async def test_chain_policy_decision_hashes_denied_candidate_metadata() -> None:
         "tamper_version": "v1",
     }
 
-    await chain_policy_decisions(session, [row], "mrd")
+    chained = await chain_policy_decisions(session, [row], "mrd")
 
     expected_payload = {
         "decision_id": "decision-v2",
@@ -441,3 +443,41 @@ async def test_chain_policy_decision_hashes_denied_candidate_metadata() -> None:
     }
     assert row["tamper_version"] == "v2"
     assert row["tamper_hash"] == compute_payload_hmac(expected_payload, "genesis_decision")
+    assert chained == [row]
+
+
+async def test_chain_policy_decisions_does_not_advance_head_for_existing_id() -> None:
+    head = AuditChainHeadRow(
+        tenant_id="mrd",
+        chain_name="policy_decisions",
+        last_hash="existing-tail",
+        sequence=7,
+    )
+    head_result = MagicMock()
+    head_result.scalar_one.return_value = head
+    existing_result = MagicMock()
+    existing_result.scalars.return_value.all.return_value = ["decision-duplicate"]
+    session = AsyncMock()
+    session.execute.side_effect = [MagicMock(), head_result, existing_result]
+    row: dict[str, object] = {
+        "decision_id": "decision-duplicate",
+        "trace_id": "trace-v2",
+        "tenant_id": "mrd",
+        "user_id": "user:alice",
+        "object_type": "chunk",
+        "object_id": "chunk-9",
+        "action": "read",
+        "decision": "deny",
+        "reason_code": "missing_relation",
+        "policy_engine": "openfga",
+        "evaluated_at": NOW,
+        "retriever_id": "vector",
+        "resource_hash": "sha256:abc123",
+    }
+
+    chained = await chain_policy_decisions(session, [row], "mrd")
+
+    assert chained == []
+    assert head.sequence == 7
+    assert head.last_hash == "existing-tail"
+    assert "chain_sequence" not in row

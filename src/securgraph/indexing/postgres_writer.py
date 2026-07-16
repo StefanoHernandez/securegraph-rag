@@ -359,7 +359,9 @@ async def write_policy_decisions(session: AsyncSession, decisions: list[PolicyDe
     ]
     settings = get_settings()
     if settings.audit_tamper_evident:
-        await chain_policy_decisions(session, rows, decisions[0].tenant_id)
+        rows = await chain_policy_decisions(session, rows, decisions[0].tenant_id)
+        if not rows:
+            return
 
     stmt = pg_insert(PolicyDecisionRow).values(rows)
     # Use ON CONFLICT DO NOTHING to keep inserts idempotent
