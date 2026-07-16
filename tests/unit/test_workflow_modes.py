@@ -244,6 +244,42 @@ async def test_vector_policy_audit_failure_aborts_query(
 
 
 @pytest.mark.asyncio
+async def test_vector_retrieval_fails_closed_without_policy_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    qdrant, graph = _build_mocks()
+    graph.fga = None
+    qdrant.search_dense.return_value = [
+        RetrievalEvidence(
+            evidence_id="ev-unverified",
+            trace_id="tr1",
+            tenant_id="t1",
+            evidence_type="chunk",
+            object_id="chunk-unverified",
+            retriever_id=RetrieverId.VECTOR,
+            retrieval_strategy="dense",
+            original_rank=0,
+            original_score=0.9,
+            policy_check_id="unverified",
+            text="This text must never reach synthesis.",
+        )
+    ]
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("untrusted answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("untrusted answer"),
+    )
+
+    workflow = compile_workflow(qdrant, graph)
+
+    with pytest.raises(RuntimeError, match="OpenFGA policy adapter"):
+        await workflow.ainvoke(_empty_state("vector"))
+
+
+@pytest.mark.asyncio
 async def test_vector_deny_audit_keeps_the_original_retriever_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -324,7 +360,7 @@ async def test_synthesis_attaches_deterministic_citations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     qdrant, graph = _build_mocks()
-    graph.fga = None
+    graph.fga.filter_chunk_ids = AsyncMock(return_value=({"chunk-1"}, []))
     evidence = RetrievalEvidence(
         evidence_id="ev-source",
         trace_id="tr1",
@@ -342,8 +378,10 @@ async def test_synthesis_attaches_deterministic_citations(
     qdrant.search_lexical.return_value = []
 
     class FakeSessionContext:
-        async def __aenter__(self) -> object:
-            return object()
+        async def __aenter__(self) -> MagicMock:
+            session = MagicMock()
+            session.commit = AsyncMock()
+            return session
 
         async def __aexit__(self, *args: object) -> None:
             return None

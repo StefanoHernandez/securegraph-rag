@@ -452,6 +452,10 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
             # leak intra-tenant chunks across users.
             fga = getattr(graph, "fga", None)
             denied_count = 0
+            if fused and fga is None:
+                raise RuntimeError(
+                    "OpenFGA policy adapter is required before vector evidence can be used."
+                )
             if fga is not None and fused:
                 chunk_ids = [ev.object_id for ev in fused if getattr(ev, "object_id", None)]
                 ev_map = {ev.object_id: ev.retriever_id.value for ev in fused}
