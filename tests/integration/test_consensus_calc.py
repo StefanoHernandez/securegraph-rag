@@ -46,3 +46,38 @@ def test_calculate_consensus_full_entailment() -> None:
     assert report.claim_nli_score == 1.0
     assert report.agreement_score > 0.73
     assert report.high_trust is True
+
+
+def test_empty_lanes_do_not_create_vacuous_high_trust() -> None:
+    report = calculate_consensus(
+        trace_id="trace_empty",
+        vector_claims=(),
+        graph_claims=(),
+        vector_entities=set(),
+        graph_entities=set(),
+        threshold=0.7,
+    )
+
+    assert report.entity_overlap_jaccard == 0.0
+    assert report.claim_nli_score == 0.0
+    assert report.agreement_score == 0.0
+    assert report.high_trust is False
+
+
+def test_single_lane_never_reports_cross_retriever_high_trust() -> None:
+    report = calculate_consensus(
+        trace_id="trace_single_lane",
+        vector_claims=(
+            Claim(
+                claim_id="vector-only",
+                text="Only the vector lane produced a claim.",
+                nli_label=NLILabel.ENTAILMENT,
+            ),
+        ),
+        graph_claims=(),
+        vector_entities={"vector"},
+        graph_entities=set(),
+        threshold=0.0,
+    )
+
+    assert report.high_trust is False

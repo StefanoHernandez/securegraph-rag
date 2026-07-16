@@ -72,14 +72,14 @@ def calculate_consensus(
     """Calculate bidirectional NLI score and Jaccard similarity to compile ConsensusReport."""
     # 1. Entity Overlap
     if not vector_entities and not graph_entities:
-        jaccard = 1.0
+        jaccard = 0.0
     else:
         jaccard = len(vector_entities & graph_entities) / len(vector_entities | graph_entities)
 
     # 2. NLI Agreement Average (entailment = 1.0, others = 0.0)
     total_claims = len(vector_claims) + len(graph_claims)
     if total_claims == 0:
-        nli_score = 1.0
+        nli_score = 0.0
     else:
         entailed_count = 0
         for c in vector_claims:
@@ -92,7 +92,10 @@ def calculate_consensus(
 
     # 3. Composite score
     agreement = 0.4 * jaccard + 0.6 * nli_score
-    high_trust = agreement >= threshold
+    both_lanes_present = bool(vector_claims or vector_entities) and bool(
+        graph_claims or graph_entities
+    )
+    high_trust = both_lanes_present and agreement >= threshold
 
     return ConsensusReport(
         trace_id=trace_id,
