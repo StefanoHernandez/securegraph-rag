@@ -198,12 +198,21 @@ class AuthorizedGraphRetriever:
         path_decisions: list[PolicyDecision] = []
         for path in raw_paths:
             path_valid = True
+            reason_code = "graph_path_cut_pass"
             for edge_id in path.edges:
                 chunks_for_edge = edge_chunks.get(edge_id, [])
-                # If an edge is supported ONLY by unauthorized chunks, the path is cut
-                if chunks_for_edge and not any(cid in authorized_ids for cid in chunks_for_edge):
+                if not chunks_for_edge:
                     path_valid = False
+                    reason_code = "graph_path_missing_provenance"
                     break
+                if not any(cid in authorized_ids for cid in chunks_for_edge):
+                    path_valid = False
+                    reason_code = "graph_path_cut"
+                    break
+
+            path_hash = hashlib.sha256(
+                "\x00".join((*path.nodes, *path.edges)).encode("utf-8")
+            ).hexdigest()
 
             # Record the path-level outcome so the provenance report can prove
             # each emitted graph path was authorized (the chunk-level checks
@@ -221,7 +230,9 @@ class AuthorizedGraphRetriever:
                     decision=(
                         PolicyDecisionValue.ALLOW if path_valid else PolicyDecisionValue.DENY
                     ),
-                    reason_code="graph_path_cut_pass" if path_valid else "graph_path_cut",
+                    reason_code=reason_code,
+                    retriever_id="graph",
+                    resource_hash=path_hash,
                 )
             )
 

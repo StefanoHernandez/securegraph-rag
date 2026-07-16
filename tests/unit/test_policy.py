@@ -183,6 +183,21 @@ async def test_authorized_graph_retriever_path_cut() -> None:
                 },
             ],
         },
+        {
+            "path_nodes": [
+                {"id": "Seed", "label": "Entity", "name": "Seed"},
+                {"id": "Unknown", "label": "Entity", "name": "Unknown"},
+            ],
+            "path_edges": [
+                {
+                    "id": "rel_missing",
+                    "source": "Seed",
+                    "target": "Unknown",
+                    "type": "RELATED_TO",
+                    "source_chunk_ids": [],
+                }
+            ],
+        },
     ]
 
     # Map edges to chunks
@@ -313,11 +328,19 @@ async def test_authorized_graph_retriever_path_cut() -> None:
         path_decisions = mock_write.call_args_list[1].args[1]
         assert {d.object_type for d in path_decisions} == {PolicyObjectType.GRAPH_PATH}
         by_outcome = {d.object_id: d.decision for d in path_decisions}
-        assert len(by_outcome) == 2
+        assert len(by_outcome) == 3
         kept_path_id = authorized_paths[0].path_id
         assert by_outcome[kept_path_id] == PolicyDecisionValue.ALLOW
         # The cut path (Seed -> C -> D) must be recorded as denied.
         assert PolicyDecisionValue.DENY in by_outcome.values()
+        missing_provenance = next(
+            decision
+            for decision in path_decisions
+            if decision.reason_code == "graph_path_missing_provenance"
+        )
+        assert missing_provenance.decision == PolicyDecisionValue.DENY
+        assert missing_provenance.retriever_id == "graph"
+        assert missing_provenance.resource_hash is not None
 
 
 @pytest.mark.asyncio
