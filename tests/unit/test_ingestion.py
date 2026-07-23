@@ -529,8 +529,8 @@ async def test_openfga_document_acl_includes_group_viewers(
     await ingestion_service._write_document_owner_tuples(
         "doc-1",
         owner_id="alice",
-        group_viewers=("eng", "group:security#member"),
-        direct_viewers=("bob",),
+        group_viewers=("eng", "group:eng#member", "group:security#member"),
+        direct_viewers=("bob", "user:bob"),
     )
 
     request = fga_client.write.await_args.args[0]
@@ -539,6 +539,13 @@ async def test_openfga_document_acl_includes_group_viewers(
     assert ("group:eng#member", "group_viewer", "document:doc-1") in tuples
     assert ("group:security#member", "group_viewer", "document:doc-1") in tuples
     assert ("user:bob", "direct_viewer", "document:doc-1") in tuples
+    assert [item.user for item in request.writes if item.relation == "group_viewer"] == [
+        "group:eng#member",
+        "group:security#member",
+    ]
+    assert [item.user for item in request.writes if item.relation == "direct_viewer"] == [
+        "user:bob"
+    ]
 
 
 @pytest.mark.unit
@@ -558,8 +565,8 @@ async def test_openfga_compensation_removes_group_viewers(
         document_id="doc-1",
         chunk_ids=["chunk-1"],
         owner_id="alice",
-        group_viewers=("eng", "group:security#member"),
-        direct_viewers=("bob",),
+        group_viewers=("eng", "group:eng#member", "group:security#member"),
+        direct_viewers=("bob", "user:bob"),
         remove_document_acl=True,
     )
 
@@ -567,6 +574,13 @@ async def test_openfga_compensation_removes_group_viewers(
     tuples = {(item.user, item.relation, item.object) for item in request.deletes}
     assert ("group:eng#member", "group_viewer", "document:doc-1") in tuples
     assert ("group:security#member", "group_viewer", "document:doc-1") in tuples
+    assert [item.user for item in request.deletes if item.relation == "group_viewer"] == [
+        "group:eng#member",
+        "group:security#member",
+    ]
+    assert [item.user for item in request.deletes if item.relation == "direct_viewer"] == [
+        "user:bob"
+    ]
 
 
 @pytest.mark.unit

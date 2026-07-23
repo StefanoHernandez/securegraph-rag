@@ -25,6 +25,7 @@ from qdrant_client import QdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.adapters.embeddings import EmbeddingAdapter
+from securgraph.community.policy_class import canonical_group_userset, canonical_user_principal
 from securgraph.domain import (
     Classification,
     Document,
@@ -443,17 +444,6 @@ def load_file(path: str | Path) -> bytes:
     return Path(path).read_bytes()
 
 
-def _fga_user_principal(principal: str) -> str:
-    """Return a fully-qualified FGA user reference (defaults to ``user:<id>``)."""
-    return principal if ":" in principal else f"user:{principal}"
-
-
-def _fga_group_userset(group: str) -> str:
-    """Return the canonical OpenFGA ``group#member`` userset reference."""
-    group_id = group.removeprefix("group:").removesuffix("#member")
-    return f"group:{group_id}#member"
-
-
 async def _write_document_owner_tuples(
     doc_id: str,
     *,
@@ -477,18 +467,26 @@ async def _write_document_owner_tuples(
     obj = f"document:{doc_id}"
     writes: list[ClientTuple] = []
     if owner_id:
-        writes.append(ClientTuple(user=_fga_user_principal(owner_id), relation="owner", object=obj))
-    for group in group_viewers:
-        if not group:
-            continue
         writes.append(
-            ClientTuple(user=_fga_group_userset(group), relation="group_viewer", object=obj)
+            ClientTuple(user=canonical_user_principal(owner_id), relation="owner", object=obj)
         )
-    for viewer in direct_viewers:
-        if not viewer:
-            continue
+    canonical_groups = sorted(
+        {canonical_group_userset(group) for group in group_viewers if group}
+    )
+    for group in canonical_groups:
         writes.append(
-            ClientTuple(user=_fga_user_principal(viewer), relation="direct_viewer", object=obj)
+            ClientTuple(user=group, relation="group_viewer", object=obj)
+        )
+    canonical_viewers = sorted(
+        {canonical_user_principal(viewer) for viewer in direct_viewers if viewer}
+    )
+    for viewer in canonical_viewers:
+        writes.append(
+            ClientTuple(
+                user=viewer,
+                relation="direct_viewer",
+                object=obj,
+            )
         )
     if not writes:
         return
@@ -566,28 +564,24 @@ async def _delete_ingestion_fga_tuples(
         if owner_id:
             deletes.append(
                 ClientTuple(
-                    user=_fga_user_principal(owner_id),
+                    user=canonical_user_principal(owner_id),
                     relation="owner",
                     object=document_object,
                 )
             )
-        deletes.extend(
-            ClientTuple(
-                user=_fga_group_userset(group),
-                relation="group_viewer",
-                object=document_object,
-            )
-            for group in group_viewers
-            if group
+        canonical_groups = sorted(
+            {canonical_group_userset(group) for group in group_viewers if group}
         )
         deletes.extend(
-            ClientTuple(
-                user=_fga_user_principal(viewer),
-                relation="direct_viewer",
-                object=document_object,
-            )
-            for viewer in direct_viewers
-            if viewer
+            ClientTuple(user=group, relation="group_viewer", object=document_object)
+            for group in canonical_groups
+        )
+        canonical_viewers = sorted(
+            {canonical_user_principal(viewer) for viewer in direct_viewers if viewer}
+        )
+        deletes.extend(
+            ClientTuple(user=viewer, relation="direct_viewer", object=document_object)
+            for viewer in canonical_viewers
         )
     if not deletes:
         return

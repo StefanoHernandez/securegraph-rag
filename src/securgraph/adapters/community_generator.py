@@ -16,6 +16,8 @@ from securgraph.community.policy_class import (
     UNLABELED_CLASS_KEY,
     AccessLabel,
     ClassEdge,
+    canonical_group_userset,
+    canonical_user_principal,
     partition_edges_by_class,
     policy_class_key,
 )
@@ -287,11 +289,6 @@ async def _summarize_and_write_community(
     }
 
 
-def _fga_user(principal: str) -> str:
-    """Return an FGA user expression. Pass-through if already namespaced."""
-    return principal if ":" in principal else f"user:{principal}"
-
-
 def _fga_write_client(fga: Any) -> Any:
     """Accept either OpenFGAPolicyAdapter or a raw OpenFGA client."""
     return getattr(fga, "client", None) or fga
@@ -349,13 +346,35 @@ async def emit_community_authorization_tuples(
             continue
         obj = f"policy_class:{key}"
         if lbl.owner:
-            tuples.append(ClientTuple(user=_fga_user(lbl.owner), relation="owner", object=obj))
-        for g in sorted(lbl.group_viewers):
             tuples.append(
-                ClientTuple(user=f"group:{g}#member", relation="group_viewer", object=obj)
+                ClientTuple(
+                    user=canonical_user_principal(lbl.owner),
+                    relation="owner",
+                    object=obj,
+                )
             )
-        for d in sorted(lbl.direct_viewers):
-            tuples.append(ClientTuple(user=_fga_user(d), relation="direct_viewer", object=obj))
+        canonical_groups = sorted(
+            {canonical_group_userset(group) for group in lbl.group_viewers if group}
+        )
+        for group in canonical_groups:
+            tuples.append(
+                ClientTuple(
+                    user=group,
+                    relation="group_viewer",
+                    object=obj,
+                )
+            )
+        canonical_viewers = sorted(
+            {canonical_user_principal(viewer) for viewer in lbl.direct_viewers if viewer}
+        )
+        for viewer in canonical_viewers:
+            tuples.append(
+                ClientTuple(
+                    user=viewer,
+                    relation="direct_viewer",
+                    object=obj,
+                )
+            )
 
     for comm in written:
         tuples.append(

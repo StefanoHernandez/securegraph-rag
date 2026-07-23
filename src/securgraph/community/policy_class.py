@@ -24,13 +24,32 @@ class AccessLabel:
     direct_viewers: frozenset[str] = field(default_factory=frozenset)
 
 
+def canonical_user_principal(principal: str) -> str:
+    """Return the canonical OpenFGA user principal for an ACL label."""
+    if not principal:
+        return ""
+    return principal if principal.startswith("user:") else f"user:{principal}"
+
+
+def canonical_group_userset(group: str) -> str:
+    """Return the canonical OpenFGA group membership userset for an ACL label."""
+    if not group:
+        return ""
+    group_id = group.removeprefix("group:").removesuffix("#member")
+    return f"group:{group_id}#member"
+
+
 def policy_class_key(label: AccessLabel) -> str:
     """Return a deterministic 128-bit fingerprint of the access label."""
     canonical = json.dumps(
         {
-            "owner": label.owner,
-            "group_viewers": sorted(label.group_viewers),
-            "direct_viewers": sorted(label.direct_viewers),
+            "owner": canonical_user_principal(label.owner),
+            "group_viewers": sorted(
+                {canonical_group_userset(group) for group in label.group_viewers if group}
+            ),
+            "direct_viewers": sorted(
+                {canonical_user_principal(viewer) for viewer in label.direct_viewers if viewer}
+            ),
         },
         separators=(",", ":"),
         sort_keys=True,

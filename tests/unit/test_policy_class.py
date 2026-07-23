@@ -27,6 +27,36 @@ def test_key_is_order_independent_for_groups() -> None:
     assert policy_class_key(a) == policy_class_key(b)
 
 
+def test_key_canonicalizes_equivalent_openfga_principals() -> None:
+    bare = AccessLabel(
+        owner="alice",
+        group_viewers=frozenset({"eng"}),
+        direct_viewers=frozenset({"carol"}),
+    )
+    qualified = AccessLabel(
+        owner="user:alice",
+        group_viewers=frozenset({"group:eng#member"}),
+        direct_viewers=frozenset({"user:carol"}),
+    )
+
+    assert policy_class_key(bare) == policy_class_key(qualified)
+
+
+def test_key_deduplicates_canonical_principal_aliases() -> None:
+    canonical = AccessLabel(
+        owner="alice",
+        group_viewers=frozenset({"eng"}),
+        direct_viewers=frozenset({"carol"}),
+    )
+    aliases = AccessLabel(
+        owner="user:alice",
+        group_viewers=frozenset({"eng", "group:eng#member"}),
+        direct_viewers=frozenset({"carol", "user:carol"}),
+    )
+
+    assert policy_class_key(canonical) == policy_class_key(aliases)
+
+
 def test_key_changes_with_owner() -> None:
     a = AccessLabel(owner="alice", group_viewers=frozenset({"eng"}), direct_viewers=frozenset())
     b = AccessLabel(owner="bob", group_viewers=frozenset({"eng"}), direct_viewers=frozenset())

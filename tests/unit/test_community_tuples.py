@@ -38,6 +38,39 @@ async def test_emits_policy_class_and_community_tuples() -> None:
 
 
 @pytest.mark.asyncio
+async def test_emits_canonical_tuples_for_qualified_acl_labels() -> None:
+    label = AccessLabel(
+        owner="user:alice",
+        group_viewers=frozenset({"eng", "group:eng#member"}),
+        direct_viewers=frozenset({"carol", "user:carol"}),
+    )
+    key = policy_class_key(label)
+    fga = MagicMock()
+    fga.client = MagicMock()
+    fga.client.write = AsyncMock()
+
+    await emit_community_authorization_tuples(
+        fga,
+        {"c1": label},
+        {key: []},
+        [{"community_id": "comm-1", "policy_class_key": key}],
+    )
+
+    request = fga.client.write.await_args.args[0]
+    tuples = {(item.user, item.relation) for item in request.writes}
+    assert ("user:alice", "owner") in tuples
+    assert ("group:eng#member", "group_viewer") in tuples
+    assert ("user:carol", "direct_viewer") in tuples
+    assert all("group:group:" not in user for user, _relation in tuples)
+    assert [item.user for item in request.writes if item.relation == "group_viewer"] == [
+        "group:eng#member"
+    ]
+    assert [item.user for item in request.writes if item.relation == "direct_viewer"] == [
+        "user:carol"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_unlabeled_class_emits_no_grants_only_in_class() -> None:
     """A community whose class has no known label receives NO grant tuples.
 
