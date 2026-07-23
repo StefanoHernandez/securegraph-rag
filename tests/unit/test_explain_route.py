@@ -15,10 +15,86 @@ from httpx import AsyncClient
 
 from securgraph.api.dependencies import get_db_session
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
+from securgraph.api.routes.explain import ExplainReport, _integrity_status
 from securgraph.domain import Chunk, Classification
 from securgraph.indexing.db import PolicyDecisionRow, QueryTraceRow, RetrievalEvidenceRow
 
 pytestmark = pytest.mark.unit
+
+
+def test_explain_status_fields_are_closed_enums() -> None:
+    schema = ExplainReport.model_json_schema()
+
+    assert schema["properties"]["authorization_status"]["enum"] == [
+        "authorized",
+        "denied",
+        "mixed",
+    ]
+    assert schema["properties"]["integrity_status"]["enum"] == [
+        "intact",
+        "failed",
+        "legacy_unverified",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_v2_trace_without_tamper_hash_fails_integrity() -> None:
+    trace = QueryTraceRow(
+        trace_id="trace-v2-unsealed",
+        tenant_id="mrd",
+        user_id="user:alice",
+        query="test",
+        tamper_version="v2",
+        tamper_hash=None,
+    )
+
+    result = await _integrity_status(
+        AsyncMock(),
+        tenant_id="mrd",
+        trace=trace,
+        evidence_rows=[],
+        decision_rows=[],
+    )
+
+    assert result == "failed"
+
+
+@pytest.mark.asyncio
+async def test_v2_trace_with_legacy_associated_row_fails_integrity() -> None:
+    trace = QueryTraceRow(
+        trace_id="trace-v2-mixed",
+        tenant_id="mrd",
+        user_id="user:alice",
+        query="test",
+        tamper_version="v2",
+        tamper_hash="trace-hash",
+    )
+    evidence = RetrievalEvidenceRow(
+        evidence_id="ev-legacy",
+        trace_id=trace.trace_id,
+        tenant_id=trace.tenant_id,
+        object_id="chunk-1",
+        retriever_id="vector",
+        original_rank=0,
+        original_score=1.0,
+        included_in_prompt=True,
+        tamper_version="v1",
+        tamper_hash="legacy-hash",
+    )
+
+    with patch(
+        "securgraph.api.routes.explain.verify_table_chain",
+        new=AsyncMock(return_value=(True, [])),
+    ):
+        result = await _integrity_status(
+            AsyncMock(),
+            tenant_id=trace.tenant_id,
+            trace=trace,
+            evidence_rows=[evidence],
+            decision_rows=[],
+        )
+
+    assert result == "failed"
 
 
 @pytest.fixture
@@ -179,6 +255,9 @@ async def test_explain_route_reports_intact_v2_integrity(
     """V2 sealed traces report intact when chain verification succeeds."""
     mock_query_trace.tamper_version = "v2"
     mock_query_trace.tamper_hash = "abc123"
+    for index, row in enumerate([*mock_retrieval_evidence, *mock_policy_decisions]):
+        row.tamper_version = "v2"
+        row.tamper_hash = f"associated-hash-{index}"
     mock_session = AsyncMock()
     mock_session.get.return_value = mock_query_trace
 

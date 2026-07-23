@@ -7,7 +7,7 @@ enforcing ReBAC filters.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import Field
@@ -30,6 +30,9 @@ router = APIRouter(tags=["explainability"])
 # Evidence snippets in the explain report are capped so a single large chunk
 # cannot bloat the payload; the full text remains available via ingestion.
 _SNIPPET_MAX_CHARS = 500
+
+AuthorizationStatus = Literal["authorized", "denied", "mixed"]
+IntegrityStatus = Literal["intact", "failed", "legacy_unverified"]
 
 
 class ExplainReport(SGModel):
@@ -54,8 +57,8 @@ class ExplainReport(SGModel):
     # Consensus snapshot (C2). Null on traces recorded before consensus was
     # persisted — the UI renders a neutral "not recorded" state in that case.
     consensus: dict[str, Any] | None = None
-    authorization_status: str
-    integrity_status: str
+    authorization_status: AuthorizationStatus
+    integrity_status: IntegrityStatus
     denied_candidates: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -65,7 +68,7 @@ def _authorization_status(
     denied_count: int,
     evidence_rows: list[RetrievalEvidenceRow],
     object_decisions: dict[str, str],
-) -> str:
+) -> AuthorizationStatus:
     """Derive authorized | denied | mixed from policy counts and evidence mix."""
     allowed_evidence = sum(
         1 for ev in evidence_rows if object_decisions.get(ev.object_id) == "allow"
@@ -90,10 +93,22 @@ async def _integrity_status(
     trace: QueryTraceRow,
     evidence_rows: list[RetrievalEvidenceRow],
     decision_rows: list[PolicyDecisionRow],
-) -> str:
+) -> IntegrityStatus:
     """Map tamper version + chain verification to intact | failed | legacy_unverified."""
-    if trace.tamper_hash is None or (trace.tamper_version or "v1") == "v1":
+    trace_version = trace.tamper_version or "v1"
+    if trace_version == "v1":
         return "legacy_unverified"
+    if trace_version != "v2" or trace.tamper_hash is None:
+        return "failed"
+
+    associated_rows: list[RetrievalEvidenceRow | PolicyDecisionRow] = []
+    associated_rows.extend(evidence_rows)
+    associated_rows.extend(decision_rows)
+    if any(
+        (row.tamper_version or "v1") != "v2" or row.tamper_hash is None
+        for row in associated_rows
+    ):
+        return "failed"
 
     trace_ok, trace_tampered = await verify_table_chain(session, tenant_id, QueryTraceRow)
     evidence_ok, evidence_tampered = await verify_table_chain(
