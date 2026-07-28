@@ -56,8 +56,11 @@ Reports: `eval/results/mrd-heldout-*.json`
 
 Retain both JSON and Markdown reports. Each must record the same clean commit,
 `git_dirty=false`, corpus hash, result hash, prompt version, seed, and observed
-query-service provider/model snapshot. Do not publish results until
-both held-out reports meet these conditions and have zero source/claim leaks.
+query-service provider/model snapshot. Between the two final runs, do not modify
+`src/securgraph/corpus/qa.py` or `corpus/mrd_heldout_v1/`. Report overall,
+allow-quality, authorization-denial, and source-isolation separately. Do not
+publish results until both held-out reports meet these conditions and
+have zero source/claim leaks.
 
 ## Offline re-score
 
