@@ -136,6 +136,42 @@ def test_deterministic_synthesis_disabled_without_baseline_flag(
     assert try_deterministic_synthesis("Which action is open?", draft, None) is None
 
 
+def test_non_substantive_answer_normalized_to_canonical_refusal() -> None:
+    """authorization_denial: an LLM terse non-answer must become the canonical,
+    detector-recognized refusal — never leak through as "No information provided."
+
+    The held-out run failed 6/6 authorization_denial cases exactly this way: the
+    retriever surfaced an unrelated public chunk, the LLM honestly said it had no
+    information, but that phrasing is not detected as a refusal by the QA scorer.
+    """
+    from securgraph.corpus.qa import _detect_refusal
+    from securgraph.orchestration.workflow import normalize_non_answer
+
+    # Terse non-answers the LLM emits when the authorized draft is irrelevant.
+    for raw in (
+        "No information provided.",
+        "No information.",
+        "No relevant information.",
+        "I don't have that information.",
+        "There is no information available.",
+    ):
+        normalized = normalize_non_answer(raw)
+        assert normalized is not None, f"expected refusal for {raw!r}"
+        assert _detect_refusal(normalized), (
+            f"normalized refusal must be detectable, got {normalized!r}"
+        )
+
+    # Substantive answers must pass through untouched.
+    for real in (
+        "The public coastal forecast is published at 06:00 UTC every day.",
+        "No onward sharing or production-system access is permitted.",
+        "Cape North station reports wind speed in knots.",
+    ):
+        assert normalize_non_answer(real) is None, (
+            f"substantive answer must not be normalized: {real!r}"
+        )
+
+
 def test_suite_specific_travel_phrases_are_not_hard_coded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

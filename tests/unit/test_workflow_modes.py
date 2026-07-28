@@ -361,6 +361,87 @@ async def test_vector_allow_binds_evidence_to_exact_policy_decision(
 
 
 @pytest.mark.asyncio
+async def test_synthesis_normalizes_llm_non_answer_to_canonical_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """authorization_denial regression: the retriever surfaces an authorized but
+    irrelevant chunk (e.g. a public catalog for a restricted query), the LLM
+    honestly replies "No information provided.", and synthesis MUST replace that
+    terse non-answer with the canonical, detector-recognized refusal — never
+    leak the bare non-answer through to the API caller / QA scorer.
+    """
+    from securgraph.corpus.qa import _detect_refusal
+
+    qdrant, graph = _build_mocks()
+    evidence = RetrievalEvidence(
+        evidence_id="ev-public",
+        trace_id="tr1",
+        tenant_id="t1",
+        evidence_type="chunk",
+        object_id="chunk-public",
+        retriever_id=RetrieverId.VECTOR,
+        retrieval_strategy="dense",
+        original_rank=0,
+        original_score=0.9,
+        policy_check_id="unverified",
+        text="Public station catalog: coordinates and frequencies only.",
+    )
+    decision = PolicyDecision(
+        decision_id="dec-public",
+        trace_id="tr1",
+        tenant_id="t1",
+        user_id="user:alice",
+        object_type=PolicyObjectType.CHUNK,
+        object_id=evidence.object_id,
+        decision=PolicyDecisionValue.ALLOW,
+        reason_code="openfga_ok",
+    )
+    qdrant.search_dense.return_value = [evidence]
+    graph.fga.filter_chunk_ids = AsyncMock(
+        return_value=({evidence.object_id}, [decision])
+    )
+
+    class FakeSessionContext:
+        async def __aenter__(self) -> MagicMock:
+            session = MagicMock()
+            session.commit = AsyncMock()
+            return session
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.AsyncSessionLocal",
+        lambda: FakeSessionContext(),
+    )
+    monkeypatch.setattr(
+        "securgraph.indexing.postgres_writer.write_policy_decisions", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("No information provided."),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("No information provided."),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.build_authorized_citations",
+        AsyncMock(return_value=()),
+    )
+
+    result = await compile_workflow(qdrant, graph).ainvoke(_empty_state("vector"))
+
+    answer = result["final_answer"]
+    assert answer is not None
+    assert _detect_refusal(answer.text), (
+        f"synthesis must emit a detectable refusal, got {answer.text!r}"
+    )
+    assert "No information provided" not in answer.text
+    assert any("canonical refusal" in w for w in (result.get("warnings") or []))
+
+
+@pytest.mark.asyncio
 async def test_vector_deny_audit_keeps_the_original_retriever_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

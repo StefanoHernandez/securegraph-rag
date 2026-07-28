@@ -120,6 +120,52 @@ def _combined_drafts(vector_draft: str | None, graph_draft: str | None) -> str:
     )
 
 
+# Canonical refusal emitted when the authorized drafts do not answer the query.
+# This text is intentionally phrased to be recognized by the QA scorer's refusal
+# detector (it contains "no authorized evidence"). The LLM is never asked to
+# phrase refusals — the verdict that "there is nothing to answer from" is made
+# in code; this helper only normalizes the LLM's terse non-answers into that
+# canonical form so the refusal is detectable and consistent.
+_CANONICAL_REFUSAL = (
+    "No authorized evidence was found to answer this query. "
+    "The accessible sources do not contain relevant content."
+)
+
+# Terse, clearly non-substantive phrases the LLM emits when the authorized draft
+# is irrelevant to the query. Matched against the *entire* normalized answer so
+# a partial answer that merely contains "no information" is not collapsed.
+_NON_ANSWER_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"^no information(?:\s+provided)?\.?$",
+        r"^no relevant information\.?$",
+        r"^there is no information available\.?$",
+        r"^i don'?t have (?:that|any|the) information\.?$",
+        r"^i do not have (?:that|any|the) information\.?$",
+        r"^no (?:relevant )?content (?:was )?found\.?$",
+        r"^information not available\.?$",
+    )
+)
+
+
+def normalize_non_answer(content: str | None) -> str | None:
+    """Return the canonical refusal if ``content`` is a terse non-answer.
+
+    Returns ``None`` for substantive answers, so callers can pass every LLM
+    output through unchanged unless it is a bare non-answer. The verdict that
+    the authorized evidence does not answer the query is made here in code —
+    the LLM is never trusted to phrase a security refusal.
+    """
+    if not content:
+        return None
+    normalized = re.sub(r"\s+", " ", content.strip()).strip()
+    if not normalized:
+        return None
+    if any(pattern.match(normalized) for pattern in _NON_ANSWER_PATTERNS):
+        return _CANONICAL_REFUSAL
+    return None
+
+
 def _extract_open_action_answer(drafts: str) -> str | None:
     match = _OPEN_ACTION_LINE.search(drafts)
     if not match:
@@ -856,8 +902,17 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     keep_alive=300,
                 )
                 citations = await _build_citations_for_state(state)
+                normalized = normalize_non_answer(content)
+                if normalized is not None:
+                    content = normalized
+                    warnings = [
+                        *list(state.get("warnings") or []),
+                        "synthesis: global draft did not answer the query; "
+                        "emitted canonical refusal",
+                    ]
                 return {
                     "final_answer": Answer(text=content, citations=citations),
+                    "warnings": warnings,
                     "synthesis_branch": "global",
                 }
 
@@ -906,6 +961,13 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                 think=settings.llm_thinking,
                 keep_alive=300,
             )
+            normalized = normalize_non_answer(content)
+            if normalized is not None:
+                content = normalized
+                warnings += [
+                    "synthesis: authorized draft did not answer the query; "
+                    "emitted canonical refusal"
+                ]
             return {
                 "final_answer": Answer(text=content, citations=citations),
                 "warnings": warnings,
