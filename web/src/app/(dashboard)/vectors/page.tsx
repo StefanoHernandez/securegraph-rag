@@ -333,6 +333,51 @@ export default function VectorsPage() {
               />
             )}
           </Panel>
+
+          {points.length > 0 && (
+            <Panel className="p-0 overflow-hidden">
+              <div className="px-4 py-3 border-b border-hairline">
+                <p className="mono-meta">{t("pointsTable")}</p>
+              </div>
+              <div className="max-h-56 overflow-auto custom-scrollbar">
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-vault-raised border-b border-hairline">
+                    <tr className="mono-meta">
+                      <th scope="col" className="px-4 py-2 font-normal">{t("chunkId")}</th>
+                      <th scope="col" className="px-4 py-2 font-normal">{t("documentId")}</th>
+                      <th scope="col" className="px-4 py-2 font-normal">{t("classification")}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-hairline">
+                    {points.map((point) => {
+                      const selectedRow = selected?.id === point.id;
+                      return (
+                        <tr key={point.id}>
+                          <td className="px-4 py-2" colSpan={3}>
+                            <button
+                              type="button"
+                              className={`w-full grid grid-cols-3 gap-2 text-left font-mono py-1 px-1 -mx-1 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-amber ${
+                                selectedRow
+                                  ? "bg-[rgba(232,178,58,0.12)] text-bone"
+                                  : "text-bone-dim hover:text-bone hover:bg-[rgba(232,230,223,0.04)]"
+                              }`}
+                              aria-pressed={selectedRow}
+                              aria-label={t("selectRow", { chunkId: point.chunk_id })}
+                              onClick={() => setSelected(point)}
+                            >
+                              <span className="truncate">{point.chunk_id}</span>
+                              <span className="truncate">{point.document_id}</span>
+                              <span className="truncate">{point.classification}</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          )}
         </div>
 
         <div className="space-y-4">

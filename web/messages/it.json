@@ -576,7 +576,10 @@
     "view3d": "3D",
     "dims2d": "proiezione 2D",
     "dims3d": "proiezione 3D",
-    "reducedMotion2d": "riduzione movimento · solo 2D"
+    "reducedMotion2d": "riduzione movimento · solo 2D",
+    "pointsTable": "tabella punti",
+    "documentId": "document id",
+    "selectRow": "Seleziona punto {chunkId}"
   },
   "explainPage": {
     "eyebrow": "section 03 · provenienza",
