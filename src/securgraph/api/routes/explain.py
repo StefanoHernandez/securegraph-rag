@@ -67,11 +67,14 @@ def _authorization_status(
     allowed_count: int,
     denied_count: int,
     evidence_rows: list[RetrievalEvidenceRow],
-    object_decisions: dict[str, str],
+    evidence_decisions: dict[str, PolicyDecisionRow | None],
 ) -> AuthorizationStatus:
     """Derive authorized | denied | mixed from policy counts and evidence mix."""
     allowed_evidence = sum(
-        1 for ev in evidence_rows if object_decisions.get(ev.object_id) == "allow"
+        1
+        for ev in evidence_rows
+        if (decision := evidence_decisions.get(ev.evidence_id)) is not None
+        and decision.decision.lower() == "allow"
     )
     denied_evidence = len(evidence_rows) - allowed_evidence
 
@@ -84,6 +87,35 @@ def _authorization_status(
     if denied_evidence > 0 and allowed_evidence == 0:
         return "denied"
     return "authorized"
+
+
+def _linked_policy_decision(
+    evidence: RetrievalEvidenceRow,
+    decisions_by_id: dict[str, PolicyDecisionRow],
+) -> PolicyDecisionRow | None:
+    if not evidence.policy_check_id:
+        return None
+    decision = decisions_by_id.get(evidence.policy_check_id)
+    if decision is None:
+        return None
+    expected_object_type = {
+        "vector": "chunk",
+        "lexical": "chunk",
+        "graph": "graph_path",
+        "community": "community",
+    }.get(evidence.retriever_id)
+    if expected_object_type is None:
+        return None
+    if (
+        decision.trace_id != evidence.trace_id
+        or decision.tenant_id != evidence.tenant_id
+        or decision.object_id != evidence.object_id
+        or decision.object_type != expected_object_type
+        or decision.action.lower() != "read"
+        or decision.retriever_id != evidence.retriever_id
+    ):
+        return None
+    return decision
 
 
 async def _integrity_status(
@@ -109,7 +141,20 @@ async def _integrity_status(
         for row in associated_rows
     ):
         return "failed"
-
+    decisions_by_id = {decision.decision_id: decision for decision in decision_rows}
+    linked_decisions = [
+        _linked_policy_decision(evidence, decisions_by_id)
+        for evidence in evidence_rows
+    ]
+    if any(decision is None for decision in linked_decisions):
+        return "failed"
+    if any(
+        evidence.included_in_prompt
+        and decision is not None
+        and decision.decision.lower() != "allow"
+        for evidence, decision in zip(evidence_rows, linked_decisions, strict=True)
+    ):
+        return "failed"
     trace_ok, trace_tampered = await verify_table_chain(session, tenant_id, QueryTraceRow)
     evidence_ok, evidence_tampered = await verify_table_chain(
         session, tenant_id, RetrievalEvidenceRow
@@ -203,8 +248,11 @@ async def explain_query(
         elif d.decision.lower() == "deny":
             denied_count += 1
 
-    # Map decisions by object_id to easily check permission statuses
-    object_decisions = {d.object_id: d.decision.lower() for d in decision_rows}
+    decisions_by_id = {decision.decision_id: decision for decision in decision_rows}
+    evidence_decisions = {
+        evidence.evidence_id: _linked_policy_decision(evidence, decisions_by_id)
+        for evidence in evidence_rows
+    }
 
     # 3. Secure output: real snippets for allowed evidence, redaction for the
     # rest. Chunk-backed evidence (vector/lexical) is resolved from Postgres;
@@ -215,7 +263,8 @@ async def explain_query(
         ev.object_id
         for ev in evidence_rows
         if ev.retriever_id not in ("graph", "community")
-        and object_decisions.get(ev.object_id) == "allow"
+        and (decision := evidence_decisions.get(ev.evidence_id)) is not None
+        and decision.decision.lower() == "allow"
     ]
     chunk_texts: dict[str, str] = {}
     if chunk_ids:
@@ -241,13 +290,15 @@ async def explain_query(
 
     evidence_list: list[dict[str, Any]] = []
     for ev in evidence_rows:
-        is_allowed = object_decisions.get(ev.object_id) == "allow"
+        decision = evidence_decisions.get(ev.evidence_id)
+        is_allowed = decision is not None and decision.decision.lower() == "allow"
 
         evidence_list.append(
             {
                 "evidence_id": ev.evidence_id,
                 "retriever_id": ev.retriever_id,
                 "object_id": ev.object_id,
+                "policy_check_id": ev.policy_check_id,
                 "original_rank": ev.original_rank,
                 "original_score": ev.original_score,
                 "included_in_prompt": ev.included_in_prompt,
@@ -303,7 +354,8 @@ async def explain_query(
         )
 
     for ev in evidence_rows:
-        is_allowed = object_decisions.get(ev.object_id) == "allow"
+        decision = evidence_decisions.get(ev.evidence_id)
+        is_allowed = decision is not None and decision.decision.lower() == "allow"
         prov_entities.append(
             {
                 "id": f"entity:evidence:{ev.object_id}",
@@ -334,7 +386,7 @@ async def explain_query(
         allowed_count=allowed_count,
         denied_count=denied_count,
         evidence_rows=evidence_rows,
-        object_decisions=object_decisions,
+        evidence_decisions=evidence_decisions,
     )
     integrity_status = await _integrity_status(
         session,

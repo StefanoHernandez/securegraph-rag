@@ -219,22 +219,21 @@ class AuthorizedGraphRetriever:
             # above are recorded separately, but evidence rows reference the
             # path_id — without this record the explain view cannot match a
             # decision to the evidence and must treat it as denied).
-            path_decisions.append(
-                PolicyDecision(
-                    decision_id=f"dec_{path.path_id}_{utcnow().timestamp()}",
-                    trace_id=trace_id,
-                    tenant_id=subject.tenant_id,
-                    user_id=subject.user_id,
-                    object_type=PolicyObjectType.GRAPH_PATH,
-                    object_id=path.path_id,
-                    decision=(
-                        PolicyDecisionValue.ALLOW if path_valid else PolicyDecisionValue.DENY
-                    ),
-                    reason_code=reason_code,
-                    retriever_id="graph",
-                    resource_hash=path_hash,
-                )
+            path_decision = PolicyDecision(
+                decision_id=f"dec_{path.path_id}_{utcnow().timestamp()}",
+                trace_id=trace_id,
+                tenant_id=subject.tenant_id,
+                user_id=subject.user_id,
+                object_type=PolicyObjectType.GRAPH_PATH,
+                object_id=path.path_id,
+                decision=(
+                    PolicyDecisionValue.ALLOW if path_valid else PolicyDecisionValue.DENY
+                ),
+                reason_code=reason_code,
+                retriever_id="graph",
+                resource_hash=path_hash,
             )
+            path_decisions.append(path_decision)
 
             if path_valid:
                 # Reconstruct descriptive text context from the authorized chunk texts
@@ -246,7 +245,14 @@ class AuthorizedGraphRetriever:
                                 path_chunk_texts.append(c.text)
                                 break
                 path_text = " ".join(path_chunk_texts)
-                authorized_paths.append(path.model_copy(update={"text": path_text}))
+                authorized_paths.append(
+                    path.model_copy(
+                        update={
+                            "text": path_text,
+                            "policy_check_id": path_decision.decision_id,
+                        }
+                    )
+                )
 
         await write_policy_decisions(session, path_decisions)
 

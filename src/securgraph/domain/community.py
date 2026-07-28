@@ -36,3 +36,4 @@ class CommunitySummaryResponse(SGModel):
     level: int
     member_entities: list[str]
     policy_class_key: str = "unlabeled"
+    policy_check_id: str | None = Field(default=None, min_length=1, max_length=128)

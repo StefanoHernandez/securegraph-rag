@@ -224,7 +224,16 @@ async def test_vector_policy_audit_failure_aborts_query(
         policy_check_id="pending",
     )
     qdrant.search_dense.return_value = [evidence]
-    graph.fga.filter_chunk_ids = AsyncMock(return_value=({"chunk-1"}, [MagicMock()]))
+    decision = PolicyDecision(
+        decision_id="dec-audit-failure",
+        trace_id="tr1",
+        tenant_id="t1",
+        user_id="user:alice",
+        object_type=PolicyObjectType.CHUNK,
+        object_id="chunk-1",
+        decision=PolicyDecisionValue.ALLOW,
+    )
+    graph.fga.filter_chunk_ids = AsyncMock(return_value=({"chunk-1"}, [decision]))
     write_decisions = AsyncMock(side_effect=RuntimeError("audit unavailable"))
     monkeypatch.setattr(
         "securgraph.indexing.postgres_writer.write_policy_decisions", write_decisions
@@ -277,6 +286,78 @@ async def test_vector_retrieval_fails_closed_without_policy_adapter(
 
     with pytest.raises(RuntimeError, match="OpenFGA policy adapter"):
         await workflow.ainvoke(_empty_state("vector"))
+
+
+@pytest.mark.asyncio
+async def test_vector_allow_binds_evidence_to_exact_policy_decision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    qdrant, graph = _build_mocks()
+    evidence = RetrievalEvidence(
+        evidence_id="ev-authorized",
+        trace_id="tr1",
+        tenant_id="t1",
+        evidence_type="chunk",
+        object_id="chunk-authorized",
+        retriever_id=RetrieverId.VECTOR,
+        retrieval_strategy="dense",
+        original_rank=0,
+        original_score=0.9,
+        policy_check_id="unverified",
+        text="Authorized source text.",
+    )
+    decision = PolicyDecision(
+        decision_id="dec-authorized",
+        trace_id="tr1",
+        tenant_id="t1",
+        user_id="user:alice",
+        object_type=PolicyObjectType.CHUNK,
+        object_id=evidence.object_id,
+        decision=PolicyDecisionValue.ALLOW,
+        reason_code="openfga_ok",
+    )
+    qdrant.search_dense.return_value = [evidence]
+    graph.fga.filter_chunk_ids = AsyncMock(
+        return_value=({evidence.object_id}, [decision])
+    )
+
+    class FakeSessionContext:
+        async def __aenter__(self) -> MagicMock:
+            session = MagicMock()
+            session.commit = AsyncMock()
+            return session
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    write_decisions = AsyncMock()
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.AsyncSessionLocal",
+        lambda: FakeSessionContext(),
+    )
+    monkeypatch.setattr(
+        "securgraph.indexing.postgres_writer.write_policy_decisions",
+        write_decisions,
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("authorized answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("authorized answer"),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.build_authorized_citations",
+        AsyncMock(return_value=()),
+    )
+
+    result = await compile_workflow(qdrant, graph).ainvoke(_empty_state("vector"))
+
+    bound_evidence = result["vector_context"][0]
+    assert bound_evidence.policy_check_id == decision.decision_id
+    persisted = write_decisions.await_args.args[1]
+    assert persisted[0].retriever_id == RetrieverId.VECTOR.value
 
 
 @pytest.mark.asyncio
@@ -360,7 +441,16 @@ async def test_synthesis_attaches_deterministic_citations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     qdrant, graph = _build_mocks()
-    graph.fga.filter_chunk_ids = AsyncMock(return_value=({"chunk-1"}, []))
+    decision = PolicyDecision(
+        decision_id="dec-1",
+        trace_id="tr1",
+        tenant_id="t1",
+        user_id="user:alice",
+        object_type=PolicyObjectType.CHUNK,
+        object_id="chunk-1",
+        decision=PolicyDecisionValue.ALLOW,
+    )
+    graph.fga.filter_chunk_ids = AsyncMock(return_value=({"chunk-1"}, [decision]))
     evidence = RetrievalEvidence(
         evidence_id="ev-source",
         trace_id="tr1",
@@ -420,6 +510,10 @@ async def test_synthesis_attaches_deterministic_citations(
     monkeypatch.setattr(
         "securgraph.orchestration.workflow.build_authorized_citations",
         fake_build_citations,
+    )
+    monkeypatch.setattr(
+        "securgraph.indexing.postgres_writer.write_policy_decisions",
+        AsyncMock(),
     )
 
     workflow = compile_workflow(qdrant, graph)

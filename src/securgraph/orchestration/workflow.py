@@ -464,12 +464,30 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     chunk_ids=chunk_ids,
                     trace_id=trace,
                 )
-                filtered = [ev for ev in fused if ev.object_id in authorized_ids]
+                from securgraph.domain.policy import PolicyDecisionValue
+
+                decision_by_object = {decision.object_id: decision for decision in decisions}
+                missing_decisions = authorized_ids - decision_by_object.keys()
+                if missing_decisions:
+                    raise RuntimeError(
+                        "OpenFGA returned authorized chunks without auditable decisions: "
+                        + ", ".join(sorted(missing_decisions))
+                    )
+                filtered = [
+                    ev.model_copy(
+                        update={
+                            "policy_check_id": decision_by_object[ev.object_id].decision_id,
+                        }
+                    )
+                    for ev in fused
+                    if ev.object_id in authorized_ids
+                    and decision_by_object[ev.object_id].decision
+                    == PolicyDecisionValue.ALLOW
+                ]
                 denied_count = len(fused) - len(filtered)
                 fused = filtered
 
                 if decisions:
-                    from securgraph.domain.policy import PolicyDecisionValue
                     from securgraph.indexing.postgres_writer import (
                         fetch_chunk_text_hashes,
                         write_policy_decisions,
@@ -495,11 +513,13 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                         decision.model_copy(
                             update={
                                 "retriever_id": ev_map.get(decision.object_id, "vector"),
-                                "resource_hash": hash_map.get(decision.object_id),
+                                "resource_hash": (
+                                    hash_map.get(decision.object_id)
+                                    if decision.decision == PolicyDecisionValue.DENY
+                                    else decision.resource_hash
+                                ),
                             }
                         )
-                        if decision.decision == PolicyDecisionValue.DENY
-                        else decision
                         for decision in decisions
                     ]
 

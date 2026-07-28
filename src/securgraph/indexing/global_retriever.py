@@ -131,6 +131,21 @@ class AuthorizedCommunityRetriever:
             tuple[list[Community], list[PolicyDecision]], filtered
         )
         decisions.extend(direct_decisions)
+        direct_decision_by_id = {
+            decision.object_id: decision
+            for decision in direct_decisions
+            if decision.decision == PolicyDecisionValue.ALLOW
+        }
+        missing_decisions = {
+            community.community_id
+            for community in authorized_comms
+            if community.community_id not in direct_decision_by_id
+        }
+        if missing_decisions:
+            raise RuntimeError(
+                "Authorized communities are missing auditable decisions: "
+                + ", ".join(sorted(missing_decisions))
+            )
 
         summaries = [
             CommunitySummaryResponse(
@@ -140,6 +155,7 @@ class AuthorizedCommunityRetriever:
                 level=c.level,
                 member_entities=list(c.member_entities),
                 policy_class_key=c.policy_class_key,
+                policy_check_id=direct_decision_by_id[c.community_id].decision_id,
             )
             for c in authorized_comms
         ]

@@ -59,6 +59,7 @@ class GraphPath(SGModel):
     text: str | None = Field(
         default=None, description="Descriptive text reconstructed from source chunks."
     )
+    policy_check_id: str | None = Field(default=None, min_length=1, max_length=128)
 
     @model_validator(mode="after")
     def _validate_lengths(self) -> GraphPath:

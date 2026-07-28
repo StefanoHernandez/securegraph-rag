@@ -292,6 +292,12 @@ class RetrievalEvidenceRow(Base):
     )
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
     object_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    policy_check_id: Mapped[str | None] = mapped_column(
+        String(128),
+        ForeignKey("policy_decisions.decision_id"),
+        nullable=True,
+        index=True,
+    )
     retriever_id: Mapped[str] = mapped_column(
         String(64), nullable=False
     )  # "vector", "lexical", "graph"

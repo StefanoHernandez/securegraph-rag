@@ -94,6 +94,15 @@ def _graph_context_id(item: Any, attr: str) -> str | None:
     return str(value) if value else None
 
 
+def _required_policy_check_id(item: Any, object_id: str) -> str:
+    value = getattr(item, "policy_check_id", None)
+    if not value or str(value).lower() in {"pending", "unverified"}:
+        raise RuntimeError(
+            f"Authorized evidence {object_id} is missing an auditable policy decision."
+        )
+    return str(value)
+
+
 def _evidence_content_hash(value: Any) -> str:
     """Return a stable digest without persisting the retrieved source text."""
     if hasattr(value, "model_dump"):
@@ -354,6 +363,7 @@ async def query_pipeline(
                         trace_id=trace_id,
                         tenant_id=ev.tenant_id,
                         object_id=ev.object_id,
+                        policy_check_id=_required_policy_check_id(ev, ev.object_id),
                         retriever_id=ev.retriever_id.value,
                         original_rank=ev.original_rank,
                         original_score=ev.original_score,
@@ -374,6 +384,7 @@ async def query_pipeline(
                         trace_id=trace_id,
                         tenant_id=request.tenant_id,
                         object_id=path_id,
+                        policy_check_id=_required_policy_check_id(path, path_id),
                         retriever_id="graph",
                         original_rank=rank,
                         original_score=path_confidence,
@@ -393,6 +404,7 @@ async def query_pipeline(
                         trace_id=trace_id,
                         tenant_id=request.tenant_id,
                         object_id=community_id,
+                        policy_check_id=_required_policy_check_id(summary, community_id),
                         retriever_id="community",
                         original_rank=rank,
                         original_score=0.0,

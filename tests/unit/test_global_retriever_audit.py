@@ -65,6 +65,7 @@ async def test_community_retriever_returns_auditable_denied_candidates() -> None
     by_id = {decision.object_id: decision for decision in result.decisions}
     assert by_id["comm-allowed"].decision is PolicyDecisionValue.ALLOW
     assert by_id["comm-allowed"].retriever_id == "community"
+    assert result.communities[0].policy_check_id == by_id["comm-allowed"].decision_id
     assert by_id["comm-denied"].decision is PolicyDecisionValue.DENY
     assert by_id["comm-denied"].reason_code == "community_policy_class_denied"
     assert by_id["comm-denied"].resource_hash.startswith("sha256:")

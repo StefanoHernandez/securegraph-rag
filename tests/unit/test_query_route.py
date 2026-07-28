@@ -97,6 +97,7 @@ def mock_graph_paths() -> list[GraphPath]:
             edges=("EdgeA_B",),
             source_chunk_ids=("chunk_1",),
             confidence=0.95,
+            policy_check_id="pol_graph_1",
         )
     ]
 
@@ -363,6 +364,7 @@ async def test_query_global_mode_reports_community_channel_and_evidence(
         level=0,
         member_entities=["Private Architecture"],
         policy_class_key="restricted-class",
+        policy_check_id="pol_community_1",
     )
     workflow = AsyncMock()
     workflow.ainvoke.return_value = {
@@ -397,7 +399,53 @@ async def test_query_global_mode_reports_community_channel_and_evidence(
     community_rows = [row for row in evidence_rows if row.object_id == "comm_policy_restricted"]
     assert len(community_rows) == 1
     assert community_rows[0].retriever_id == "community"
+    assert community_rows[0].policy_check_id == "pol_community_1"
     assert community_rows[0].evidence_id.startswith("ev_community_comm_policy_restricted_")
+
+
+async def test_query_persists_exact_policy_decision_for_each_evidence(
+    fastapi_app,
+    client: AsyncClient,
+    mock_retrieval_evidence: list[RetrievalEvidence],
+    mock_graph_paths: list[GraphPath],
+) -> None:
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.add_all = MagicMock()
+
+    async def override_db_session() -> AsyncIterator[AsyncMock]:
+        yield session
+
+    fastapi_app.dependency_overrides[get_db_session] = override_db_session
+    workflow = AsyncMock()
+    workflow.ainvoke.return_value = {
+        "vector_context": [mock_retrieval_evidence[0]],
+        "vector_draft": "Vector answer",
+        "graph_context": mock_graph_paths,
+        "graph_draft": "Graph answer",
+        "consensus_report": None,
+        "final_answer": Answer(text="Authorized answer", citations=()),
+        "warnings": [],
+    }
+
+    with patch("securgraph.api.routes.query.compile_workflow", return_value=workflow):
+        response = await client.post(
+            "/query",
+            json={
+                "tenant_id": "mrd",
+                "user_id": "user:analyst",
+                "query": "Explain the authorized evidence",
+                "options": {"retrieval_mode": "hybrid"},
+            },
+        )
+
+    assert response.status_code == 200
+    evidence_rows = session.add_all.call_args.args[0]
+    links = {row.retriever_id: row.policy_check_id for row in evidence_rows}
+    assert links == {
+        "vector": "pol_1",
+        "graph": "pol_graph_1",
+    }
 
 
 async def test_failed_query_persists_audit_trace(fastapi_app, client: AsyncClient) -> None:

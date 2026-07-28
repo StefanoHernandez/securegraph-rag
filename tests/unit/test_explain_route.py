@@ -97,6 +97,58 @@ async def test_v2_trace_with_legacy_associated_row_fails_integrity() -> None:
     assert result == "failed"
 
 
+@pytest.mark.asyncio
+async def test_v2_evidence_linked_to_mismatched_decision_fails_integrity() -> None:
+    trace = QueryTraceRow(
+        trace_id="trace-v2-link-mismatch",
+        tenant_id="mrd",
+        user_id="user:alice",
+        query="test",
+        tamper_version="v2",
+        tamper_hash="trace-hash",
+    )
+    evidence = RetrievalEvidenceRow(
+        evidence_id="ev-mismatch",
+        trace_id=trace.trace_id,
+        tenant_id=trace.tenant_id,
+        object_id="chunk-1",
+        policy_check_id="dec-mismatch",
+        retriever_id="vector",
+        original_rank=0,
+        original_score=1.0,
+        included_in_prompt=True,
+        tamper_version="v2",
+        tamper_hash="evidence-hash",
+    )
+    decision = PolicyDecisionRow(
+        decision_id="dec-mismatch",
+        trace_id=trace.trace_id,
+        tenant_id=trace.tenant_id,
+        user_id=trace.user_id,
+        object_type="chunk",
+        object_id="chunk-2",
+        action="read",
+        decision="allow",
+        retriever_id="vector",
+        tamper_version="v2",
+        tamper_hash="decision-hash",
+    )
+
+    with patch(
+        "securgraph.api.routes.explain.verify_table_chain",
+        new=AsyncMock(return_value=(True, [])),
+    ):
+        result = await _integrity_status(
+            AsyncMock(),
+            tenant_id=trace.tenant_id,
+            trace=trace,
+            evidence_rows=[evidence],
+            decision_rows=[decision],
+        )
+
+    assert result == "failed"
+
+
 @pytest.fixture
 def mock_query_trace() -> QueryTraceRow:
     """Provide a mock QueryTraceRow."""
@@ -121,6 +173,7 @@ def mock_retrieval_evidence() -> list[RetrievalEvidenceRow]:
             trace_id="test-trace-123",
             tenant_id="mrd",
             object_id="chunk_allow_1",
+            policy_check_id="dec_1",
             retriever_id="vector",
             original_rank=0,
             original_score=0.92,
@@ -131,6 +184,7 @@ def mock_retrieval_evidence() -> list[RetrievalEvidenceRow]:
             trace_id="test-trace-123",
             tenant_id="mrd",
             object_id="chunk_deny_2",
+            policy_check_id="dec_2",
             retriever_id="vector",
             original_rank=1,
             original_score=0.85,
@@ -150,7 +204,9 @@ def mock_policy_decisions() -> list[PolicyDecisionRow]:
             user_id="user:stefano",
             object_type="chunk",
             object_id="chunk_allow_1",
+            action="read",
             decision="allow",
+            retriever_id="vector",
             evaluated_at=datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC),
         ),
         PolicyDecisionRow(
@@ -160,7 +216,9 @@ def mock_policy_decisions() -> list[PolicyDecisionRow]:
             user_id="user:stefano",
             object_type="chunk",
             object_id="chunk_deny_2",
+            action="read",
             decision="deny",
+            retriever_id="vector",
             evaluated_at=datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC),
         ),
     ]
@@ -287,6 +345,108 @@ async def test_explain_route_reports_intact_v2_integrity(
     assert resp.status_code == 200
     assert resp.json()["integrity_status"] == "intact"
     assert resp.json()["authorization_status"] == "mixed"
+
+
+async def test_explain_uses_exact_policy_link_for_conflicting_object_decisions(
+    fastapi_app: FastAPI,
+    client: AsyncClient,
+    mock_query_trace: QueryTraceRow,
+) -> None:
+    evidence_rows = [
+        RetrievalEvidenceRow(
+            evidence_id="ev-denied",
+            trace_id=mock_query_trace.trace_id,
+            tenant_id="mrd",
+            object_id="chunk-shared",
+            policy_check_id="dec-deny",
+            retriever_id="vector",
+            original_rank=0,
+            original_score=0.9,
+            included_in_prompt=False,
+        ),
+        RetrievalEvidenceRow(
+            evidence_id="ev-allowed",
+            trace_id=mock_query_trace.trace_id,
+            tenant_id="mrd",
+            object_id="chunk-shared",
+            policy_check_id="dec-allow",
+            retriever_id="vector",
+            original_rank=1,
+            original_score=0.8,
+            included_in_prompt=True,
+        ),
+        RetrievalEvidenceRow(
+            evidence_id="ev-unlinked",
+            trace_id=mock_query_trace.trace_id,
+            tenant_id="mrd",
+            object_id="chunk-shared",
+            policy_check_id=None,
+            retriever_id="vector",
+            original_rank=2,
+            original_score=0.7,
+            included_in_prompt=False,
+        ),
+    ]
+    decision_rows = [
+        PolicyDecisionRow(
+            decision_id="dec-deny",
+            trace_id=mock_query_trace.trace_id,
+            tenant_id="mrd",
+            user_id="user:stefano",
+            object_type="chunk",
+            object_id="chunk-shared",
+            action="read",
+            decision="deny",
+            retriever_id="vector",
+        ),
+        PolicyDecisionRow(
+            decision_id="dec-allow",
+            trace_id=mock_query_trace.trace_id,
+            tenant_id="mrd",
+            user_id="user:stefano",
+            object_type="chunk",
+            object_id="chunk-shared",
+            action="read",
+            decision="allow",
+            retriever_id="vector",
+        ),
+    ]
+    mock_session = AsyncMock()
+    mock_session.get.return_value = mock_query_trace
+    evidence_result = MagicMock()
+    evidence_result.scalars.return_value.all.return_value = evidence_rows
+    decision_result = MagicMock()
+    decision_result.scalars.return_value.all.return_value = decision_rows
+    mock_session.execute.side_effect = [evidence_result, decision_result]
+
+    async def mock_db_session() -> AsyncIterator[AsyncMock]:
+        yield mock_session
+
+    fastapi_app.dependency_overrides[get_db_session] = mock_db_session
+    chunk = Chunk(
+        chunk_id="chunk-shared",
+        document_id="doc-shared",
+        tenant_id="mrd",
+        text="Allowed shared source.",
+        classification=Classification.INTERNAL,
+        policy_tags=(),
+        token_count=4,
+        ordinal=0,
+        text_hash="hash-shared",
+    )
+    with patch(
+        "securgraph.api.routes.explain.fetch_chunks_by_ids",
+        new=AsyncMock(return_value=[chunk]),
+    ):
+        response = await client.get(
+            f"/explain/{mock_query_trace.trace_id}?tenant_id=mrd"
+        )
+
+    assert response.status_code == 200
+    by_id = {item["evidence_id"]: item for item in response.json()["evidence"]}
+    assert by_id["ev-allowed"]["status"] == "allowed"
+    assert by_id["ev-denied"]["status"] == "redacted"
+    assert by_id["ev-unlinked"]["status"] == "redacted"
 
 
 async def test_explain_route_not_found(

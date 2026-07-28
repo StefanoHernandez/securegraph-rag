@@ -160,6 +160,7 @@ def test_audit_v2_columns_are_mapped() -> None:
     assert "tamper_version" in QueryTraceRow.__table__.c
     assert "tamper_version" in RetrievalEvidenceRow.__table__.c
     assert "tamper_version" in PolicyDecisionRow.__table__.c
+    assert "policy_check_id" in RetrievalEvidenceRow.__table__.c
     assert {
         "consensus_threshold",
         "consensus_verdict",

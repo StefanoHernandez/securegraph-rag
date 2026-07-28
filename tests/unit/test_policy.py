@@ -331,6 +331,10 @@ async def test_authorized_graph_retriever_path_cut() -> None:
         assert len(by_outcome) == 3
         kept_path_id = authorized_paths[0].path_id
         assert by_outcome[kept_path_id] == PolicyDecisionValue.ALLOW
+        kept_decision = next(
+            decision for decision in path_decisions if decision.object_id == kept_path_id
+        )
+        assert authorized_paths[0].policy_check_id == kept_decision.decision_id
         # The cut path (Seed -> C -> D) must be recorded as denied.
         assert PolicyDecisionValue.DENY in by_outcome.values()
         missing_provenance = next(
