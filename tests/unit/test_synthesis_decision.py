@@ -152,8 +152,14 @@ def test_non_substantive_answer_normalized_to_canonical_refusal() -> None:
         "No information provided.",
         "No information.",
         "No relevant information.",
+        "No information available.",
+        "No relevant information available.",
+        "Information not available.",
+        "No data available.",
         "I don't have that information.",
+        "I do not have that information.",
         "There is no information available.",
+        "No relevant content was found.",
     ):
         normalized = normalize_non_answer(raw)
         assert normalized is not None, f"expected refusal for {raw!r}"

@@ -138,12 +138,14 @@ _NON_ANSWER_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
         r"^no information(?:\s+provided)?\.?$",
-        r"^no relevant information\.?$",
+        r"^no information available\.?$",
+        r"^no relevant information(?:\s+available)?\.?$",
         r"^there is no information available\.?$",
+        r"^information (?:is )?not available\.?$",
+        r"^no data available\.?$",
         r"^i don'?t have (?:that|any|the) information\.?$",
         r"^i do not have (?:that|any|the) information\.?$",
         r"^no (?:relevant )?content (?:was )?found\.?$",
-        r"^information not available\.?$",
     )
 )
 
