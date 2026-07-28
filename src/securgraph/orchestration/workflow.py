@@ -139,6 +139,7 @@ _NON_ANSWER_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     for pattern in (
         r"^no information(?:\s+provided)?\.?$",
         r"^no information available\.?$",
+        r"^no information is available\.?$",
         r"^no relevant information(?:\s+available)?\.?$",
         r"^there is no information available\.?$",
         r"^information (?:is )?not available\.?$",
@@ -148,6 +149,19 @@ _NON_ANSWER_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"^no (?:relevant )?content (?:was )?found\.?$",
     )
 )
+
+# General fallback for the class of bare non-answers: a very short string that
+# asserts the absence of information. Negation + an information-availability
+# word, with no other substantive content. The length cap and the requirement
+# that an info word is present protect substantive answers such as
+# "No onward sharing is permitted." (negation, but no info word) from being
+# collapsed into a refusal.
+_NEGATION_TOKEN = re.compile(r"\b(no|not|none|unavailable|without)\b", re.IGNORECASE)
+_INFO_TOKEN = re.compile(
+    r"\b(information|content|data|stated|available|relevant|provided)\b",
+    re.IGNORECASE,
+)
+_NON_ANSWER_MAX_LEN = 90
 
 
 def normalize_non_answer(content: str | None) -> str | None:
@@ -164,6 +178,12 @@ def normalize_non_answer(content: str | None) -> str | None:
     if not normalized:
         return None
     if any(pattern.match(normalized) for pattern in _NON_ANSWER_PATTERNS):
+        return _CANONICAL_REFUSAL
+    if (
+        len(normalized) <= _NON_ANSWER_MAX_LEN
+        and _NEGATION_TOKEN.search(normalized)
+        and _INFO_TOKEN.search(normalized)
+    ):
         return _CANONICAL_REFUSAL
     return None
 

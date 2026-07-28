@@ -148,13 +148,17 @@ def test_non_substantive_answer_normalized_to_canonical_refusal() -> None:
     from securgraph.orchestration.workflow import normalize_non_answer
 
     # Terse non-answers the LLM emits when the authorized draft is irrelevant.
+    # Includes both exact phrasings and the general class caught by the
+    # negation+information fallback.
     for raw in (
         "No information provided.",
         "No information.",
         "No relevant information.",
         "No information available.",
+        "No information is available.",
         "No relevant information available.",
         "Information not available.",
+        "Information is not available.",
         "No data available.",
         "I don't have that information.",
         "I do not have that information.",
@@ -172,6 +176,7 @@ def test_non_substantive_answer_normalized_to_canonical_refusal() -> None:
         "The public coastal forecast is published at 06:00 UTC every day.",
         "No onward sharing or production-system access is permitted.",
         "Cape North station reports wind speed in knots.",
+        "No, the consultant is not permitted to share the package externally.",
     ):
         assert normalize_non_answer(real) is None, (
             f"substantive answer must not be normalized: {real!r}"
