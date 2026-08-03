@@ -34,6 +34,9 @@ test.describe("Profile session flows", () => {
     const loginResponse = await loginResponsePromise;
     expect(loginResponse.status()).toBe(200);
     await expect(page).toHaveURL(/\/(it|en)(\/)?$/);
+
+    // Reset the password so subsequent tests can use the seeded viewer account.
+    await changePasswordViaUI(page, newPassword, user.password);
   });
 
   test("logout clears session and blocks protected routes", async ({ page }) => {

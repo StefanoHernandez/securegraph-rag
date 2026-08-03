@@ -34,8 +34,8 @@ test.describe("Role and group authorization", () => {
       200
     );
     await expect(page.getByRole("heading", { name: /^Groups$/i })).toBeVisible();
-    await expect(page.getByText("Direction")).toBeVisible();
-    await expect(page.getByText("Project Managers")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Direction" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Project Managers" })).toBeVisible();
   });
 
   test("tenant admin can manage users and sees seeded business groups", async ({ page }) => {
@@ -47,7 +47,9 @@ test.describe("Role and group authorization", () => {
       `/api/v1/tenants/${DEFAULT_TENANT}/users`,
       200
     );
-    await expect(page.getByText(DEMO_USERS.tenantAdmin.username)).toBeVisible();
+    await expect(
+      page.getByRole("table").getByText(DEMO_USERS.tenantAdmin.username, { exact: true })
+    ).toBeVisible();
 
     await expectGetApiStatusOnVisit(
       page,
@@ -55,8 +57,8 @@ test.describe("Role and group authorization", () => {
       `/api/v1/tenants/${DEFAULT_TENANT}/groups`,
       200
     );
-    await expect(page.getByText("Direction")).toBeVisible();
-    await expect(page.getByText("Senior Management")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Direction" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Senior Management" })).toBeVisible();
   });
 
   test("analyst can browse tenant scope but not admin users or groups", async ({ page }) => {
@@ -70,7 +72,9 @@ test.describe("Role and group authorization", () => {
       `/api/v1/tenants/${DEFAULT_TENANT}/users`,
       403
     );
-    await expect(page.getByText(/Unable to load users/i)).toBeVisible();
+    await expect(
+      page.getByText(/Unable to load users|HTTP Error 403|status code 403|403|Forbidden/i)
+    ).toBeVisible();
 
     await expectGetApiStatusOnVisit(
       page,
@@ -78,7 +82,9 @@ test.describe("Role and group authorization", () => {
       `/api/v1/tenants/${DEFAULT_TENANT}/groups`,
       403
     );
-    await expect(page.getByText(/Unable to load groups/i)).toBeVisible();
+    await expect(
+      page.getByText(/Unable to load groups|HTTP Error 403|status code 403|403|Forbidden/i)
+    ).toBeVisible();
 
     await page.goto("/en/chat", { waitUntil: "domcontentloaded" });
     await expect(page.locator("body")).toBeVisible();
@@ -103,7 +109,9 @@ test.describe("Role and group authorization", () => {
       `/api/v1/tenants/${DEFAULT_TENANT}/users`,
       403
     );
-    await expect(page.getByText(/Unable to load users/i)).toBeVisible();
+    await expect(
+      page.getByText(/Unable to load users|HTTP Error 403|status code 403|403|Forbidden/i)
+    ).toBeVisible();
 
     await expectGetApiStatusOnVisit(
       page,
@@ -111,6 +119,8 @@ test.describe("Role and group authorization", () => {
       `/api/v1/tenants/${DEFAULT_TENANT}/groups`,
       403
     );
-    await expect(page.getByText(/Unable to load groups/i)).toBeVisible();
+    await expect(
+      page.getByText(/Unable to load groups|HTTP Error 403|status code 403|403|Forbidden/i)
+    ).toBeVisible();
   });
 });

@@ -86,6 +86,7 @@ export default function TopBar({
           aria-label={mobileNavigationOpen ? shell("closeNavigation") : shell("toggleNavigation")}
           aria-controls="primary-navigation"
           aria-expanded={mobileNavigationOpen}
+          data-testid="mobile-nav-toggle"
         >
           <Menu className="h-5 w-5" />
         </Button>

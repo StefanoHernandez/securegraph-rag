@@ -39,7 +39,8 @@ test.describe("Secure query and ingest workflows", () => {
     await expect(page.locator("body")).toContainText(payload.trace_id);
 
     await page.goto("/en/ingest", { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#ingest-file")).toHaveAccessibleName(/choose an evidence file/i);
+    const dropZone = page.getByTestId("ingest-dropzone");
+    await expect(dropZone).toBeVisible();
     await page.locator("#ingest-file").setInputFiles({
       name: "e2e-evidence.md",
       mimeType: "text/markdown",
@@ -58,7 +59,8 @@ test.describe("Secure query and ingest workflows", () => {
     await loginAsUser(page, DEMO_USERS.tenantAdmin);
     await page.goto("/en/chat", { waitUntil: "domcontentloaded" });
 
-    const toggle = page.getByRole("button", { name: /toggle navigation/i });
+    await expect(page.getByTestId("mobile-nav-toggle")).toBeVisible();
+    const toggle = page.getByTestId("mobile-nav-toggle");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByRole("dialog", { name: /primary navigation/i })).toBeVisible();

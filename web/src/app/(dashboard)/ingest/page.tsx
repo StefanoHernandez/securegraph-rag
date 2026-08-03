@@ -347,6 +347,7 @@ export default function IngestPage() {
           <Panel label={t("panel")}>
             <form onSubmit={handleIngest} className="px-5 py-5 space-y-6">
               <div
+                data-testid="ingest-dropzone"
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
                 onDragLeave={handleDrag}
@@ -374,7 +375,7 @@ export default function IngestPage() {
                   aria-label={t("fileInput")}
                   onChange={handleFileChange}
                   accept=".txt,.md,.markdown,.pdf,.docx,.xlsx"
-                  className="hidden"
+                  className="sr-only"
                 />
 
                 {file ? (

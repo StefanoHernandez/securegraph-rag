@@ -18,7 +18,7 @@ test.describe("Group membership", () => {
       200
     );
 
-    await page.locator("button").filter({ hasText: /^Direction$/ }).click();
+    await page.getByRole("button", { name: "Direction" }).click();
     await expect(page.getByText("direction")).toBeVisible();
 
     const analystLabel = new RegExp(DEMO_USERS.analyst.username, "i");

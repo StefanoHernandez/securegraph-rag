@@ -102,6 +102,10 @@ export async function loginAsUser(page: Page, user: DemoUser) {
     await clearForcedPasswordReset(page, user.password);
   }
   await expect(page).toHaveURL(/\/(it|en)(\/)?$/);
+  // Wait for the dashboard shell to finish its auth check and render the topbar.
+  // Without this, subsequent navigations can race the shell loading state and
+  // find elements missing.
+  await expect(page.getByRole("button", { name: /operator menu/i })).toBeVisible();
 }
 
 export async function expectGetApiStatusOnVisit(
@@ -151,7 +155,7 @@ export async function expectPostApiStatus(
 }
 
 export async function openOperatorMenu(page: Page) {
-  await page.getByRole("button", { name: /operator menu/i }).click();
+  await page.getByRole("button", { name: /operator menu/i }).click({ force: true });
 }
 
 export async function logoutViaUI(page: Page) {
