@@ -62,6 +62,15 @@ allow-quality, authorization-denial, and source-isolation separately. Do not
 publish results until both held-out reports meet these conditions and
 have zero source/claim leaks.
 
+### Certified release run
+
+The release commit `40ead85` produced two clean held-out runs
+(`eval/results/mrd-heldout-20260728T230526Z.json` and
+`...230732Z.json`) with `git_dirty=false`, matching corpus hash
+`eb2e8cc4...`, Mistral `mistral-small-latest` for generation/extraction and
+OpenAI `gpt-4o-mini` for the semantic judge. Both runs certify 0 source leaks,
+0 claim leaks, 0 refusal failures, 6/6 authorization-denial.
+
 ## Offline re-score
 
 ```bash
