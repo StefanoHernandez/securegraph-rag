@@ -331,3 +331,114 @@ async def test_tenant_admin_updates_access_template_and_increments_version(
     assert body["is_active"] is False
     assert body["version"] == 3
     assert template.version == 3
+
+
+def _super_admin_row() -> AuthUserRow:
+    return AuthUserRow(
+        id="root",
+        username="root",
+        display_name="Platform Root",
+        email="root@example.invalid",
+        password_hash="original-hash",
+        is_active=True,
+        is_super_admin=True,
+        must_change_password=False,
+        token_version=1,
+    )
+
+
+async def test_tenant_admin_cannot_attach_super_admin_to_own_tenant(
+    fastapi_app: FastAPI, client: AsyncClient, control_session: AsyncMock
+) -> None:
+    """Step 1 of the takeover chain: pulling the platform owner into the tenant.
+
+    Attaching also bumps ``token_version``, which would revoke every active
+    super-admin session — a lockout even without the password reset.
+    """
+    fastapi_app.dependency_overrides[require_user] = lambda: tenant_admin()
+    root = _super_admin_row()
+    control_session.get.side_effect = [root, None]
+
+    response = await client.post(
+        "/tenants/mrd/users/root/membership",
+        json={"role": "analyst"},
+    )
+
+    assert response.status_code == 403
+    assert root.token_version == 1
+    added = [call.args[0] for call in control_session.add.call_args_list]
+    assert not [row for row in added if isinstance(row, TenantMembershipRow)]
+
+
+async def test_tenant_admin_cannot_reset_super_admin_password(
+    fastapi_app: FastAPI, client: AsyncClient, control_session: AsyncMock
+) -> None:
+    """Step 2: the reset returns a usable password in the response body."""
+    fastapi_app.dependency_overrides[require_user] = lambda: tenant_admin()
+    root = _super_admin_row()
+    membership = TenantMembershipRow(
+        tenant_id="mrd", user_id="root", role="analyst", is_active=True
+    )
+    control_session.get.side_effect = [membership, root]
+
+    response = await client.post("/tenants/mrd/users/root/reset-password")
+
+    assert response.status_code == 403
+    assert root.password_hash == "original-hash"
+    assert root.token_version == 1
+
+
+async def test_tenant_admin_cannot_edit_super_admin_membership(
+    fastapi_app: FastAPI, client: AsyncClient, control_session: AsyncMock
+) -> None:
+    fastapi_app.dependency_overrides[require_user] = lambda: tenant_admin()
+    root = _super_admin_row()
+    membership = TenantMembershipRow(
+        tenant_id="mrd", user_id="root", role="analyst", is_active=True
+    )
+    control_session.get.side_effect = [root, membership]
+
+    response = await client.patch(
+        "/tenants/mrd/users/root",
+        json={"is_active": False},
+    )
+
+    assert response.status_code == 403
+    assert membership.is_active is True
+    assert root.token_version == 1
+
+
+async def test_super_admin_may_still_reset_another_super_admin_password(
+    fastapi_app: FastAPI, client: AsyncClient, control_session: AsyncMock
+) -> None:
+    """The guard must not lock super-admins out of managing each other."""
+    fastapi_app.dependency_overrides[require_user] = superadmin
+    root = _super_admin_row()
+    membership = TenantMembershipRow(
+        tenant_id="mrd", user_id="root", role="analyst", is_active=True
+    )
+    control_session.get.side_effect = [membership, root]
+
+    response = await client.post("/tenants/mrd/users/root/reset-password")
+
+    assert response.status_code == 200
+    assert response.json()["temporary_password"]
+    assert root.password_hash != "original-hash"
+
+
+async def test_user_search_hides_super_admins_from_tenant_admins(
+    fastapi_app: FastAPI, client: AsyncClient, control_session: AsyncMock
+) -> None:
+    """A tenant admin must not be able to enumerate platform owners."""
+    fastapi_app.dependency_overrides[require_user] = lambda: tenant_admin()
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    control_session.execute.return_value = result
+
+    response = await client.get("/users/search?q=root")
+
+    assert response.status_code == 200
+    statement = str(control_session.execute.call_args.args[0])
+    where_clause = statement.split("WHERE", maxsplit=1)[-1]
+    assert "WHERE" in statement
+    assert "is_super_admin" in where_clause

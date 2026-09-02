@@ -183,6 +183,27 @@ def _ensure_identity_search_admin(principal: AuthenticatedPrincipal | None) -> N
         raise HTTPException(status_code=403, detail="Tenant administrator role required.")
 
 
+def _ensure_may_manage_user(
+    principal: AuthenticatedPrincipal | None, user: AuthUserRow
+) -> None:
+    """Block a tenant admin from acting on a super-admin account.
+
+    A membership row in the tenant is not enough to make the platform owner
+    manageable by that tenant's admin: ``reset_password`` hands back a usable
+    temporary password, and both ``attach_existing_user`` and
+    ``update_membership`` bump ``token_version``, which revokes every active
+    super-admin session. Without this guard a tenant admin can chain
+    ``/users/search`` -> attach -> reset-password into a full takeover.
+    """
+    if principal is None or principal.is_super_admin:
+        return
+    if user.is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Only super-admins may manage a super-admin account.",
+        )
+
+
 def _audit(
     session: AsyncSession,
     principal: AuthenticatedPrincipal | None,
@@ -254,6 +275,10 @@ async def search_users(
     _ensure_identity_search_admin(principal)
     query = q.strip()
     stmt = select(AuthUserRow).order_by(AuthUserRow.username).limit(25)
+    if principal is not None and not principal.is_super_admin:
+        # Tenant admins must not be able to enumerate platform owners; the
+        # 403 guards below are the real control, this only removes the lead.
+        stmt = stmt.where(AuthUserRow.is_super_admin.is_(False))
     if query:
         like = f"%{query}%"
         stmt = stmt.where(
@@ -420,6 +445,7 @@ async def attach_existing_user(
     membership = await session.get(TenantMembershipRow, (tenant_id, user_id))
     if user is None or not user.is_active:
         raise HTTPException(status_code=404, detail="Active user not found")
+    _ensure_may_manage_user(principal, user)
     if membership is None:
         membership = TenantMembershipRow(
             tenant_id=tenant_id,
@@ -468,6 +494,7 @@ async def update_membership(
     membership = await session.get(TenantMembershipRow, (tenant_id, user_id))
     if user is None or membership is None:
         raise HTTPException(status_code=404, detail="Tenant membership not found")
+    _ensure_may_manage_user(principal, user)
     if request.role == "super_admin" and (principal is None or not principal.is_super_admin):
         raise HTTPException(status_code=403, detail="Only super-admins may grant this role")
     if request.role is not None:
@@ -511,6 +538,7 @@ async def reset_password(
     user = await session.get(AuthUserRow, user_id)
     if membership is None or user is None:
         raise HTTPException(status_code=404, detail="Tenant user not found")
+    _ensure_may_manage_user(principal, user)
     password = secrets.token_urlsafe(24)
     user.password_hash = hash_password(password)
     user.must_change_password = True
