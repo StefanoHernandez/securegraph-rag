@@ -83,13 +83,13 @@ async def ping_postgres(session: AsyncSession) -> ComponentReport:
 
 
 async def ping_qdrant() -> ComponentReport:
-    from qdrant_client import QdrantClient
+    from securgraph.adapters.qdrant import build_qdrant_client
 
     settings = get_settings()
     start = time.perf_counter()
 
     def check() -> None:
-        client = QdrantClient(url=settings.qdrant_url, check_compatibility=False)
+        client = build_qdrant_client(settings, check_compatibility=False)
         try:
             client.get_collection(collection_name=settings.qdrant_collection)
         finally:

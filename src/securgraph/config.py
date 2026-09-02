@@ -21,6 +21,18 @@ EnvName = Literal["dev", "test", "stage", "prod"]
 # ``securgraph.api.main``).
 DEFAULT_JWT_SECRET = "securgraph-jwt-secret-very-secure-key-default-replace-me"  # noqa: S105
 
+# Known-public datastore defaults shipped for the local compose stack. Startup
+# MUST refuse to boot with any of these in stage/prod (see
+# ``securgraph.api.main.enforce_datastore_hygiene``).
+DEFAULT_NEO4J_PASSWORD = "securgraph-neo4j"  # noqa: S105
+DEFAULT_POSTGRES_CREDENTIALS = frozenset(
+    {
+        ("securgraph_app", "securgraph_app"),
+        ("securgraph", "securgraph"),
+        ("postgres", "postgres"),
+    }
+)
+
 
 class Settings(BaseSettings):
     """Application settings. Singleton via :func:`get_settings`."""
@@ -61,16 +73,25 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------- qdrant
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "securgraph_chunks"
+    # Qdrant holds every chunk payload in cleartext. Without an API key the
+    # collection is readable by anyone who reaches the port, which bypasses
+    # every OpenFGA check. Required in stage/prod (see enforce_datastore_hygiene).
+    qdrant_api_key: SecretStr = SecretStr("")
 
     # -------------------------------------------------------------------- neo4j
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
-    neo4j_password: SecretStr = SecretStr("securgraph-neo4j")
+    neo4j_password: SecretStr = SecretStr(DEFAULT_NEO4J_PASSWORD)
 
     # ----------------------------------------------------------------- openfga
     openfga_api_url: str = "http://localhost:8080"
     openfga_store_id: str = ""
     openfga_authorization_model_id: str = ""
+    # OpenFGA is the ReBAC ground truth for contribution C1. An unauthenticated
+    # OpenFGA API lets anyone who reaches the port write their own authorization
+    # tuples, and the audit trail still records the access as authorized.
+    # Matches the server's OPENFGA_AUTHN_PRESHARED_KEYS. Required in stage/prod.
+    openfga_api_token: SecretStr = SecretStr("")
 
     # -------------------------------------------------------------------- redis
     redis_url: str = "redis://localhost:6379/0"

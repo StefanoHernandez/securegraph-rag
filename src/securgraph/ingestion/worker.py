@@ -9,11 +9,11 @@ from typing import Any, ClassVar
 
 from arq.connections import RedisSettings
 from arq.cron import cron
-from qdrant_client import QdrantClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from securgraph.adapters.embeddings import get_embedding_adapter
 from securgraph.adapters.neo4j import get_neo4j_driver
+from securgraph.adapters.qdrant import build_qdrant_client
 from securgraph.api.dependencies import set_tenant_rls_context
 from securgraph.api.main import enforce_audit_hygiene
 from securgraph.config import get_settings
@@ -43,7 +43,7 @@ async def startup(ctx: dict[Any, Any]) -> None:
     ctx["session_maker"] = async_sessionmaker(engine, expire_on_commit=False)
 
     # 2. Qdrant Client
-    ctx["qdrant_client"] = QdrantClient(url=settings.qdrant_url)
+    ctx["qdrant_client"] = build_qdrant_client(settings)
 
     # 3. Embedding Adapter
     ctx["embeddings"] = get_embedding_adapter()

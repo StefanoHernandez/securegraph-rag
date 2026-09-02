@@ -243,3 +243,115 @@ def test_canonical_minio_fields_are_the_settings_contract() -> None:
     assert settings.audit_anchor_bucket == "securegraph-audit-anchors"
     assert settings.audit_anchor_endpoint == "https://minio.example"
     assert settings.audit_anchor_backend == "minio"
+
+
+# ---------------------------------------------------------------------------
+# Datastore hygiene: the app-layer guarantees (OpenFGA ReBAC, PostgreSQL RLS)
+# are only worth anything if the datastores themselves refuse anonymous
+# callers. These guards keep a stage/prod deployment from booting against the
+# unauthenticated local dev stack.
+# ---------------------------------------------------------------------------
+
+DEFAULT_NEO4J_PASSWORD = "securgraph-neo4j"
+
+
+def _hardened_datastore_settings(**overrides: object) -> Settings:
+    values: dict[str, object] = {
+        "env": "prod",
+        "qdrant_api_key": SecretStr("qdrant-" + "k" * 32),
+        "openfga_api_token": SecretStr("fga-" + "t" * 32),
+        "neo4j_password": SecretStr("rotated-neo4j-" + "p" * 20),
+        "postgres_dsn": "postgresql+asyncpg://app:s3cr3t-rotated@db.internal:5432/securgraph",
+        "redis_url": "redis://:redis-secret@redis.internal:6379/0",
+        "feature_workers_enabled": True,
+    }
+    values.update(overrides)
+    return Settings(_env_file=None, **values)
+
+
+def test_prod_requires_openfga_api_token() -> None:
+    """OpenFGA is the C1 ground truth; an open API means anyone self-authorizes."""
+    from securgraph.api.main import enforce_datastore_hygiene
+
+    with pytest.raises(RuntimeError, match="OPENFGA_API_TOKEN"):
+        enforce_datastore_hygiene(
+            _hardened_datastore_settings(openfga_api_token=SecretStr(""))
+        )
+
+
+def test_prod_requires_qdrant_api_key() -> None:
+    """An open Qdrant exposes every chunk payload, bypassing OpenFGA entirely."""
+    from securgraph.api.main import enforce_datastore_hygiene
+
+    with pytest.raises(RuntimeError, match="QDRANT_API_KEY"):
+        enforce_datastore_hygiene(_hardened_datastore_settings(qdrant_api_key=SecretStr("")))
+
+
+def test_prod_refuses_default_neo4j_password() -> None:
+    from securgraph.api.main import enforce_datastore_hygiene
+
+    with pytest.raises(RuntimeError, match="NEO4J_PASSWORD"):
+        enforce_datastore_hygiene(
+            _hardened_datastore_settings(neo4j_password=SecretStr(DEFAULT_NEO4J_PASSWORD))
+        )
+
+
+def test_prod_refuses_default_postgres_credentials() -> None:
+    from securgraph.api.main import enforce_datastore_hygiene
+
+    with pytest.raises(RuntimeError, match="POSTGRES_DSN"):
+        enforce_datastore_hygiene(
+            _hardened_datastore_settings(
+                postgres_dsn=(
+                    "postgresql+asyncpg://securgraph_app:securgraph_app"
+                    "@localhost:5432/securgraph"
+                )
+            )
+        )
+
+
+def test_prod_requires_redis_password_when_workers_enabled() -> None:
+    from securgraph.api.main import enforce_datastore_hygiene
+
+    with pytest.raises(RuntimeError, match="REDIS_URL"):
+        enforce_datastore_hygiene(
+            _hardened_datastore_settings(redis_url="redis://redis.internal:6379/0")
+        )
+
+
+def test_prod_with_hardened_datastores_passes() -> None:
+    from securgraph.api.main import enforce_datastore_hygiene
+
+    enforce_datastore_hygiene(_hardened_datastore_settings())
+
+
+def test_dev_tolerates_unauthenticated_datastores() -> None:
+    """The local compose stack must stay frictionless in dev and test."""
+    from securgraph.api.main import enforce_datastore_hygiene
+
+    for env in ("dev", "test"):
+        enforce_datastore_hygiene(Settings(_env_file=None, env=env))
+
+
+def test_prod_refuses_weak_master_key() -> None:
+    """The master key is the KEK for every stored provider credential."""
+    with pytest.raises(RuntimeError, match="MASTER_KEY"):
+        enforce_secret_hygiene(
+            Settings(
+                _env_file=None,
+                env="prod",
+                JWT_SECRET=SecretStr("x" * 48),
+                master_key=SecretStr("short-passphrase"),
+            )
+        )
+
+
+def test_prod_with_strong_master_key_passes() -> None:
+    enforce_secret_hygiene(
+        Settings(
+            _env_file=None,
+            env="prod",
+            JWT_SECRET=SecretStr("x" * 48),
+            master_key=SecretStr("m" * 32),
+        )
+    )

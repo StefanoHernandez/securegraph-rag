@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from securgraph.adapters.qdrant import build_qdrant_client
 from securgraph.api.dependencies import (
     get_db_session,
     get_openfga_client,
@@ -428,13 +429,12 @@ async def get_vector_atlas(
 ) -> dict[str, Any]:
     """Scroll tenant Qdrant points and return a 2D projected atlas map."""
     _ensure_tenant_scope(admin, tenant_id)
-    from qdrant_client import QdrantClient
 
     from securgraph.config import get_settings
     from securgraph.indexing.vector_atlas import build_vector_atlas
 
     settings = get_settings()
-    client = QdrantClient(url=settings.qdrant_url, check_compatibility=False)
+    client = build_qdrant_client(settings, check_compatibility=False)
     try:
         return await build_vector_atlas(
             client,

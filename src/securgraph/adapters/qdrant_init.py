@@ -5,9 +5,9 @@ Configures vectors, distance metrics, ReBAC payload indexes, andBM25 full-text i
 
 from __future__ import annotations
 
-from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
+from securgraph.adapters.qdrant import build_qdrant_client
 from securgraph.config import get_settings
 
 
@@ -17,7 +17,7 @@ def init_qdrant_collection() -> None:
     Idempotent; does not overwrite or recreate the collection if it already exists.
     """
     settings = get_settings()
-    client = QdrantClient(url=settings.qdrant_url)
+    client = build_qdrant_client(settings)
 
     collections = client.get_collections().collections
     exists = any(c.name == settings.qdrant_collection for c in collections)

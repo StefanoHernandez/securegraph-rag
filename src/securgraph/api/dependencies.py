@@ -11,11 +11,13 @@ from typing import TYPE_CHECKING
 import structlog
 from arq.connections import ArqRedis, RedisSettings, create_pool
 from fastapi import Depends, HTTPException
-from openfga_sdk import ClientConfiguration, OpenFgaClient
+from openfga_sdk import OpenFgaClient
 from openfga_sdk.models import CreateStoreRequest, TypeDefinition, WriteAuthorizationModelRequest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from securgraph.adapters.openfga import build_openfga_configuration
+from securgraph.adapters.qdrant import build_qdrant_client
 from securgraph.config import Settings, get_settings
 from securgraph.domain.policy import OpenFGAPolicyAdapter
 
@@ -71,12 +73,7 @@ async def bootstrap_openfga(app_settings: Settings) -> None:
     """Bootstraps OpenFGA: creates store and applies authorization model if needed."""
     global _fga_client, _policy_adapter
 
-    config = ClientConfiguration(
-        api_url=app_settings.openfga_api_url,
-        store_id=app_settings.openfga_store_id or None,
-        authorization_model_id=app_settings.openfga_authorization_model_id or None,
-    )
-    _fga_client = OpenFgaClient(config)
+    _fga_client = OpenFgaClient(build_openfga_configuration(app_settings))
     _policy_adapter = OpenFGAPolicyAdapter(_fga_client)
 
     # If store ID is not configured, dynamically search or create "securgraph" store
@@ -265,13 +262,7 @@ async def get_openfga_client() -> OpenFgaClient:
     """Dependency provider for OpenFgaClient."""
     global _fga_client
     if _fga_client is None:
-        app_settings = get_settings()
-        config = ClientConfiguration(
-            api_url=app_settings.openfga_api_url,
-            store_id=app_settings.openfga_store_id or None,
-            authorization_model_id=app_settings.openfga_authorization_model_id or None,
-        )
-        _fga_client = OpenFgaClient(config)
+        _fga_client = OpenFgaClient(build_openfga_configuration(get_settings()))
     return _fga_client
 
 
@@ -311,13 +302,11 @@ async def get_qdrant_retriever() -> QdrantRetriever:
     """
     global _qdrant_retriever
     if _qdrant_retriever is None:
-        from qdrant_client import QdrantClient
-
         from securgraph.adapters.embeddings import get_embedding_adapter
         from securgraph.indexing.vector_retriever import QdrantRetriever
 
         _settings = get_settings()
-        client = QdrantClient(url=_settings.qdrant_url, check_compatibility=False)
+        client = build_qdrant_client(_settings, check_compatibility=False)
         _qdrant_retriever = QdrantRetriever(client, get_embedding_adapter())
     return _qdrant_retriever
 

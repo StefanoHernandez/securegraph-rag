@@ -35,7 +35,10 @@ All settings live in `src/securgraph/config.py` (env prefix `SECURGRAPH_` unless
 | `AUDIT_HMAC_KEY` | Tamper-chain HMAC key. Env-only, never stored in DB. Unset ⇒ SHA-256 fallback with warning (dev only). |
 | `SECURGRAPH_MASTER_KEY` | AES-GCM master key for provider credentials and encrypted ingestion sources. |
 | `OPENAI_API_KEY` / `MISTRAL_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` | Provider keys via env (prefer the encrypted Settings store in production). |
-| `POSTGRES_PASSWORD`, `SECURGRAPH_NEO4J_PASSWORD` | Store passwords. |
+| `POSTGRES_PASSWORD`, `SECURGRAPH_NEO4J_PASSWORD` | Store passwords. Boot refuses the known-public compose defaults in stage/prod. |
+| `SECURGRAPH_OPENFGA_API_TOKEN` | Preshared key for the OpenFGA API; must match the server's `OPENFGA_AUTHN_PRESHARED_KEYS`. Boot refuses an empty value in stage/prod. |
+| `SECURGRAPH_QDRANT_API_KEY` | Qdrant API key (`QDRANT__SERVICE__API_KEY` on the server). Boot refuses an empty value in stage/prod. |
+| `SECURGRAPH_REDIS_PASSWORD` | Redis `requirepass` value; the DSN in `SECURGRAPH_REDIS_URL` must carry it. |
 | `SECURGRAPH_AUDIT_ANCHOR_SECRET_KEY` | Dedicated MinIO Object Lock credential. |
 
 ### Core toggles and knobs
@@ -43,6 +46,7 @@ All settings live in `src/securgraph/config.py` (env prefix `SECURGRAPH_` unless
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `SECURGRAPH_ENV` | `dev` | `stage`/`prod` activate the fail-closed startup guards. |
+| `SECURGRAPH_BIND_ADDR` | `127.0.0.1` | Interface the compose stack publishes datastore ports on. Loopback by default — see "Datastore hardening" below. |
 | `SECURGRAPH_AUTH_ENABLED` | `true` | Boot **refuses** `false` in stage/prod. |
 | `SECURGRAPH_POSTGRES_DSN` | `…securgraph_app@localhost/securgraph` | App connects as the least-privilege `securgraph_app` role. `SECURGRAPH_POSTGRES_MIGRATE_DSN` (superuser) is used by `make migrate`. |
 | `SECURGRAPH_LLM_PROVIDER` (+ `_EXTRACT`, `_JUDGE`) | `mistral` / `mistral` / `openai` | Per-stage providers: generation / graph extraction / NLI judge. Defaults are `mistral-small-latest`, `mistral-small-latest`, and `gpt-4o-mini`; Ollama is rejected in stage/prod. |
@@ -76,9 +80,41 @@ Retrieval knobs: `SECURGRAPH_MAX_GRAPH_DEPTH` (2, hard cap 4), `SECURGRAPH_MAX_E
 
 Compose MinIO is **not** a production trust anchor. A MinIO instance colocated with the API or database is not an external boundary either. Production uses a separately administered self-hosted MinIO deployment, a dedicated Object Lock bucket in `COMPLIANCE` mode with 365-day retention, and dedicated credentials. The periodic ARQ job `anchor_due_ledgers` calls the same due-anchor logic as the operations API.
 
+## Datastore hardening
+
+Every guarantee this system makes is enforced one layer *above* the datastores:
+OpenFGA decides authorization (C1), PostgreSQL RLS isolates tenants, and Qdrant
+holds the chunk text those checks exist to gate. A store that accepts anonymous
+callers makes all of it decorative — an attacker writes their own OpenFGA
+tuples, or reads chunk payloads straight out of Qdrant, and the audit ledger
+still records the access as authorized.
+
+`enforce_datastore_hygiene()` refuses to boot in stage/prod when any of the
+following is true:
+
+| Condition | Why it is fatal |
+| --- | --- |
+| `SECURGRAPH_OPENFGA_API_TOKEN` empty | The ReBAC ground truth would accept unauthenticated tuple writes. |
+| `SECURGRAPH_QDRANT_API_KEY` empty | Chunk payloads become readable with no OpenFGA check in the path. |
+| `SECURGRAPH_NEO4J_PASSWORD` empty or the compose default | Direct graph read/write, bypassing path-cut pruning. |
+| `SECURGRAPH_POSTGRES_DSN` with no password or known-public credentials | RLS does not protect a database an attacker can log into directly. |
+| `SECURGRAPH_REDIS_URL` without a password (workers enabled) | The ingest queue carries tenant document payloads. |
+
+Compose defaults, for reference:
+
+- Ports publish on `${SECURGRAPH_BIND_ADDR:-127.0.0.1}` — loopback. Raise it only for a deliberately firewalled host, never on a public interface.
+- OpenFGA runs `OPENFGA_AUTHN_METHOD=preshared`; the playground is **off** (it requires `authn=none`).
+- Neo4j loads **no plugins**. Louvain runs in `networkx` (`adapters/community_generator.py`) and the writer is deliberately APOC-free, so the former `procedures_unrestricted: gds.*,apoc.*` only ever supplied `apoc.load.*` — outbound HTTP/JDBC/file reads from inside the database — to any Cypher foothold.
+- Credentials use `${VAR:?message}`, not `${VAR:-default}`: a missing value stops compose instead of silently falling back to a known-public default.
+
+Loopback binding is a local-development control, not a substitute for network
+policy. A real deployment puts these stores on a private network with TLS
+between the API and each of them; none of the compose services terminate TLS.
+
 ## Production checklist
 
-- [ ] `SECURGRAPH_ENV=prod`; boot guards verified (JWT secret strong, auth enabled, provider/model coherent).
+- [ ] `SECURGRAPH_ENV=prod`; boot guards verified (JWT secret strong, auth enabled, provider/model coherent, datastores authenticated).
+- [ ] Datastore hardening: OpenFGA preshared key, Qdrant API key, rotated Neo4j/Postgres/Redis passwords, stores on a private network, no port published on a public interface.
 - [ ] `SECURGRAPH_AUDIT_TAMPER_EVIDENT=true`; `AUDIT_HMAC_KEY` strong and stored only in the runtime environment/secret manager.
 - [ ] `SECURGRAPH_MASTER_KEY` set; provider keys entered via Settings UI (encrypted at rest), not `.env`.
 - [ ] Dedicated self-hosted MinIO Object Lock bucket for anchors (`COMPLIANCE`, 365 days), on a separate host and administrative domain; Compose MinIO is dev/integration only.

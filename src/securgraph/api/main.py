@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,7 +30,13 @@ from securgraph.api.routes import ingest as ingest_routes
 from securgraph.api.routes import operations as operations_routes
 from securgraph.api.routes import query as query_routes
 from securgraph.api.routes import settings as settings_routes
-from securgraph.config import DEFAULT_JWT_SECRET, Settings, get_settings
+from securgraph.config import (
+    DEFAULT_JWT_SECRET,
+    DEFAULT_NEO4J_PASSWORD,
+    DEFAULT_POSTGRES_CREDENTIALS,
+    Settings,
+    get_settings,
+)
 from securgraph.logging import configure_logging, get_logger
 from securgraph.observability import setup_observability, shutdown_observability
 
@@ -53,6 +60,75 @@ def enforce_secret_hygiene(settings: Settings) -> None:
         raise RuntimeError(
             f"SECURGRAPH_JWT_SECRET is too short ({len(jwt_secret)} chars); refusing "
             f"in env={settings.env}. Use at least 32 characters."
+        )
+    # The master key is the KEK for every provider credential in the database.
+    # securgraph.security.secrets derives an AES-GCM key from it, so a short
+    # human-memorable passphrase is brute-forceable offline from one ciphertext.
+    master_key = settings.master_key.get_secret_value()
+    if master_key and len(master_key) < 32:
+        raise RuntimeError(
+            f"SECURGRAPH_MASTER_KEY is too short ({len(master_key)} chars); refusing "
+            f"in env={settings.env}. Use at least 32 random characters."
+        )
+
+
+def enforce_datastore_hygiene(settings: Settings) -> None:
+    """Fail closed at startup when a backing store would accept anonymous callers.
+
+    Every guarantee this system makes is enforced one layer above the
+    datastores: OpenFGA decides authorization (C1), PostgreSQL RLS isolates
+    tenants, Qdrant holds the chunk text those checks are meant to gate. A
+    store reachable without credentials makes all of it decorative — an
+    attacker writes their own OpenFGA tuples, or reads chunk payloads straight
+    out of Qdrant, and the audit ledger still records "authorized".
+
+    The local compose stack ships unauthenticated on purpose, so dev/test are
+    exempt; stage/prod must not boot against it.
+    """
+    if settings.env not in ("stage", "prod"):
+        return
+
+    problems: list[str] = []
+
+    if not settings.openfga_api_token.get_secret_value():
+        problems.append(
+            "SECURGRAPH_OPENFGA_API_TOKEN is empty: the ReBAC ground truth would "
+            "accept unauthenticated tuple writes. Set it to match the server's "
+            "OPENFGA_AUTHN_PRESHARED_KEYS."
+        )
+    if not settings.qdrant_api_key.get_secret_value():
+        problems.append(
+            "SECURGRAPH_QDRANT_API_KEY is empty: chunk payloads would be readable "
+            "without authentication, bypassing every OpenFGA check."
+        )
+    neo4j_password = settings.neo4j_password.get_secret_value()
+    if not neo4j_password or neo4j_password == DEFAULT_NEO4J_PASSWORD:
+        problems.append(
+            "SECURGRAPH_NEO4J_PASSWORD is empty or the known-public default; "
+            "rotate it before deploying."
+        )
+
+    parsed_dsn = urlparse(settings.postgres_dsn)
+    dsn_credentials = (parsed_dsn.username or "", parsed_dsn.password or "")
+    if not parsed_dsn.password or dsn_credentials in DEFAULT_POSTGRES_CREDENTIALS:
+        problems.append(
+            "SECURGRAPH_POSTGRES_DSN carries no password or the known-public "
+            "default credentials; RLS does not protect a database an attacker "
+            "can log into directly."
+        )
+
+    # enforce_worker_hygiene already requires workers in stage/prod, so Redis
+    # is always on the path here; guard it anyway rather than depend on order.
+    if settings.feature_workers_enabled and not urlparse(settings.redis_url).password:
+        problems.append(
+            "SECURGRAPH_REDIS_URL has no password: the ingestion queue carries "
+            "tenant document payloads."
+        )
+
+    if problems:
+        raise RuntimeError(
+            f"Refusing to start in env={settings.env} — unauthenticated datastore "
+            "configuration: " + " ".join(problems)
         )
 
 
@@ -169,6 +245,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(level=settings.log_level, json_logs=settings.env != "dev")
     log = get_logger(__name__)
     enforce_secret_hygiene(settings)
+    enforce_datastore_hygiene(settings)
     enforce_auth_hygiene(settings)
     enforce_worker_hygiene(settings)
     enforce_audit_hygiene(settings)

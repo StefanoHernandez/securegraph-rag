@@ -1,6 +1,23 @@
 # SecurGraph RAG — local dev stack.
 # Minimal-hardware mode (<16 GB RAM): aggressive resource limits applied.
 # Ollama is a legacy optional profile only; it is never part of the default or acceptance stack.
+#
+# Security posture
+# ----------------
+# Every port binds to ${SECURGRAPH_BIND_ADDR:-127.0.0.1} — loopback only. These
+# services hold the data that OpenFGA and PostgreSQL RLS are supposed to gate,
+# so reaching one of them directly bypasses the entire authorization model.
+# Override SECURGRAPH_BIND_ADDR only for a deliberately firewalled host.
+#
+# Credentials use `${VAR:?message}` rather than `${VAR:-default}`: a missing
+# value must stop compose, not silently fall back to a known-public default
+# that ends up in a deployment. `cp .env.example .env` supplies dev values.
+#
+# `restart: "no"` everywhere, deliberately. With `unless-stopped` the stack
+# came back on every boot and stayed up unnoticed for months, which turns any
+# port-binding mistake into a permanent exposure rather than a window while
+# you are actually working. These services start with `make up` and stay down
+# otherwise. A long-lived deployment sets its own policy at that layer.
 
 name: securgraph
 
@@ -14,10 +31,10 @@ services:
     container_name: securgraph-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-securgraph}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-securgraph}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-securgraph}
     ports:
-      - "5432:5432"
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-init/init-openfga.sql:/docker-entrypoint-initdb.d/init-openfga.sql:ro
@@ -30,7 +47,7 @@ services:
       resources:
         limits:
           memory: 512M
-    restart: unless-stopped
+    restart: "no"
 
   # ===========================================================================
   # Qdrant — vector store
@@ -39,13 +56,16 @@ services:
     image: qdrant/qdrant:v1.18.0
     container_name: securgraph-qdrant
     ports:
-      - "6333:6333"   # HTTP / dashboard
-      - "6334:6334"   # gRPC
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:6333:6333"   # HTTP / dashboard
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:6334:6334"   # gRPC
     volumes:
       - qdrant_data:/qdrant/storage
     environment:
       QDRANT__LOG_LEVEL: INFO
       QDRANT__SERVICE__GRPC_PORT: 6334
+      # Chunk payloads live here in cleartext. Without a key, anyone reaching
+      # the port reads every tenant's evidence without an OpenFGA check.
+      QDRANT__SERVICE__API_KEY: ${SECURGRAPH_QDRANT_API_KEY:?set SECURGRAPH_QDRANT_API_KEY in .env}
     healthcheck:
       # Qdrant image has no wget/curl; use bash TCP to probe the HTTP port.
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
@@ -56,31 +76,33 @@ services:
       resources:
         limits:
           memory: 1G
-    restart: unless-stopped
+    restart: "no"
 
   # ===========================================================================
-  # Neo4j — graph store (community edition; GDS plugin)
+  # Neo4j — graph store (community edition).
   # Heap + page cache tuned for minimal hardware.
+  #
+  # No plugins: Louvain runs in networkx (adapters/community_generator.py) and
+  # the writer is deliberately APOC-free (adapters/neo4j_writer.py:158). Both
+  # plugins were previously loaded with `procedures_unrestricted: gds.*,apoc.*`,
+  # which hands any Cypher foothold `apoc.load.*` — outbound HTTP/JDBC/file
+  # reads from inside the database. Unused capability, so it is gone.
   # ===========================================================================
   neo4j:
     image: neo4j:5.25-community
     container_name: securgraph-neo4j
     environment:
-      NEO4J_AUTH: ${SECURGRAPH_NEO4J_USER:-neo4j}/${SECURGRAPH_NEO4J_PASSWORD:-securgraph-neo4j}
-      NEO4J_PLUGINS: '["graph-data-science","apoc"]'
-      NEO4J_dbms_security_procedures_unrestricted: gds.*,apoc.*
-      NEO4J_dbms_security_procedures_allowlist: gds.*,apoc.*
+      NEO4J_AUTH: ${SECURGRAPH_NEO4J_USER:-neo4j}/${SECURGRAPH_NEO4J_PASSWORD:?set SECURGRAPH_NEO4J_PASSWORD in .env}
       NEO4J_server_memory_heap_initial__size: 512m
       NEO4J_server_memory_heap_max__size: 512m
       NEO4J_server_memory_pagecache_size: 256m
       NEO4J_db_tx__log_rotation_retention__policy: "100M size"
     ports:
-      - "7474:7474"   # HTTP / browser
-      - "7687:7687"   # Bolt
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:7474:7474"   # HTTP / browser
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:7687:7687"   # Bolt
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
-      - neo4j_plugins:/plugins
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
       interval: 10s
@@ -91,10 +113,14 @@ services:
       resources:
         limits:
           memory: 1500M
-    restart: unless-stopped
+    restart: "no"
 
   # ===========================================================================
-  # OpenFGA — authorization (ReBAC)
+  # OpenFGA — authorization (ReBAC). This is the ground truth for contribution
+  # C1: an unauthenticated OpenFGA API lets any caller write their own
+  # authorization tuples, and the audit ledger still records the resulting
+  # access as authorized. Preshared-key auth is mandatory, and the playground
+  # (which requires authn=none) stays off.
   # Migrate-then-run pattern: migrate runs once and exits.
   # ===========================================================================
   openfga-migrate:
@@ -103,7 +129,7 @@ services:
     command: migrate
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres
-      OPENFGA_DATASTORE_URI: postgres://${POSTGRES_USER:-securgraph}:${POSTGRES_PASSWORD:-securgraph}@postgres:5432/${POSTGRES_DB:-securgraph}?sslmode=disable&search_path=openfga
+      OPENFGA_DATASTORE_URI: postgres://${POSTGRES_USER:-securgraph}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-securgraph}?sslmode=disable&search_path=openfga
     depends_on:
       postgres:
         condition: service_healthy
@@ -115,13 +141,14 @@ services:
     command: run
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres
-      OPENFGA_DATASTORE_URI: postgres://${POSTGRES_USER:-securgraph}:${POSTGRES_PASSWORD:-securgraph}@postgres:5432/${POSTGRES_DB:-securgraph}?sslmode=disable&search_path=openfga
-      OPENFGA_PLAYGROUND_ENABLED: "true"
+      OPENFGA_DATASTORE_URI: postgres://${POSTGRES_USER:-securgraph}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-securgraph}?sslmode=disable&search_path=openfga
+      OPENFGA_PLAYGROUND_ENABLED: "false"
+      OPENFGA_AUTHN_METHOD: preshared
+      OPENFGA_AUTHN_PRESHARED_KEYS: ${SECURGRAPH_OPENFGA_API_TOKEN:?set SECURGRAPH_OPENFGA_API_TOKEN in .env}
       OPENFGA_LOG_LEVEL: info
     ports:
-      - "8080:8080"   # HTTP API
-      - "8081:8081"   # gRPC
-      - "3000:3000"   # Playground UI
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:8080:8080"   # HTTP API
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:8081:8081"   # gRPC
     depends_on:
       postgres:
         condition: service_healthy
@@ -131,7 +158,7 @@ services:
       resources:
         limits:
           memory: 256M
-    restart: unless-stopped
+    restart: "no"
 
   # ===========================================================================
   # Jaeger (all-in-one) — OTel traces UI
@@ -142,9 +169,9 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "16686:16686"   # UI
-      - "4317:4317"     # OTLP gRPC
-      - "4318:4318"     # OTLP HTTP
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:16686:16686"   # UI
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:4317:4317"     # OTLP gRPC
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:4318:4318"     # OTLP HTTP
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:16686 || exit 1"]
       interval: 10s
@@ -154,7 +181,7 @@ services:
       resources:
         limits:
           memory: 512M
-    restart: unless-stopped
+    restart: "no"
 
   # ===========================================================================
   # Redis — added in M6 for Arq workers, decision cache, LangGraph checkpointer.
@@ -164,12 +191,14 @@ services:
     image: redis:7-alpine
     container_name: securgraph-redis
     profiles: ["workers"]
+    # The ingest queue carries tenant document payloads; no anonymous access.
+    command: ["redis-server", "--requirepass", "${SECURGRAPH_REDIS_PASSWORD:?set SECURGRAPH_REDIS_PASSWORD in .env}"]
     ports:
-      - "6379:6379"
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${SECURGRAPH_REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -177,7 +206,7 @@ services:
       resources:
         limits:
           memory: 256M
-    restart: unless-stopped
+    restart: "no"
 
   # ===========================================================================
   # MinIO — S3-compatible Object Lock anchor storage for audit Merkle roots.
@@ -190,11 +219,11 @@ services:
     profiles: ["anchor"]
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:9000:9000"   # S3 API
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:9001:9001"   # Web console
     volumes:
       - minio_data:/data
     healthcheck:
@@ -206,7 +235,7 @@ services:
       resources:
         limits:
           memory: 512M
-    restart: unless-stopped
+    restart: "no"
 
   # One-shot bucket provisioning with Object Lock enabled.
   minio-init:
@@ -218,7 +247,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin} &&
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:?} ${MINIO_ROOT_PASSWORD:?} &&
       mc mb --ignore-existing --with-lock local/securgraph-audit-anchors &&
       echo 'MinIO anchor bucket ready with Object Lock enabled'
       "
@@ -233,7 +262,7 @@ services:
     container_name: securgraph-ollama
     profiles: ["ollama-container"]
     ports:
-      - "11434:11434"
+      - "${SECURGRAPH_BIND_ADDR:-127.0.0.1}:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
@@ -245,14 +274,13 @@ services:
       resources:
         limits:
           memory: 4G
-    restart: unless-stopped
+    restart: "no"
 
 volumes:
   postgres_data:
   qdrant_data:
   neo4j_data:
   neo4j_logs:
-  neo4j_plugins:
   redis_data:
   ollama_data:
   minio_data:

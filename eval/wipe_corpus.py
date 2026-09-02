@@ -24,11 +24,11 @@ import argparse
 import asyncio
 import sys
 
-from qdrant_client import QdrantClient
 from qdrant_client.http.models import FieldCondition, Filter, FilterSelector, MatchValue
 from sqlalchemy import text
 
 from securgraph.adapters.neo4j import get_neo4j_driver
+from securgraph.adapters.qdrant import build_qdrant_client
 from securgraph.api.dependencies import AsyncSessionLocal
 from securgraph.config import get_settings
 
@@ -60,7 +60,7 @@ async def wipe_postgres(tenant_id: str) -> dict[str, int]:
 
 def wipe_qdrant(tenant_id: str) -> int:
     settings = get_settings()
-    client = QdrantClient(url=settings.qdrant_url)
+    client = build_qdrant_client(settings)
     flt = Filter(must=[FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id))])
     try:
         before = client.count(settings.qdrant_collection, count_filter=flt).count

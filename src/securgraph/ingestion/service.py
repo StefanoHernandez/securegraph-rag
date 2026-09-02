@@ -25,6 +25,7 @@ from qdrant_client import QdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.adapters.embeddings import EmbeddingAdapter
+from securgraph.adapters.qdrant import build_qdrant_client
 from securgraph.community.policy_class import canonical_group_userset, canonical_user_principal
 from securgraph.domain import (
     Classification,
@@ -310,8 +311,8 @@ async def ingest_document(
         settings = get_settings()
         embed_adapter = embeddings or get_embedding_adapter()
         owns_qdrant_client = qdrant_client is None
-        q_client = qdrant_client or QdrantClient(
-            url=settings.qdrant_url,
+        q_client = qdrant_client or build_qdrant_client(
+            settings,
             check_compatibility=False,
         )
         qdrant_resources: dict[str, object] = {

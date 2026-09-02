@@ -45,9 +45,10 @@ async def _get_fga_client():
     Auto-discovers the store if not configured in .env (the API does the same
     on startup, but this script runs in a separate process).
     """
-    from openfga_sdk import ClientConfiguration, OpenFgaClient
+    from openfga_sdk import OpenFgaClient
     from openfga_sdk.models import CreateStoreRequest
 
+    from securgraph.adapters.openfga import build_openfga_configuration
     from securgraph.config import get_settings
 
     settings = get_settings()
@@ -56,8 +57,7 @@ async def _get_fga_client():
 
     if not store_id:
         # Auto-discover or create the store, mirroring API startup behavior.
-        config = ClientConfiguration(api_url=settings.openfga_api_url)
-        temp_client = OpenFgaClient(config)
+        temp_client = OpenFgaClient(build_openfga_configuration(settings))
         try:
             stores = await temp_client.list_stores()
             existing = next(
@@ -73,11 +73,9 @@ async def _get_fga_client():
         finally:
             await temp_client.close()
 
-    config = ClientConfiguration(
-        api_url=settings.openfga_api_url,
-        store_id=store_id,
-        authorization_model_id=model_id,
-    )
+    config = build_openfga_configuration(settings)
+    config.store_id = store_id
+    config.authorization_model_id = model_id
     return OpenFgaClient(config)
 
 
