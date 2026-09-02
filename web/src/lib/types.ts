@@ -317,8 +317,6 @@ export interface RuntimeSetting {
 }
 
 export type EgressStage = "extract" | "judge" | "generation" | "embedding";
-export type EgressClassification = "public" | "internal" | "confidential" | "restricted";
-
 export interface EgressDecision {
   allowed: boolean;
   action: "allow" | "block";
@@ -330,7 +328,6 @@ export interface CostEstimateRequest {
   provider: ProviderName;
   model_id: string;
   stage: EgressStage;
-  classification: EgressClassification;
   input_tokens: number;
   output_tokens: number;
   input_cost_per_1k_usd?: number;

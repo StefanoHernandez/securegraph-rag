@@ -3,7 +3,19 @@
 The policy is a runtime setting (`egress_policy`) shaped as::
 
     {"default": "allow" | "block",
-     "rules": [{"provider": ..., "stage": ..., "max_classification": ..., "action": ...}]}
+     "rules": [{"provider": ..., "stage": ..., "action": ...}]}
+
+Rules match on provider and stage only. A `max_classification` dimension was
+accepted once but never enforced: the single call site could not know the
+classification of the evidence about to leave, so enforcement ran against a
+hardcoded "internal". A rule scoped to `internal` therefore also released
+`restricted` evidence, and a rule scoped to `public` never matched at all,
+while the UI offered exactly that shape as its default example. Rather than
+keep accepting a field that is dropped on the floor, the payload is now
+refused. Enforcing it properly means deriving a classification ceiling from
+the policy and pushing it into `QueryScope.max_classification` — which both
+retrieval lanes already honor — plus a pre-call backstop for the community
+lane, which has no scope filter. See docs/technical/06-security-model.md.
 
 Framework-free module so both the settings routes (validation + advisory
 cost estimate) and the LLM adapter dispatch (real enforcement) share one
@@ -20,7 +32,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-CLASSIFICATION_RANK = {"public": 0, "internal": 1, "confidential": 2, "restricted": 3}
 EGRESS_ACTIONS = frozenset({"allow", "block"})
 EGRESS_STAGES = frozenset({"extract", "judge", "generation", "embedding", "any"})
 EGRESS_PROVIDERS = frozenset({"openai", "anthropic", "gemini", "mistral", "ollama", "any"})
@@ -76,21 +87,23 @@ def parse_egress_policy(value: dict[str, Any] | None) -> dict[str, Any]:
             raise ValueError(f"egress_policy.rules[{index}] must be an object")
         provider = str(rule.get("provider", "any"))
         stage = str(rule.get("stage", "any"))
-        classification = str(rule.get("max_classification", "internal"))
         action = str(rule.get("action", "block"))
+        if "max_classification" in rule:
+            raise ValueError(
+                f"egress_policy.rules[{index}] sets max_classification, which is not "
+                "enforced: rules match on provider and stage only. Remove the field "
+                "rather than rely on a filter that does not run."
+            )
         if provider not in EGRESS_PROVIDERS:
             raise ValueError(f"Unknown egress provider: {provider}")
         if stage not in EGRESS_STAGES:
             raise ValueError(f"Unknown egress stage: {stage}")
-        if classification not in CLASSIFICATION_RANK:
-            raise ValueError(f"Unknown egress classification: {classification}")
         if action not in EGRESS_ACTIONS:
             raise ValueError(f"Unknown egress action: {action}")
         normalized_rules.append(
             {
                 "provider": provider,
                 "stage": stage,
-                "max_classification": classification,
                 "action": action,
             }
         )
@@ -102,7 +115,6 @@ def decide_egress(
     *,
     provider: str,
     stage: str,
-    classification: str,
 ) -> EgressDecision:
     """Evaluate a (already stored) policy for one outbound call.
 
@@ -111,13 +123,10 @@ def decide_egress(
     (enforcement) must check for policy presence first.
     """
     normalized = parse_egress_policy(policy or {"value": {"default": "block", "rules": []}})
-    request_rank = CLASSIFICATION_RANK[classification]
     for index, rule in enumerate(normalized["rules"]):
         if rule["provider"] not in {"any", provider}:
             continue
         if rule["stage"] not in {"any", stage}:
-            continue
-        if request_rank > CLASSIFICATION_RANK[rule["max_classification"]]:
             continue
         return EgressDecision(
             allowed=rule["action"] == "allow",
@@ -137,7 +146,6 @@ def enforce_egress(
     tenant_id: str | None,
     provider: str,
     stage: str,
-    classification: str = "internal",
 ) -> None:
     """Block an outbound LLM call when the tenant's egress policy says so.
 
@@ -157,7 +165,6 @@ def enforce_egress(
             policy if isinstance(policy, dict) else None,
             provider=provider,
             stage=stage,
-            classification=classification,
         )
     except ValueError as exc:
         raise EgressBlockedError(

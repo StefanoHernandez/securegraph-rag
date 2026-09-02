@@ -98,11 +98,14 @@ class RuntimeSettingResponse(BaseModel):
 
 
 class EgressRule(BaseModel):
+    """One egress rule. Matches on provider and stage only.
+
+    A ``max_classification`` dimension used to live here and was never
+    enforced; ``parse_egress_policy`` now rejects it outright.
+    """
+
     provider: ProviderName | Literal["any"] = "any"
     stage: Literal["extract", "judge", "generation", "embedding", "any"] = "any"
-    max_classification: Literal["public", "internal", "confidential", "restricted"] = (
-        "internal"
-    )
     action: Literal["allow", "block"] = "block"
 
 
@@ -117,7 +120,6 @@ class CostEstimateRequest(BaseModel):
     provider: ProviderName
     model_id: str = Field(min_length=1, max_length=256)
     stage: Literal["extract", "judge", "generation", "embedding"] = "generation"
-    classification: Literal["public", "internal", "confidential", "restricted"] = "internal"
     input_tokens: int = Field(ge=0, le=10_000_000)
     output_tokens: int = Field(default=0, ge=0, le=10_000_000)
     input_cost_per_1k_usd: float | None = Field(default=None, ge=0)
@@ -128,7 +130,6 @@ class CostEstimateResponse(BaseModel):
     provider: ProviderName
     model_id: str
     stage: str
-    classification: str
     input_tokens: int
     output_tokens: int
     total_tokens: int
@@ -205,12 +206,9 @@ def _decide_egress(
     *,
     provider: str,
     stage: str,
-    classification: str,
 ) -> EgressDecisionResponse:
     try:
-        decision = decide_egress(
-            policy, provider=provider, stage=stage, classification=classification
-        )
+        decision = decide_egress(policy, provider=provider, stage=stage)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
@@ -655,14 +653,12 @@ async def estimate_provider_cost(
         values.get("egress_policy"),
         provider=request.provider,
         stage=request.stage,
-        classification=request.classification,
     )
     total_tokens = request.input_tokens + request.output_tokens
     return CostEstimateResponse(
         provider=request.provider,
         model_id=request.model_id,
         stage=request.stage,
-        classification=request.classification,
         input_tokens=request.input_tokens,
         output_tokens=request.output_tokens,
         total_tokens=total_tokens,

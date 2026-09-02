@@ -13,7 +13,6 @@ import {
   ProviderName,
   RuntimeSetting,
   CostEstimateResponse,
-  EgressClassification,
   EgressStage,
   EmbeddingReindexPlan,
 } from "@/lib/types";
@@ -34,18 +33,8 @@ const DEFAULT_EGRESS_POLICY = JSON.stringify(
   {
     default: "block",
     rules: [
-      {
-        provider: "ollama",
-        stage: "any",
-        max_classification: "restricted",
-        action: "allow",
-      },
-      {
-        provider: "openai",
-        stage: "generation",
-        max_classification: "internal",
-        action: "allow",
-      },
+      { provider: "ollama", stage: "any", action: "allow" },
+      { provider: "openai", stage: "generation", action: "allow" },
     ],
   },
   null,
@@ -71,8 +60,6 @@ export default function SettingsPage() {
   const [estimateProvider, setEstimateProvider] = useState<ProviderName>("openai");
   const [estimateModel, setEstimateModel] = useState("gpt-4.1-mini");
   const [estimateStage, setEstimateStage] = useState<EgressStage>("generation");
-  const [estimateClassification, setEstimateClassification] =
-    useState<EgressClassification>("internal");
   const [inputTokens, setInputTokens] = useState("1200");
   const [outputTokens, setOutputTokens] = useState("400");
   const [estimatingCost, setEstimatingCost] = useState(false);
@@ -239,7 +226,6 @@ export default function SettingsPage() {
         provider: estimateProvider,
         model_id: estimateModel,
         stage: estimateStage,
-        classification: estimateClassification,
         input_tokens: parsedInput,
         output_tokens: parsedOutput,
       });
@@ -513,22 +499,6 @@ export default function SettingsPage() {
                   className="h-10 w-full bg-vault-raised border border-hairline px-3 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
                 >
                   {["generation", "extract", "judge", "embedding"].map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-1.5">
-                <span className="mono-meta block">{t("classification")}</span>
-                <select
-                  value={estimateClassification}
-                  onChange={(event) =>
-                    setEstimateClassification(event.target.value as EgressClassification)
-                  }
-                  className="h-10 w-full bg-vault-raised border border-hairline px-3 font-mono text-xs text-bone focus:outline-none focus:border-signal-amber"
-                >
-                  {["public", "internal", "confidential", "restricted"].map((item) => (
                     <option key={item} value={item}>
                       {item}
                     </option>

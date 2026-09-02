@@ -55,7 +55,7 @@ Live ablation evidence (`eval/results/c3-ablation-live-20260701T154455Z.md`): pa
 | **Rate limiting** | Sliding window per minute: login 10/IP + 5/username (reset on success), query 30, ingest 10. In-process — front with a shared limiter for multi-worker deployments. |
 | **PostgreSQL RLS** | `FORCE ROW LEVEL SECURITY` + `tenant_isolation` policies on all tenant tables; API connects as `securgraph_app` (`NOSUPERUSER NOBYPASSRLS`, DML-only grants); GUCs set transaction-locally. Migrations use a separate privileged DSN. |
 | **SSRF guard** | `validate_egress_url` on provider `base_url`s: http(s) only, resolves DNS and rejects private/loopback/link-local/multicast/reserved/unspecified addresses (blocks RFC-1918 and cloud metadata endpoints). Local exemption only for the `ollama` provider. |
-| **Tenant egress policy** | Per-tenant rules (provider × stage × max classification) evaluated before any provider call; stored-but-invalid policy fails closed; blocked queries return HTTP 451 without egress. |
+| **Tenant egress policy** | Per-tenant rules (provider × stage) evaluated before any provider call; stored-but-invalid policy fails closed; blocked queries return HTTP 451 without egress. Rules do **not** filter by data classification — see "Egress and data classification" below. |
 | **Credential storage** | Provider API keys AES-GCM-encrypted at rest under `SECURGRAPH_MASTER_KEY` (key versioning + fingerprint); settings endpoints return metadata only; encryption unavailable → 503, never plaintext fallback. |
 | **Upload hardening** | Extension allowlist, 50 MB cap, filename sanitization, empty-file rejection, owner namespace/delegation checks. |
 | **Eval identity mode** | `SECURGRAPH_EVAL_IDENTITY_MODE` (read-only authorization simulation for the eval harness) activates only when env ∈ {dev, test} AND auth is disabled — three independent conditions; a warning is logged per use. |
@@ -71,6 +71,54 @@ Tracked honestly rather than hidden:
 - **No Neo4j schema constraints** — uniqueness relies on MERGE discipline.
 - **Deterministic-synthesis templates** are benchmark-specific (see [09 — Evaluation](09-evaluation.md#methodology-caveats)); they can only emit retrieved authorized text, so they are not a leakage vector, but they are not a general mechanism either.
 - **Anchor cadence** — events between anchors rely on DB integrity alone (bounded by the 10 000-event / interval thresholds).
+
+## Egress and data classification
+
+Egress rules match on **provider and stage only**. There is no classification
+dimension, and the API rejects a rule that carries `max_classification`.
+
+The field existed and was never enforced. `enforce_egress` is called from
+`get_llm_adapter()` — at adapter *acquisition*, where the classification of
+the evidence about to leave is not yet known — so the check ran against a
+hardcoded `"internal"`. The consequences were worse than an absent control:
+
+- a rule scoped to `internal` also released `confidential` and `restricted`
+  evidence, because every level compared equal;
+- a rule scoped to `public` never matched at all — silent dead configuration;
+- the Settings UI offered exactly that shape (`openai / generation /
+  max_classification: internal`) as its **default example**, so the first
+  thing an operator saw promised a protection that did not exist.
+
+Accepting the field and dropping it on the floor is the failure mode a
+security control must not have, so the payload is now refused with an
+explicit 400 rather than silently ignored.
+
+### If the dimension is needed later
+
+The framework already has the mechanism; it just is not wired to this policy.
+`QueryScope.max_classification` means "ceiling by rank" and is honored by both
+retrieval lanes — a Qdrant pre-filter in `_build_retrieval_filter`, and
+`_apply_scope_to_chunks` on the graph lane. Enforcing egress by classification
+therefore means:
+
+1. derive the highest classification the configured `(provider, stage)` may
+   receive from the tenant policy, and intersect it with the client-requested
+   `scope.max_classification`;
+2. cover the community/global lane, which has **no** scope filter today
+   (`indexing/global_retriever.py`) — otherwise summaries bypass the ceiling;
+3. keep a pre-call backstop that blocks and records a decision when evidence
+   above the ceiling reaches a provider anyway, so the property stays
+   auditable in the same way C1 is: *every chunk that reached a provider was
+   cleared for that provider*. A filter alone proves only an absence;
+4. decide the user-facing contract, because it changes: a ceiling **degrades**
+   (answer from what may leave, with a `warnings` entry and a trace record)
+   where today's policy **blocks** (HTTP 451). Both lanes must use the same
+   ceiling, or the C2 agreement score measures a policy difference instead of
+   a retrieval divergence.
+
+With no policy configured `enforce_egress` returns early, so a ceiling derived
+this way is inert on every path that does not set one — including the
+held-out evaluation.
 
 ## Verification commands
 

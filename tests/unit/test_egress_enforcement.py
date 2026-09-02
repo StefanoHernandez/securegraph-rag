@@ -11,6 +11,7 @@ from securgraph.policy.egress import (
     EgressBlockedError,
     decide_egress,
     enforce_egress,
+    parse_egress_policy,
 )
 from securgraph.runtime_overrides import clear_runtime_overrides, set_runtime_override
 
@@ -68,32 +69,56 @@ def test_default_block_policy_blocks_everything() -> None:
         enforce_egress("acme", "ollama", "generation")
 
 
-def test_classification_ranking_gates_rule_match() -> None:
+def test_rules_are_matched_on_provider_and_stage_only() -> None:
     policy = {
         "default": "block",
-        "rules": [
-            {
-                "provider": "openai",
-                "stage": "any",
-                "max_classification": "internal",
-                "action": "allow",
-            }
-        ],
+        "rules": [{"provider": "openai", "stage": "any", "action": "allow"}],
     }
-    # internal <= internal -> rule matches -> allow
-    assert (
-        decide_egress(
-            policy, provider="openai", stage="generation", classification="internal"
-        ).allowed
-        is True
+    assert decide_egress(policy, provider="openai", stage="generation").allowed is True
+    assert decide_egress(policy, provider="openai", stage="judge").allowed is True
+    assert decide_egress(policy, provider="mistral", stage="generation").allowed is False
+
+
+def test_max_classification_in_a_rule_is_rejected() -> None:
+    """The dimension was accepted and silently ignored — worse than absent.
+
+    Enforcement ran with a hardcoded "internal", so a rule scoped to
+    `internal` also let `restricted` evidence through, while a rule scoped to
+    `public` never matched at all. A tenant configuring it believed they had a
+    protection they did not have, so the payload is now refused outright
+    rather than accepted and dropped on the floor.
+    """
+    with pytest.raises(ValueError, match="max_classification"):
+        parse_egress_policy(
+            {
+                "default": "block",
+                "rules": [
+                    {
+                        "provider": "openai",
+                        "stage": "generation",
+                        "max_classification": "internal",
+                        "action": "allow",
+                    }
+                ],
+            }
+        )
+
+
+def test_stored_policy_with_max_classification_fails_closed() -> None:
+    """A policy persisted before the removal must block, never fall open."""
+    set_runtime_override(
+        "acme",
+        "egress_policy",
+        {
+            "default": "allow",
+            "rules": [
+                {"provider": "openai", "stage": "any", "max_classification": "internal",
+                 "action": "allow"}
+            ],
+        },
     )
-    # confidential > internal -> rule skipped -> default block
-    assert (
-        decide_egress(
-            policy, provider="openai", stage="generation", classification="confidential"
-        ).allowed
-        is False
-    )
+    with pytest.raises(EgressBlockedError, match="invalid stored egress policy"):
+        enforce_egress("acme", "openai", "generation")
 
 
 def test_invalid_stored_policy_fails_closed() -> None:

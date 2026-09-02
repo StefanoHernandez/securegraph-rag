@@ -219,7 +219,6 @@ async def test_runtime_egress_policy_rejects_unknown_provider(
                         {
                             "provider": "unknown-cloud",
                             "stage": "generation",
-                            "max_classification": "internal",
                             "action": "allow",
                         }
                     ],
@@ -245,12 +244,7 @@ async def test_cost_estimate_returns_egress_and_hard_cap_decision(
                 "value": {
                     "default": "block",
                     "rules": [
-                        {
-                            "provider": "openai",
-                            "stage": "generation",
-                            "max_classification": "internal",
-                            "action": "allow",
-                        }
+                        {"provider": "openai", "stage": "generation", "action": "allow"}
                     ],
                 }
             },
@@ -276,7 +270,6 @@ async def test_cost_estimate_returns_egress_and_hard_cap_decision(
             "provider": "openai",
             "model_id": "gpt-test",
             "stage": "generation",
-            "classification": "restricted",
             "input_tokens": 900,
             "output_tokens": 200,
         },
@@ -288,8 +281,13 @@ async def test_cost_estimate_returns_egress_and_hard_cap_decision(
     assert body["hard_token_cap"] == 1000
     assert body["within_hard_token_cap"] is False
     assert body["estimated_cost_usd"] > 0
-    assert body["egress"]["allowed"] is False
-    assert body["egress"]["reason"] == "default egress policy"
+    # The rule matches on provider+stage, so the advisory now reports exactly
+    # what enforce_egress will do at call time. Previously the two diverged:
+    # this estimate answered "blocked" for restricted material while the real
+    # call, evaluated against a hardcoded "internal", let it through — the
+    # operator got visual confirmation of a protection that was not applied.
+    assert body["egress"]["allowed"] is True
+    assert body["egress"]["reason"] == "matched explicit egress rule"
 
 
 async def test_plans_blue_green_embedding_reindex(

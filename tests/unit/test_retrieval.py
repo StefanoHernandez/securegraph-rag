@@ -11,10 +11,10 @@ import uuid
 from collections.abc import Generator
 
 import pytest
-from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 from securgraph.adapters.embeddings import EmbeddingAdapter
+from securgraph.adapters.qdrant import build_qdrant_client
 from securgraph.adapters.qdrant_init import init_qdrant_collection
 from securgraph.config import get_settings
 from securgraph.domain import Chunk, Classification, QueryScope, RetrieverId
@@ -79,7 +79,7 @@ def test_qdrant_collection(monkeypatch: pytest.MonkeyPatch) -> Generator[None, N
     get_settings.cache_clear()
 
     settings = get_settings()
-    client = QdrantClient(url=settings.qdrant_url)
+    client = build_qdrant_client(settings)
 
     # Pre-test cleanup
     with contextlib.suppress(Exception):
@@ -95,7 +95,7 @@ def test_qdrant_collection(monkeypatch: pytest.MonkeyPatch) -> Generator[None, N
 def test_qdrant_collection_initialization() -> None:
     """Verify collection initialization creates correct schemas and payload indexes."""
     settings = get_settings()
-    client = QdrantClient(url=settings.qdrant_url)
+    client = build_qdrant_client(settings)
 
     # Collection shouldn't exist initially
     collections = client.get_collections().collections
@@ -126,7 +126,7 @@ def test_qdrant_collection_initialization() -> None:
 async def test_qdrant_writer_and_dual_strategy_retriever() -> None:
     """Verify upsert_chunks_to_qdrant and QdrantRetriever dense/lexical search behaviors."""
     settings = get_settings()
-    client = QdrantClient(url=settings.qdrant_url)
+    client = build_qdrant_client(settings)
     mock_embeddings = MockEmbeddingAdapter()
 
     # Initialize collection
