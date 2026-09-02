@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from securgraph.api.client_address import client_ip
 from securgraph.api.dependencies import get_db_session, set_tenant_rls_context
 from securgraph.api.ratelimit import enforce_rate, reset_rate
 from securgraph.config import get_settings
@@ -413,8 +414,10 @@ async def login(
     session: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
     settings = get_settings()
-    client_ip = http_request.client.host if http_request.client else "unknown"
-    enforce_rate("login_ip", client_ip, settings.ratelimit_login_ip)
+    # Resolved through the trusted-proxy chain: request.client.host is the
+    # BFF on every request, which would make this one global bucket.
+    caller_ip = client_ip(http_request, settings=settings)
+    enforce_rate("login_ip", caller_ip, settings.ratelimit_login_ip)
     enforce_rate("login_user", request.username, settings.ratelimit_login_user)
     result = await session.execute(
         select(AuthUserRow).where(AuthUserRow.username == request.username)
@@ -440,13 +443,13 @@ async def login(
         refresh_token_hash=_hash_token(refresh_token),
         csrf_token_hash=_hash_token(csrf_token),
         user_agent=http_request.headers.get("user-agent"),
-        ip_address=http_request.client.host if http_request.client else None,
+        ip_address=caller_ip,
         expires_at=datetime.now(UTC) + timedelta(days=get_settings().refresh_token_ttl_days),
     )
     session.add(auth_session)
     user.last_login_at = datetime.now(UTC)
     # Successful login clears the brute-force counters for this client.
-    reset_rate("login_ip", client_ip)
+    reset_rate("login_ip", caller_ip)
     reset_rate("login_user", request.username)
     access_token = create_access_token(
         user.id,

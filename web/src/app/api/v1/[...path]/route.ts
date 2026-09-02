@@ -15,6 +15,23 @@ const HOP_BY_HOP_HEADERS = new Set([
   "upgrade",
 ]);
 
+// The backend resolves the caller's address from X-Forwarded-For, but only
+// when the peer is a configured trusted proxy — this BFF. That is safe only
+// if the value arriving here was not written by the browser: otherwise a
+// caller picks a fresh address per request and never hits the login rate
+// limit. A Next route handler exposes no peer address, so this proxy cannot
+// append a real one; it drops what the caller claims and lets the backend
+// fall back to the peer address.
+//
+// Set SECURGRAPH_TRUST_PROXY_HEADERS=true only when a reverse proxy that
+// overwrites these headers sits in front of Next — then the chain reaching
+// the backend is trustworthy and per-client limiting works end to end.
+const FORWARDING_HEADERS = new Set(["x-forwarded-for", "x-real-ip", "forwarded"]);
+
+function trustsInboundForwardingHeaders(): boolean {
+  return process.env.SECURGRAPH_TRUST_PROXY_HEADERS === "true";
+}
+
 type RouteContext = {
   params: Promise<{ path: string[] }>;
 };
@@ -25,11 +42,16 @@ async function proxy(request: NextRequest, context: RouteContext) {
   const target = new URL(`/api/v1/${path}${request.nextUrl.search}`, BACKEND_ORIGIN);
   const headers = new Headers();
 
+  const trustForwarding = trustsInboundForwardingHeaders();
   for (const [key, value] of request.headers.entries()) {
     const lower = key.toLowerCase();
-    if (!HOP_BY_HOP_HEADERS.has(lower) && lower !== "host") {
-      headers.set(key, value);
+    if (HOP_BY_HOP_HEADERS.has(lower) || lower === "host") {
+      continue;
     }
+    if (!trustForwarding && FORWARDING_HEADERS.has(lower)) {
+      continue;
+    }
+    headers.set(key, value);
   }
 
   const method = request.method.toUpperCase();

@@ -47,6 +47,8 @@ All settings live in `src/securgraph/config.py` (env prefix `SECURGRAPH_` unless
 | --- | --- | --- |
 | `SECURGRAPH_ENV` | `dev` | `stage`/`prod` activate the fail-closed startup guards. |
 | `SECURGRAPH_BIND_ADDR` | `127.0.0.1` | Interface the compose stack publishes datastore ports on. Loopback by default — see "Datastore hardening" below. |
+| `SECURGRAPH_TRUSTED_PROXIES` | empty | Addresses/CIDRs whose `X-Forwarded-For` is believed. Empty ignores the header. See "Client addresses behind the BFF". |
+| `SECURGRAPH_TRUST_PROXY_HEADERS` (web app) | `false` | Whether the BFF forwards inbound `X-Forwarded-For`/`X-Real-IP`/`Forwarded`. Enable only behind a reverse proxy that overwrites them. |
 | `SECURGRAPH_AUTH_ENABLED` | `true` | Boot **refuses** `false` in stage/prod. |
 | `SECURGRAPH_POSTGRES_DSN` | `…securgraph_app@localhost/securgraph` | App connects as the least-privilege `securgraph_app` role. `SECURGRAPH_POSTGRES_MIGRATE_DSN` (superuser) is used by `make migrate`. |
 | `SECURGRAPH_LLM_PROVIDER` (+ `_EXTRACT`, `_JUDGE`) | `mistral` / `mistral` / `openai` | Per-stage providers: generation / graph extraction / NLI judge. Defaults are `mistral-small-latest`, `mistral-small-latest`, and `gpt-4o-mini`; Ollama is rejected in stage/prod. |
@@ -111,6 +113,43 @@ Loopback binding is a local-development control, not a substitute for network
 policy. A real deployment puts these stores on a private network with TLS
 between the API and each of them; none of the compose services terminate TLS.
 
+## Client addresses behind the BFF
+
+Browsers reach the API through the Next.js BFF, so `request.client.host` is
+the proxy on every request. Two things depend on the caller's real address:
+the per-IP login limiter (`SECURGRAPH_RATELIMIT_LOGIN_IP`) and the
+`ip_address` recorded on each session row, which `GET /auth/sessions` shows
+users so they can recognise a login that is not theirs. Left uncorrected,
+both collapse to one value: the limiter becomes a single global budget that
+one attacker can exhaust for every user, and every session looks identical.
+
+Believing `X-Forwarded-For` unconditionally would be worse than the bug — a
+caller who sets the header picks a fresh address per request and is never
+limited at all. Resolution therefore requires an explicitly configured chain:
+
+| Layer | Setting | Effect |
+| --- | --- | --- |
+| API | `SECURGRAPH_TRUSTED_PROXIES` | Addresses/CIDRs whose forwarded header is believed. Empty (default) ignores the header entirely. |
+| Web BFF | `SECURGRAPH_TRUST_PROXY_HEADERS` | `false` (default) strips inbound `X-Forwarded-For`/`X-Real-IP`/`Forwarded`; `true` forwards them. |
+
+`securgraph.api.client_address.client_ip()` walks the forwarded chain
+right-to-left past trusted hops and takes the first untrusted entry — the
+closest address to the client that a trusted proxy actually observed. Values
+a caller prepends sit to the left of that and are never reached. An entry
+that fails to parse, or a chain of exclusively trusted hops, falls back to
+the peer address.
+
+Both flags must agree. Enable them only when a reverse proxy that
+**overwrites** these headers sits in front of Next: a Next route handler
+exposes no peer address, so the BFF cannot append a trustworthy hop itself.
+With neither set — the default — per-client granularity is lost but nothing
+is spoofable, and `SECURGRAPH_RATELIMIT_LOGIN_USER` still bounds brute force
+per account.
+
+The limiter remains in-process (see `securgraph/api/ratelimit.py`): correct
+for the documented single-worker deployment, and still requiring a shared
+store before scaling out.
+
 ## Production checklist
 
 - [ ] `SECURGRAPH_ENV=prod`; boot guards verified (JWT secret strong, auth enabled, provider/model coherent, datastores authenticated).
@@ -123,6 +162,7 @@ between the API and each of them; none of the compose services terminate TLS.
 - [ ] Bootstrap super-admin created, password rotated on first login; `seed-demo` **not** run.
 - [ ] Cookies: `SECURGRAPH_SESSION_COOKIE_SECURE=true` (automatic in stage/prod) behind TLS.
 - [ ] Rate limiter fronted by a shared limiter if running multiple uvicorn workers.
+- [ ] `SECURGRAPH_TRUSTED_PROXIES` and `SECURGRAPH_TRUST_PROXY_HEADERS` set consistently behind a header-overwriting reverse proxy, or both left unset.
 - [ ] `SECURGRAPH_EVAL_IDENTITY_MODE` and `SECURGRAPH_EVAL_BASELINE_TEMPLATES` not set.
 - [ ] Release gates green: `make ci`, `make cov`, `make test-adversarial`, `make test-live-gates`, `make heldout-live` (0 leaks), `make mrd-live` (dev security 13/13).
 

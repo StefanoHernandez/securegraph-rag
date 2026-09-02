@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
     )
+    # Addresses or CIDR ranges whose X-Forwarded-For header may be believed —
+    # the Next.js BFF and any reverse proxy in front of it. Empty (the
+    # default) means the header is ignored and request.client.host is used, so
+    # a misconfiguration costs per-client granularity instead of handing every
+    # caller a spoofable rate-limit key. See securgraph.api.client_address.
+    trusted_proxies: list[str] = Field(default_factory=list)
 
     # ----------------------------------------------------------------- postgres
     # PostgreSQL credentials use bare env names so the same .env feeds both
