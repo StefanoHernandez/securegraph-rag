@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import hmac
+import uuid
 
+import structlog
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from securgraph.api.request_context import (
+    REQUEST_ID_HEADER,
+    reset_request_id,
+    set_request_id,
+)
 from securgraph.api.routes.auth import ACCESS_COOKIE, CSRF_COOKIE, REFRESH_COOKIE
 
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -70,3 +77,32 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             if not cookie_token or not hmac.compare_digest(cookie_token, header_token):
                 return JSONResponse({"detail": "CSRF validation failed"}, status_code=403)
         return await call_next(request)
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Assign every request a correlation id and echo it on the response.
+
+    An inbound ``X-Request-ID`` is ignored rather than honoured: accepting it
+    would let a caller fabricate ids or deliberately collide with another
+    user's, which is the opposite of what a correlation id is for.
+
+    Registered as the LAST ``add_middleware`` call so it is the outermost
+    layer — Starlette's ``add_middleware`` inserts at position 0. Being
+    outermost means the id is bound before the CSRF check and before the
+    exception handlers, so both can report it.
+    """
+
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        request_id = str(uuid.uuid4())
+        token = set_request_id(request_id)
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+        request.state.request_id = request_id
+        try:
+            response = await call_next(request)
+        finally:
+            structlog.contextvars.unbind_contextvars("request_id")
+            reset_request_id(token)
+        response.headers[REQUEST_ID_HEADER] = request_id
+        return response

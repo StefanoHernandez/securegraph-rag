@@ -20,7 +20,11 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from securgraph import __version__
-from securgraph.api.middleware import CSRFMiddleware, SecurityHeadersMiddleware
+from securgraph.api.middleware import (
+    CSRFMiddleware,
+    RequestIdMiddleware,
+    SecurityHeadersMiddleware,
+)
 from securgraph.api.routes import admin as admin_routes
 from securgraph.api.routes import auth as auth_routes
 from securgraph.api.routes import config as config_routes
@@ -358,6 +362,11 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+    # Added LAST so it is the OUTERMOST middleware: Starlette's add_middleware
+    # inserts at position 0. Outermost is what lets the id reach the CSRF
+    # rejection and the exception handlers alike.
+    application.add_middleware(RequestIdMiddleware)
 
     routers = (
         health_routes.router,
