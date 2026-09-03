@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { operationsApi, queryApi } from "@/lib/api";
+import { ApiError, operationsApi, queryApi } from "@/lib/api";
 import type { QueryResponse } from "@/lib/types";
 
 const response: QueryResponse = {
@@ -55,9 +55,17 @@ describe("frontend API contracts", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(operationsApi.listIngestionJobs("tenant/a")).rejects.toThrow(
-      "HTTP Error 503: worker unavailable"
-    );
+    // A failure still throws — but the raw body no longer rides in the
+    // message. It used to, and pages render that message straight into their
+    // error banner, so a 500's body reached the screen.
+    const error = await operationsApi
+      .listIngestionJobs("tenant/a")
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(503);
+    expect((error as ApiError).code).toBe("http_503");
+    expect((error as ApiError).message).not.toContain("worker unavailable");
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/tenants/tenant%2Fa/ingest-jobs");
   });
 });

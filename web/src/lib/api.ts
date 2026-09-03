@@ -82,6 +82,35 @@ function readCookie(name: string): string | null {
   return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
 }
 
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    readonly detail: string,
+    readonly requestId: string | null
+  ) {
+    super(detail || `Request failed with status ${status}`);
+    this.name = "ApiError";
+  }
+}
+
+type ErrorPayload = { detail?: unknown; code?: unknown; request_id?: unknown };
+
+async function toApiError(response: Response): Promise<ApiError> {
+  // A body that is not our contract — a proxy's HTML 502, an empty 500 — must
+  // not become the user-visible message. Only the parsed fields are trusted.
+  let payload: ErrorPayload = {};
+  try {
+    payload = (await response.json()) as ErrorPayload;
+  } catch {
+    payload = {};
+  }
+  const code = typeof payload.code === "string" ? payload.code : `http_${response.status}`;
+  const detail = typeof payload.detail === "string" ? payload.detail : "";
+  const requestId = typeof payload.request_id === "string" ? payload.request_id : null;
+  return new ApiError(response.status, code, detail, requestId);
+}
+
 async function request<T>(
   path: string,
   options: ApiRequestOptions = {},
@@ -122,10 +151,7 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    const errorBody = await response.text().catch(() => "");
-    throw new Error(
-      `HTTP Error ${response.status}: ${errorBody || response.statusText}`
-    );
+    throw await toApiError(response);
   }
 
   if (response.status === 204) {
