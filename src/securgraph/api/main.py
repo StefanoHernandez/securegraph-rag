@@ -20,6 +20,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from securgraph import __version__
+from securgraph.api.errors import register_exception_handlers
 from securgraph.api.middleware import (
     CSRFMiddleware,
     RequestIdMiddleware,
@@ -397,6 +398,8 @@ def create_app() -> FastAPI:
     # OTel FastAPI instrumentation wraps every request in a server span and
     # injects the trace context downstream.
     FastAPIInstrumentor.instrument_app(application)
+
+    register_exception_handlers(application)
 
     return application
 
