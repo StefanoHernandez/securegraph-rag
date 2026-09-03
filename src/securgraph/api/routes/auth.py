@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.client_address import client_ip
 from securgraph.api.dependencies import get_db_session, set_tenant_rls_context
+from securgraph.api.errors import error_body
 from securgraph.api.ratelimit import enforce_rate, reset_rate
 from securgraph.config import get_settings
 from securgraph.indexing.db import AuthSessionRow, AuthUserRow, TenantMembershipRow
@@ -583,7 +584,8 @@ def _rejected_refresh() -> JSONResponse:
     cookies have to be cleared on the response that is really returned.
     """
     rejection = JSONResponse(
-        status_code=401, content={"detail": "Refresh session is no longer valid"}
+        status_code=401,
+        content=error_body(None, "Refresh session is no longer valid", "refresh_rejected"),
     )
     clear_session_cookies(rejection)
     return rejection

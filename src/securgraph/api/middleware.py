@@ -10,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from securgraph.api.errors import error_body
 from securgraph.api.request_context import (
     REQUEST_ID_HEADER,
     reset_request_id,
@@ -75,7 +76,16 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             cookie_token = request.cookies.get(CSRF_COOKIE, "")
             header_token = request.headers.get("x-csrf-token", "")
             if not cookie_token or not hmac.compare_digest(cookie_token, header_token):
-                return JSONResponse({"detail": "CSRF validation failed"}, status_code=403)
+                body = error_body(request, "CSRF validation failed", "csrf_invalid")
+                return JSONResponse(
+                    body,
+                    status_code=403,
+                    headers=(
+                        {REQUEST_ID_HEADER: body["request_id"]}
+                        if body["request_id"]
+                        else None
+                    ),
+                )
         return await call_next(request)
 
 

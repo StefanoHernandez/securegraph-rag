@@ -90,3 +90,23 @@ async def test_http_exception_keeps_its_detail_and_gains_a_code(
     assert response.status_code == 404
     assert response.json()["detail"] == "Not Found"
     assert response.json()["code"] == "not_found"
+
+
+async def test_csrf_rejection_uses_the_shared_error_shape(client: AsyncClient) -> None:
+    # A cookie-authenticated unsafe request with no CSRF header. The response
+    # comes from middleware, which bypasses the exception handlers entirely,
+    # so its shape has to be maintained deliberately.
+    #
+    # Cookies go on the client, not on the request: httpx 0.28 deprecates
+    # per-request cookies=, and tests/unit/test_csrf.py already sets them this
+    # way.
+    client.cookies.set("securgraph_access", "ambient-access-token")
+    client.cookies.set("securgraph_csrf", "csrf-value")
+
+    response = await client.post("/api/v1/query", json={})
+
+    assert response.status_code == 403
+    body = response.json()
+    assert body["detail"] == "CSRF validation failed"
+    assert body["code"] == "csrf_invalid"
+    assert body["request_id"]
