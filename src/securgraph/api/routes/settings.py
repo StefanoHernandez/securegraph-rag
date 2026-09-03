@@ -354,8 +354,10 @@ async def upsert_provider_credential(
             request.api_key,
             associated_data=_credential_ad(provider, tenant_id),
         )
-    except SecretEncryptionError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except SecretEncryptionError:
+        # Registry maps this to 503 / secret_unavailable with a fixed
+        # message; its text carries crypto and key-management internals.
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=400,
@@ -454,8 +456,10 @@ async def test_provider_credential(
             associated_data=_credential_ad(provider, tenant_id),
         )
         models = await fetch_provider_models(provider, api_key=api_key)
-    except SecretEncryptionError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except SecretEncryptionError:
+        # Registry maps this to 503 / secret_unavailable with a fixed
+        # message; its text carries crypto and key-management internals.
+        raise
     except Exception as exc:
         row.last_tested_at = datetime.now(UTC)
         row.last_test_ok = False

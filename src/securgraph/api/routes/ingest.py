@@ -384,21 +384,17 @@ async def ingest_file(
         title_override=title_override,
     )
 
-    try:
-        # DB session is committed/rolled back by get_db_session dependency lifetime
-        result = await ingest_document(session, request)
-        return IngestResponse(
-            job_id=result.job_id,
-            trace_id=result.trace_id,
-            document_id=result.document_id,
-            status=result.status.value,
-            chunks_created=result.chunks_created,
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ingestion pipeline failed: {e!s}",
-        ) from e
+    # DB session is committed/rolled back by get_db_session dependency lifetime.
+    # IngestionError resolves through the registry (fixed message, 500);
+    # anything else falls through to the unhandled-exception handler.
+    result = await ingest_document(session, request)
+    return IngestResponse(
+        job_id=result.job_id,
+        trace_id=result.trace_id,
+        document_id=result.document_id,
+        status=result.status.value,
+        chunks_created=result.chunks_created,
+    )
 
 
 @router.get(

@@ -27,7 +27,6 @@ from securgraph.domain import (
     QueryExplanation,
     QueryRequest,
     QueryResponse,
-    QueryScopeError,
     Subject,
     classify_query,
     utcnow,
@@ -42,7 +41,6 @@ from securgraph.observability.otel import (
     QUERY_LATENCY_SECS,
 )
 from securgraph.orchestration.workflow import compile_workflow
-from securgraph.policy.egress import EgressBlockedError
 from securgraph.runtime_overrides import get_effective_settings
 
 router = APIRouter(tags=["query"])
@@ -462,7 +460,11 @@ async def query_pipeline(
             )
             raise
         except Exception as e:
-            # Increment failure metrics and set span error status
+            # Metrics, span and audit trace stay here: they are behaviour, not
+            # presentation. Translation is the handlers' job now — including
+            # EgressBlockedError (451) and QueryScopeError (422), which the
+            # registry maps with the same outcomes this block used to produce
+            # by hand.
             QUERY_COUNT.labels(tenant_id=request.tenant_id, status="failure").inc()
             latency_ms = (time.perf_counter() - start_time) * 1000.0
             QUERY_LATENCY_SECS.labels(tenant_id=request.tenant_id).observe(latency_ms / 1000.0)
@@ -472,19 +474,4 @@ async def query_pipeline(
             await _persist_failure_trace(
                 session, trace_row, settings, latency_ms=latency_ms, error=str(e)
             )
-            if isinstance(e, EgressBlockedError):
-                # Tenant egress policy blocked an outbound provider call:
-                # a policy outcome, not a server fault.
-                raise HTTPException(
-                    status_code=status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS,
-                    detail=str(e),
-                ) from e
-            if isinstance(e, QueryScopeError):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=str(e),
-                ) from e
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Query execution failed: {e!s}",
-            ) from e
+            raise

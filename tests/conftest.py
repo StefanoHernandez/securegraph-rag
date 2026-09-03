@@ -62,7 +62,11 @@ def fastapi_app() -> FastAPI:
 @pytest.fixture
 async def client(fastapi_app: FastAPI) -> AsyncIterator[AsyncClient]:
     """ASGI client that exercises the app without binding a socket."""
-    transport = ASGITransport(app=fastapi_app)
+    # raise_app_exceptions=False so the fixture sees what a real client sees.
+    # ServerErrorMiddleware sends the 500 and then re-raises for the ASGI
+    # server's log; with the default True, tests observe the exception instead
+    # of the response every real caller gets.
+    transport = ASGITransport(app=fastapi_app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
