@@ -13,18 +13,23 @@ pytestmark = pytest.mark.unit
 
 
 async def test_health_returns_ok(client: AsyncClient) -> None:
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     from securgraph.api.routes.health import ComponentReport, ComponentStatus
 
+    # Patch the ping, not the client class: ping_qdrant builds its client
+    # through securgraph.adapters.qdrant, which binds QdrantClient at import
+    # time, so patching qdrant_client.QdrantClient no longer intercepts it —
+    # and this test is marked `unit`, so it must not reach a real datastore.
     with (
-        patch("qdrant_client.QdrantClient") as mock_qdrant,
+        patch("securgraph.api.routes.health.ping_qdrant") as mock_ping_qdrant,
         patch("securgraph.api.routes.health.ping_neo4j") as mock_ping_neo4j,
         patch("securgraph.api.routes.health.ping_ollama") as mock_ping_ollama,
         patch("securgraph.api.routes.health.ping_openfga") as mock_ping_openfga,
     ):
-        mock_instance = MagicMock()
-        mock_qdrant.return_value = mock_instance
+        mock_ping_qdrant.return_value = ComponentReport(
+            status=ComponentStatus.OK, latency_ms=5.0
+        )
         mock_ping_neo4j.return_value = ComponentReport(status=ComponentStatus.OK, latency_ms=5.0)
         mock_ping_ollama.return_value = ComponentReport(status=ComponentStatus.OK, latency_ms=5.0)
         mock_ping_openfga.return_value = ComponentReport(status=ComponentStatus.OK, latency_ms=5.0)

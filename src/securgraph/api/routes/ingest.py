@@ -279,7 +279,7 @@ async def ingest_file(
         data = await _read_within_limit(file, MAX_UPLOAD_BYTES)
     except UploadTooLargeError:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=(
                 "Document size exceeds the "
                 f"{MAX_UPLOAD_BYTES // (1024 * 1024)}MB ingestion budget limit."

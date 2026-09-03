@@ -18,10 +18,13 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Same target developers run, so CI cannot drift from the local profile.
+      # The previous `uv pip install -e ".[dev,parsers]"` diverged twice: it
+      # omitted llm_openai (which tests/unit/test_openai_adapter.py imports)
+      # and it ignored uv.lock, so CI resolved versions the lockfile does not
+      # pin — defeating the point of tracking it.
       - name: Create venv and install deps
-        run: |
-          uv venv .venv --python 3.11
-          uv pip install --python .venv/bin/python -e ".[dev,parsers]"
+        run: make venv
 
       - name: Lint (ruff)
         run: make lint
