@@ -73,6 +73,26 @@ async def bootstrap_openfga(app_settings: Settings) -> None:
     """Bootstraps OpenFGA: creates store and applies authorization model if needed."""
     global _fga_client, _policy_adapter
 
+    # Creating a store or writing an authorization model is a control-plane
+    # mutation: it decides who may read what. Doing it implicitly at boot
+    # means whichever process starts first defines authorization, and a fresh
+    # store denies everything until it is re-seeded — a self-inflicted outage
+    # that looks exactly like a working fail-closed system. Deployments pin
+    # both ids; only dev and test bootstrap themselves.
+    if app_settings.env in ("stage", "prod"):
+        if not app_settings.openfga_store_id:
+            raise RuntimeError(
+                "SECURGRAPH_OPENFGA_STORE_ID is empty; refusing to create an "
+                f"OpenFGA store at startup in env={app_settings.env}. Pin the "
+                "store created by your provisioning step."
+            )
+        if not app_settings.openfga_authorization_model_id:
+            raise RuntimeError(
+                "SECURGRAPH_OPENFGA_AUTHORIZATION_MODEL_ID is empty; refusing to "
+                f"write an authorization model at startup in env={app_settings.env}. "
+                "Pin the model id the store was provisioned with."
+            )
+
     _fga_client = OpenFgaClient(build_openfga_configuration(app_settings))
     _policy_adapter = OpenFGAPolicyAdapter(_fga_client)
 

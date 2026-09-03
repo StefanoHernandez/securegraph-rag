@@ -163,6 +163,8 @@ store before scaling out.
 - [ ] Cookies: `SECURGRAPH_SESSION_COOKIE_SECURE=true` (automatic in stage/prod) behind TLS.
 - [ ] Rate limiter fronted by a shared limiter if running multiple uvicorn workers.
 - [ ] `SECURGRAPH_TRUSTED_PROXIES` and `SECURGRAPH_TRUST_PROXY_HEADERS` set consistently behind a header-overwriting reverse proxy, or both left unset.
+- [ ] `SECURGRAPH_OPENFGA_STORE_ID` and `SECURGRAPH_OPENFGA_AUTHORIZATION_MODEL_ID` pinned to the provisioned values — startup refuses to create either.
+- [ ] `SECURGRAPH_ALLOWED_HOSTS` set to the served hostnames.
 - [ ] `SECURGRAPH_EVAL_IDENTITY_MODE` and `SECURGRAPH_EVAL_BASELINE_TEMPLATES` not set.
 - [ ] Release gates green: `make ci`, `make cov`, `make test-adversarial`, `make test-live-gates`, `make heldout-live` (0 leaks), `make mrd-live` (dev security 13/13).
 

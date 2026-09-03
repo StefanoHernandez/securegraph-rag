@@ -72,6 +72,27 @@ Tracked honestly rather than hidden:
 - **Deterministic-synthesis templates** are benchmark-specific (see [09 — Evaluation](09-evaluation.md#methodology-caveats)); they can only emit retrieved authorized text, so they are not a leakage vector, but they are not a general mechanism either.
 - **Anchor cadence** — events between anchors rely on DB integrity alone (bounded by the 10 000-event / interval thresholds).
 
+## Environment-gated surface
+
+Three things are available in dev and test and withdrawn in stage/prod,
+because each is either reconnaissance or a mutation that a deployment must
+perform deliberately rather than implicitly:
+
+| Surface | dev / test | stage / prod |
+| --- | --- | --- |
+| `/docs`, `/redoc`, `/openapi.json` | served | disabled — they enumerate every route, parameter and model of a system whose claim is controlled access. The schema is in the repository for anyone who legitimately needs it. |
+| Legacy unversioned route aliases (`/auth/login`, …) | mounted | not mounted — every path-keyed guard is written for `/api/v1` (see `_MUST_CHANGE_ALLOWED_PATHS`), so an unversioned copy doubles the surface those checks reason about |
+| OpenFGA store / authorization-model auto-creation | bootstraps itself | **refuses to start** unless both ids are pinned |
+
+The OpenFGA case is the one that matters most. Creating a store or writing an
+authorization model decides who may read what. Performed implicitly at boot,
+whichever process starts first defines authorization — and a brand-new store
+denies everything until it is re-seeded, which looks exactly like a correctly
+fail-closed system while actually being an outage. Deployments pin
+`SECURGRAPH_OPENFGA_STORE_ID` and
+`SECURGRAPH_OPENFGA_AUTHORIZATION_MODEL_ID` to what their provisioning step
+created.
+
 ## Response headers
 
 The web app and the API get different sets, because they serve different

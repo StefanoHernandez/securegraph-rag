@@ -314,3 +314,83 @@ async def test_workers_enabled_with_redis_down_raises_503(monkeypatch) -> None:
     finally:
         monkeypatch.delenv("SECURGRAPH_FEATURE_WORKERS_ENABLED", raising=False)
         get_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# Who may ingest, and how much
+# ---------------------------------------------------------------------------
+
+
+def _upload(size: int = 32) -> dict[str, tuple[str, bytes, str]]:
+    return {"file": ("note.md", b"x" * size, "text/markdown")}
+
+
+async def _post_ingest(client: AsyncClient, **extra: str) -> object:
+    return await client.post(
+        "/api/v1/ingest",
+        files=_upload(),
+        data={"tenant_id": "mrd", **extra},
+    )
+
+
+async def test_viewer_cannot_ingest(fastapi_app: FastAPI, client: AsyncClient) -> None:
+    """Read-only access must not include writing to the corpus.
+
+    can_access_tenant() is true for every member of a tenant, so the route
+    admitted viewers — a role whose whole point is that it cannot change what
+    other people's answers are built from.
+    """
+    fastapi_app.dependency_overrides[require_user] = lambda: principal(role="viewer")
+
+    response = await _post_ingest(client)
+
+    assert response.status_code == 403
+    assert "role" in response.json()["detail"].lower()
+
+
+@pytest.mark.parametrize("role", ["analyst", "tenant_admin", "super_admin"])
+def test_writing_roles_pass_the_role_gate(role: str) -> None:
+    """The gate must not reject anyone who legitimately ingests."""
+    from securgraph.api.routes.ingest import _ensure_may_ingest
+
+    _ensure_may_ingest(principal(role=role))
+
+
+def test_role_gate_is_inert_when_auth_is_disabled() -> None:
+    """require_user yields None with auth off; the gate must not 403 on that."""
+    from securgraph.api.routes.ingest import _ensure_may_ingest
+
+    _ensure_may_ingest(None)
+
+
+async def test_oversized_upload_is_refused_without_buffering_it_whole(
+    fastapi_app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The size limit must stop the read, not audit it afterwards.
+
+    `await file.read()` pulled the entire body in before comparing its length,
+    so rejecting a 5 GB upload still meant spooling 5 GB first.
+    """
+    from securgraph.api.routes import ingest as ingest_routes
+
+    monkeypatch.setattr(ingest_routes, "MAX_UPLOAD_BYTES", 1024)
+    fastapi_app.dependency_overrides[require_user] = lambda: principal(role="analyst")
+    seen: list[int] = []
+    original = ingest_routes._read_within_limit
+
+    async def counting_read(upload, limit):  # type: ignore[no-untyped-def]
+        result = await original(upload, limit)
+        seen.append(len(result))
+        return result
+
+    monkeypatch.setattr(ingest_routes, "_read_within_limit", counting_read)
+
+    response = await client.post(
+        "/api/v1/ingest",
+        files={"file": ("note.md", b"x" * 20_000, "text/markdown")},
+        data={"tenant_id": "mrd"},
+    )
+
+    assert response.status_code == 413
+    # Never held more than one chunk past the limit.
+    assert not seen or max(seen) <= 1024 + ingest_routes.UPLOAD_CHUNK_BYTES

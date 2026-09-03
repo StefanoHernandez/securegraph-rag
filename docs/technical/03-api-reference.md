@@ -137,6 +137,8 @@ Gated by the settings-admin rule: super-admin always; tenant-admin only when the
 | GET | `…/settings/models` | Discovered model catalog. | |
 | PUT | `…/settings/runtime/{key}` | Upsert a runtime setting. Allowed keys: `llm_provider`, `llm_model`, `llm_provider_extract`, `llm_model_extract`, `llm_provider_judge`, `llm_model_judge`, `fallback_policy` (`block` \| `default_provider`), `hard_token_cap` (256–131072), `egress_policy`, `cost_caps`, `embedding_reindex_plan`. `embedding_model`, `storage_backend`, `auth_enabled` require a restart and are not runtime-settable. | 400 validation |
 | POST | `…/settings/cost-estimate` | Token/cost estimate + egress decision for a prospective call (provider × stage). | 400 egress blocked |
+
+> `/docs`, `/redoc` and `/openapi.json` are served in dev/test only. Legacy unversioned aliases are mounted in dev/test only; clients use `/api/v1`.
 | POST | `…/settings/embedding-reindex/plan` | Persist a deterministic blue-green reindex plan (201). | |
 
 ### Config

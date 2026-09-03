@@ -41,6 +41,51 @@ router = APIRouter(tags=["ingestion"])
 _ALLOWED_UPLOAD_EXTENSIONS = frozenset({".md", ".markdown", ".txt", ".pdf", ".docx", ".xlsx"})
 _MAX_FILENAME_LENGTH = 256
 
+# Ingestion budget. Enforced while reading rather than after, so an oversized
+# body is abandoned mid-stream instead of being spooled in full and measured.
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+# Ingestion changes what every other user's answers are built from, so it is
+# not part of read-only access. can_access_tenant() is true for any member of
+# the tenant, viewers included, and is therefore not sufficient on its own.
+INGEST_ROLES = frozenset({"super_admin", "tenant_admin", "analyst"})
+
+
+def _ensure_may_ingest(principal: AuthenticatedPrincipal | None) -> None:
+    """Reject roles that only read.
+
+    ``can_access_tenant()`` is true for every member of a tenant, viewers
+    included, so it does not distinguish reading the corpus from adding to it.
+    Ingested documents become evidence in other people's answers.
+    """
+    if principal is None:
+        return
+    if principal.role not in INGEST_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ingestion requires the analyst role or higher.",
+        )
+
+
+class UploadTooLargeError(Exception):
+    """Raised as soon as an upload passes the ingestion budget."""
+
+
+async def _read_within_limit(upload: UploadFile, limit: int) -> bytes:
+    """Read an upload, aborting as soon as it exceeds ``limit`` bytes."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise UploadTooLargeError
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 # Trust boundary note (prompt injection): the PARSED TEXT of uploaded
 # documents flows into LLM prompts (draft/extract/judge stages) without
 # sanitization. A malicious document can therefore attempt prompt injection
@@ -163,10 +208,12 @@ async def _apply_access_template(
 async def ingest_file(
     file: Annotated[UploadFile, File(description="File bytes to parse")],
     tenant_id: Annotated[str, Form(description="Tenant scope identifier")],
+    response: Response,
+    # Declared Optional but previously required by the form, so every client
+    # had to send a field the description calls optional.
     owner_id: Annotated[
         str | None, Form(description="Optional owner; defaults to authenticated uploader")
-    ],
-    response: Response,
+    ] = None,
     document_type: Annotated[
         DocumentType, Form(description="Type of document (e.g. policy, manual)")
     ] = DocumentType.OTHER,
@@ -185,6 +232,7 @@ async def ingest_file(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token tenant does not match the ingestion tenant.",
         )
+    _ensure_may_ingest(current_user)
     enforce_rate(
         "ingest",
         current_user.user_id if current_user is not None else "anonymous",
@@ -227,18 +275,20 @@ async def ingest_file(
     settings = get_settings()
     safe_filename = _sanitize_filename(file.filename)
     _ensure_supported_upload(safe_filename)
-    data = await file.read()
+    try:
+        data = await _read_within_limit(file, MAX_UPLOAD_BYTES)
+    except UploadTooLargeError:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                "Document size exceeds the "
+                f"{MAX_UPLOAD_BYTES // (1024 * 1024)}MB ingestion budget limit."
+            ),
+        ) from None
     if not data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file is empty.",
-        )
-
-    # Ingestion Budget Limit check: fail-closed if document is > 50MB to prevent DoS
-    if len(data) > 50 * 1024 * 1024:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Document size exceeds the 50MB ingestion budget limit.",
         )
 
     tags = tuple(t.strip() for t in policy_tags.split(",") if t.strip())

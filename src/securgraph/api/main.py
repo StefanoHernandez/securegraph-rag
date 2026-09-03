@@ -326,14 +326,19 @@ def create_app() -> FastAPI:
     process-level singleton uvicorn loads.
     """
     settings = get_settings()
+    # The interactive docs enumerate every route, parameter and model of a
+    # system whose entire claim is controlled access. Useful while developing,
+    # free reconnaissance in a deployment — and the schema is published in the
+    # repository for anyone who legitimately needs it.
+    expose_docs = settings.env not in ("stage", "prod")
     application = FastAPI(
         title="SecurGraph RAG",
         version=__version__,
         summary="Trustworthy hybrid vector-graph RAG with verifiable access control.",
         lifespan=lifespan,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url="/docs" if expose_docs else None,
+        redoc_url="/redoc" if expose_docs else None,
+        openapi_url="/openapi.json" if expose_docs else None,
     )
 
     application.add_middleware(CSRFMiddleware)
@@ -371,10 +376,14 @@ def create_app() -> FastAPI:
         versioned.include_router(router)
     application.include_router(versioned)
 
-    # Temporary alpha compatibility aliases. They are intentionally omitted
-    # from OpenAPI; all generated clients and the UI use /api/v1.
-    for router in routers:
-        application.include_router(router, include_in_schema=False)
+    # Temporary alpha compatibility aliases, kept only outside stage/prod.
+    # Every path-keyed guard in the codebase is written for /api/v1 — see
+    # _MUST_CHANGE_ALLOWED_PATHS in api/routes/auth.py — so mounting an
+    # unversioned copy silently doubles the surface those checks reason
+    # about. Generated clients and the UI use /api/v1 only.
+    if settings.env not in ("stage", "prod"):
+        for router in routers:
+            application.include_router(router, include_in_schema=False)
 
     # OTel FastAPI instrumentation wraps every request in a server span and
     # injects the trace context downstream.

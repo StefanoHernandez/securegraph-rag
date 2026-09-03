@@ -355,3 +355,102 @@ def test_prod_with_strong_master_key_passes() -> None:
             master_key=SecretStr("m" * 32),
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# What the app exposes, and what it mutates, per environment
+# ---------------------------------------------------------------------------
+
+
+def _app_for(env: str, **overrides: object):
+    """Build an app against a Settings instance for the given environment."""
+    import pytest as _pytest
+
+    from securgraph.api import main as api_main
+
+    settings = Settings(_env_file=None, env=env, **overrides)
+    monkeypatch = _pytest.MonkeyPatch()
+    monkeypatch.setattr(api_main, "get_settings", lambda: settings)
+    try:
+        return api_main.create_app()
+    finally:
+        monkeypatch.undo()
+
+
+async def _status(app, path: str) -> int:
+    """Ask the app whether a path is mounted.
+
+    This FastAPI version keeps included routers nested rather than flattening
+    them onto app.routes, and the legacy aliases are include_in_schema=False,
+    so neither route introspection nor the OpenAPI document can answer this.
+    A request can.
+    """
+    from httpx import ASGITransport, AsyncClient
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as probe:
+        return (await probe.post(path, json={})).status_code
+
+
+def test_interactive_docs_are_not_served_in_production() -> None:
+    """Schema and try-it-out consoles are reconnaissance surface.
+
+    They enumerate every route, parameter and model of a system whose whole
+    claim is controlled access, and they were served unconditionally.
+    """
+    app = _app_for("prod")
+    assert app.docs_url is None
+    assert app.redoc_url is None
+    assert app.openapi_url is None
+
+
+def test_interactive_docs_remain_available_in_development() -> None:
+    app = _app_for("dev")
+    assert app.docs_url == "/docs"
+    assert app.openapi_url == "/openapi.json"
+
+
+async def test_legacy_unversioned_aliases_are_not_mounted_in_production() -> None:
+    """Every path-keyed guard in the codebase is written for /api/v1 only.
+
+    _MUST_CHANGE_ALLOWED_PATHS is the clearest case: it lists /api/v1 paths,
+    so the aliases silently double the surface that such checks reason about.
+    """
+    app = _app_for("prod")
+    assert await _status(app, "/auth/login") == 404
+    assert await _status(app, "/api/v1/auth/login") != 404
+
+
+async def test_legacy_aliases_stay_available_for_migration_in_dev() -> None:
+    app = _app_for("dev")
+    assert await _status(app, "/auth/login") != 404
+    assert await _status(app, "/api/v1/auth/login") != 404
+
+
+async def test_openfga_bootstrap_refuses_to_create_a_store_in_production() -> None:
+    """Booting must not write the authorization model that decides access.
+
+    With the ids unset, startup created a store and wrote a fresh model —
+    a control-plane mutation performed by whichever process happened to boot
+    first, and a brand-new store denies everything until it is re-seeded.
+    """
+    from securgraph.api.dependencies import bootstrap_openfga
+
+    with pytest.raises(RuntimeError, match="OPENFGA_STORE_ID"):
+        await bootstrap_openfga(
+            Settings(_env_file=None, env="prod", openfga_store_id="")
+        )
+
+
+async def test_openfga_bootstrap_refuses_an_unpinned_model_in_production() -> None:
+    from securgraph.api.dependencies import bootstrap_openfga
+
+    with pytest.raises(RuntimeError, match="AUTHORIZATION_MODEL_ID"):
+        await bootstrap_openfga(
+            Settings(
+                _env_file=None,
+                env="prod",
+                openfga_store_id="01JSTORE",
+                openfga_authorization_model_id="",
+            )
+        )
