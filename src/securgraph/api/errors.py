@@ -16,7 +16,14 @@ in docs/superpowers/specs/2026-09-03-p2-error-surface-design.md §3.2.1.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
+import structlog
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from securgraph.api.request_context import REQUEST_ID_HEADER, get_request_id
 from securgraph.corpus.manifest import CorpusManifestError
 from securgraph.domain.query import QueryScopeError
 from securgraph.ingestion.limits import MAX_UPLOAD_BYTES, UploadTooLargeError
@@ -114,13 +121,6 @@ def detail_for(exc: BaseException, spec: ErrorSpec) -> str:
 
 # --- appended to src/securgraph/api/errors.py ---
 
-import structlog
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
-
-from securgraph.api.request_context import REQUEST_ID_HEADER, get_request_id
-
 _LOG = structlog.get_logger(__name__)
 
 # Codes for HTTPExceptions raised by hand across the routes, and by the
@@ -161,8 +161,14 @@ def request_id_for(request: Request | None) -> str | None:
     return get_request_id()
 
 
-def error_body(request: Request | None, detail: str, code: str) -> dict[str, str | None]:
-    """The one response shape for every error path."""
+def error_body(request: Request | None, detail: Any, code: str) -> dict[str, Any]:
+    """The one response shape for every error path.
+
+    ``detail`` is passed through with its own type. A route may raise
+    ``HTTPException`` with a structured detail — ``settings.py:496`` returns
+    ``{"message": ..., "references": [...]}`` on a 409 — and coercing that with
+    ``str()`` would hand the caller a Python repr instead of JSON.
+    """
     return {"detail": detail, "code": code, "request_id": request_id_for(request)}
 
 
@@ -199,7 +205,7 @@ async def http_exception_handler(
     request: Request, exc: StarletteHTTPException
 ) -> JSONResponse:
     """HTTPExceptions keep their detail and gain a code derived from status."""
-    body = error_body(request, str(exc.detail), code_for_status(exc.status_code))
+    body = error_body(request, exc.detail, code_for_status(exc.status_code))
     headers = dict(exc.headers or {})
     if body["request_id"]:
         headers[REQUEST_ID_HEADER] = body["request_id"]
@@ -227,7 +233,15 @@ async def unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    """Wire the three handlers. Most specific first."""
+    """Wire the three handlers.
+
+    Registration order does not matter: Starlette resolves a handler by
+    walking the raised exception's MRO against the handler dict, and lifts
+    the ``Exception`` key out to ``ServerErrorMiddleware`` when it builds the
+    stack. FastAPI's own ``RequestValidationError`` handler is untouched and
+    still wins for 422s, because its class is found before ``Exception`` is
+    consulted.
+    """
     for exc_type in ERROR_MAP:
         app.add_exception_handler(exc_type, app_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)  # type: ignore[arg-type]
