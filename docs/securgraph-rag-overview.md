@@ -279,7 +279,6 @@ Le tabelle `policy_decisions`, `query_traces` e `evidence_chunks` sono linkate i
 | PostgreSQL | Metadata + provenance + audit chain + datastore OpenFGA condiviso | 16-alpine |
 | Qdrant | Vector store denso (BGE-M3, 1024-dim) | v1.12.4 |
 | Neo4j | Knowledge graph (entità, relazioni, communities) | 5.25-community + GDS + APOC |
-| neo4j-graphrag | Helper di retrieval sopra il driver Neo4j | >=1.5 |
 | OpenFGA | Servizio ReBAC; `ClientCheckRequest` al retrieval | v1.8.0 |
 | Redis | Coda Arq + decision cache + LangGraph checkpointer | 7-alpine |
 | Jaeger | OTLP collector + UI traces | latest |

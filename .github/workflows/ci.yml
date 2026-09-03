@@ -68,3 +68,47 @@ jobs:
       # `next build` also runs the typed-routes typegen, so this covers tsc.
       - name: Build
         run: npm run build
+
+  security:
+    name: Security (dependency + secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks needs history to scan past commits, not just the tip.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      # Audits the resolved lockfile rather than the installed environment, so
+      # the versions checked are exactly the ones a deployment gets. Pinned to
+      # 3.11 because pip-audit otherwise resolves under its own newer
+      # interpreter and fails on packages that cap Requires-Python.
+      - name: Python dependency audit
+        run: |
+          uv export --frozen --extra dev --extra parsers --extra llm_openai \
+            --no-hashes --no-emit-project > requirements-audit.txt
+          uvx --python 3.11 pip-audit --no-deps -r requirements-audit.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # Moderate and above. The floor is deliberate: a threshold nobody can
+      # keep green stops being read, and this repository currently sits at
+      # zero, so the job fails only on something newly introduced.
+      - name: Web dependency audit
+        working-directory: web
+        run: npm audit --audit-level=moderate
+
+      # The .env files are gitignored, but a scanner is what catches the commit
+      # where that stops being true.
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

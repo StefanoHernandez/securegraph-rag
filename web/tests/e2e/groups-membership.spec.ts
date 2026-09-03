@@ -45,7 +45,18 @@ test.describe("Group membership", () => {
         response.request().method() === "PUT"
     );
 
-    await page.locator("select").first().selectOption({ label: /analyst/i });
+    // selectOption's label matcher takes a string, not a RegExp — the typed
+    // overloads never accepted one. Resolve the option by its own text first.
+    const analystOption = page
+      .locator("select")
+      .first()
+      .locator("option")
+      .filter({ hasText: /analyst/i })
+      .first();
+    await page
+      .locator("select")
+      .first()
+      .selectOption(await analystOption.getAttribute("value") ?? { label: "analyst" });
     await page.getByRole("button", { name: /^Add$/i }).click();
     const addResponse = await addMemberResponsePromise;
     expect(addResponse.status()).toBe(204);

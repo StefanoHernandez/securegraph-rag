@@ -141,6 +141,13 @@ test: ## Run unit + fast integration tests.
 test-unit: ## Run unit tests only.
 	$(VENV)/bin/pytest -m "unit" -v
 
+.PHONY: audit
+audit: ## Audit dependencies for known vulnerabilities (same checks as CI).
+	@$(UV) export --frozen --extra dev --extra parsers --extra llm_openai \
+		--no-hashes --no-emit-project > /tmp/securgraph-requirements-audit.txt
+	@$(UV)x --python 3.11 pip-audit --no-deps -r /tmp/securgraph-requirements-audit.txt
+	@npm --prefix web audit --audit-level=moderate
+
 .PHONY: test-adversarial
 test-adversarial: ## Run adversarial property-based tests (security gate).
 	$(VENV)/bin/pytest -m "adversarial" -v --hypothesis-seed=0
