@@ -414,6 +414,12 @@ class AuthSessionRow(Base):
     refresh_token_hash: Mapped[str] = mapped_column(
         String(64), unique=True, nullable=False, index=True
     )
+    # The hash this session rotated away from. Presenting it again means two
+    # holders have the same credential: one legitimate client and one thief,
+    # indistinguishable to the server. See refresh_session in api/routes/auth.
+    previous_refresh_token_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     csrf_token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)

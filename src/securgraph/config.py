@@ -199,6 +199,10 @@ class Settings(BaseSettings):
     ratelimit_login_user: int = Field(default=5, ge=0)
     ratelimit_query: int = Field(default=30, ge=0)
     ratelimit_ingest: int = Field(default=10, ge=0)
+    # Refresh is an unauthenticated endpoint reached with a bearer-like cookie,
+    # so it is a probing surface of its own; reuse detection revokes a whole
+    # family on a hit, which also makes it a nuisance vector worth bounding.
+    ratelimit_refresh_ip: int = Field(default=60, ge=0)
 
     # ------------------------------------------------------------- auth settings
     jwt_secret: SecretStr = Field(

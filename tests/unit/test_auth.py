@@ -28,7 +28,9 @@ def test_password_hashing() -> None:
     hashed = hash_password(password)
 
     assert hashed != password
-    assert ":" in hashed
+    # Format assertions live in test_password_hashing.py; this only pins the
+    # round trip. ":" was the legacy PBKDF2 separator and no longer applies.
+    assert "$" in hashed
     assert verify_password(password, hashed) is True
     assert verify_password("WrongPassword", hashed) is False
     assert hash_password(password) != hashed

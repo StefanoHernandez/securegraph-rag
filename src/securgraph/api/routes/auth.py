@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import os
@@ -12,10 +13,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import jwt
+import structlog
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from securgraph.api.client_address import client_ip
@@ -23,6 +26,8 @@ from securgraph.api.dependencies import get_db_session, set_tenant_rls_context
 from securgraph.api.ratelimit import enforce_rate, reset_rate
 from securgraph.config import get_settings
 from securgraph.indexing.db import AuthSessionRow, AuthUserRow, TenantMembershipRow
+
+logger = structlog.get_logger(__name__)
 
 ACCESS_COOKIE = "securgraph_access"
 REFRESH_COOKIE = "securgraph_refresh"
@@ -57,20 +62,117 @@ class AuthenticatedPrincipal:
         return self.is_super_admin or (self.tenant_id == tenant_id and self.role == "tenant_admin")
 
 
+# scrypt parameters. 2^16/8/2 is one of the OWASP-listed equivalents to
+# 2^17/8/1 and reaches the same work at half the memory (~64 MB, ~190 ms
+# here), which matters because this stack is documented to run on minimal
+# hardware. They are written into every hash so the cost can be raised later
+# without invalidating stored credentials.
+SCRYPT_COST = 2**16
+SCRYPT_BLOCK_SIZE = 8
+SCRYPT_PARALLELISM = 2
+SCRYPT_KEY_LENGTH = 32
+SCRYPT_SALT_BYTES = 16
+SCRYPT_PREFIX = "scrypt"
+
+# The superseded scheme: PBKDF2-HMAC-SHA256 at 100k iterations, stored as a
+# bare "{salt_hex}:{key_hex}" pair that records none of its own parameters.
+# Still verified so existing users are not locked out; every such hash is
+# replaced on the owner's next successful login.
+LEGACY_PBKDF2_ITERATIONS = 100_000
+
+
+def _scrypt_maxmem(cost: int, block_size: int, parallelism: int) -> int:
+    """OpenSSL refuses to allocate above maxmem, so size it to the request."""
+    return 128 * cost * block_size * (parallelism + 2)
+
+
+def _scrypt_derive(
+    password: str, salt: bytes, cost: int, block_size: int, parallelism: int
+) -> bytes:
+    return hashlib.scrypt(
+        password.encode(),
+        salt=salt,
+        n=cost,
+        r=block_size,
+        p=parallelism,
+        dklen=SCRYPT_KEY_LENGTH,
+        maxmem=_scrypt_maxmem(cost, block_size, parallelism),
+    )
+
+
 def hash_password(password: str) -> str:
-    salt = os.urandom(16)
-    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
-    return f"{salt.hex()}:{key.hex()}"
+    salt = os.urandom(SCRYPT_SALT_BYTES)
+    key = _scrypt_derive(password, salt, SCRYPT_COST, SCRYPT_BLOCK_SIZE, SCRYPT_PARALLELISM)
+    params = f"n={SCRYPT_COST},r={SCRYPT_BLOCK_SIZE},p={SCRYPT_PARALLELISM}"
+    return "$".join(
+        (
+            SCRYPT_PREFIX,
+            params,
+            base64.b64encode(salt).decode(),
+            base64.b64encode(key).decode(),
+        )
+    )
+
+
+def _parse_scrypt_hash(hashed: str) -> tuple[int, int, int, bytes, bytes]:
+    """Return (cost, block_size, parallelism, salt, key); raise ValueError if unusable."""
+    algorithm, params, salt_b64, key_b64 = hashed.split("$")
+    if algorithm != SCRYPT_PREFIX:
+        raise ValueError("Unsupported password hash algorithm")
+    values = dict(item.split("=", maxsplit=1) for item in params.split(","))
+    return (
+        int(values["n"]),
+        int(values["r"]),
+        int(values["p"]),
+        base64.b64decode(salt_b64, validate=True),
+        base64.b64decode(key_b64, validate=True),
+    )
+
+
+def _verify_legacy_pbkdf2(password: str, hashed: str) -> bool:
+    salt_hex, key_hex = hashed.split(":", maxsplit=1)
+    expected = bytes.fromhex(key_hex)
+    if not expected:
+        raise ValueError("Empty legacy password hash")
+    actual = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), bytes.fromhex(salt_hex), LEGACY_PBKDF2_ITERATIONS
+    )
+    return hmac.compare_digest(actual, expected)
 
 
 def verify_password(password: str, hashed: str) -> bool:
+    """Check a password against either the current or the legacy hash format.
+
+    A malformed stored value denies the login rather than raising: a corrupt
+    column must not turn into a 500 on the authentication endpoint.
+    """
     try:
-        salt_hex, key_hex = hashed.split(":", maxsplit=1)
-        expected = bytes.fromhex(key_hex)
-        actual = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt_hex), 100_000)
-        return hmac.compare_digest(actual, expected)
-    except (ValueError, TypeError):
+        if "$" in hashed:
+            cost, block_size, parallelism, salt, expected = _parse_scrypt_hash(hashed)
+            actual = _scrypt_derive(password, salt, cost, block_size, parallelism)
+            return hmac.compare_digest(actual, expected)
+        return _verify_legacy_pbkdf2(password, hashed)
+    except (ValueError, TypeError, KeyError, MemoryError):
         return False
+
+
+def needs_rehash(hashed: str) -> bool:
+    """Whether a stored hash should be replaced after a successful login.
+
+    True for legacy PBKDF2 hashes, for anything unparseable, and for scrypt
+    hashes written under parameters weaker than the current ones.
+    """
+    try:
+        if "$" not in hashed:
+            return True
+        cost, block_size, parallelism, _salt, _key = _parse_scrypt_hash(hashed)
+    except (ValueError, TypeError, KeyError):
+        return True
+    return (
+        cost < SCRYPT_COST
+        or block_size < SCRYPT_BLOCK_SIZE
+        or parallelism < SCRYPT_PARALLELISM
+    )
 
 
 def _hash_token(value: str) -> str:
@@ -430,6 +532,11 @@ async def login(
         raise HTTPException(status_code=401, detail="Invalid username or password")
     if not verify_password(request.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
+    if needs_rehash(user.password_hash):
+        # The plaintext is only available here, so a hash written under the
+        # superseded scheme is upgraded on the owner's next login rather than
+        # waiting for a password change that may never come.
+        user.password_hash = hash_password(request.password)
 
     memberships = await _memberships_for_user(session, user.id)
     tenant_id, role = _select_membership(user, memberships, request.tenant_id)
@@ -468,27 +575,86 @@ async def login(
     return LoginResponse(user=_user_response(user, memberships, tenant_id, role))
 
 
+def _rejected_refresh() -> JSONResponse:
+    """401 that actually clears the session cookies.
+
+    ``clear_session_cookies`` on the injected Response is discarded when the
+    handler raises: FastAPI builds a fresh response from the exception. The
+    cookies have to be cleared on the response that is really returned.
+    """
+    rejection = JSONResponse(
+        status_code=401, content={"detail": "Refresh session is no longer valid"}
+    )
+    clear_session_cookies(rejection)
+    return rejection
+
+
+async def _handle_refresh_reuse(session: AsyncSession, presented_hash: str) -> None:
+    """Revoke the whole session family when an already-rotated token reappears.
+
+    Two holders now have credentials for one session: the legitimate client
+    and whoever took a copy. The server cannot tell which one is presenting
+    the stale token — the thief may have raced ahead, or the real user may be
+    retrying after a dropped response — so the only safe move is to end the
+    session for both and make them authenticate again.
+
+    ``token_version`` is bumped as well: revoking the session row alone would
+    leave the winning holder with a valid access token until it expires.
+    """
+    result = await session.execute(
+        select(AuthSessionRow).where(
+            AuthSessionRow.previous_refresh_token_hash == presented_hash,
+            AuthSessionRow.revoked_at.is_(None),
+        )
+    )
+    reused = result.scalar_one_or_none()
+    if reused is None:
+        return
+    now = datetime.now(UTC)
+    reused.revoked_at = now
+    await session.execute(
+        update(AuthSessionRow)
+        .where(
+            AuthSessionRow.user_id == reused.user_id,
+            AuthSessionRow.revoked_at.is_(None),
+        )
+        .values(revoked_at=now)
+    )
+    user = await session.get(AuthUserRow, reused.user_id)
+    if user is not None:
+        user.token_version += 1
+    logger.warning(
+        "refresh_token_reuse_detected",
+        session_id=reused.id,
+        user_id=reused.user_id,
+    )
+
+
 @router.post("/auth/refresh", response_model=LoginResponse)
 async def refresh_session(
     response: Response,
+    http_request: Request,
     refresh_token: Annotated[str | None, Cookie(alias=REFRESH_COOKIE)] = None,
     session: AsyncSession = Depends(get_db_session),
-) -> LoginResponse:
+) -> LoginResponse | JSONResponse:
+    settings = get_settings()
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Refresh session required")
+    enforce_rate(
+        "refresh_ip",
+        client_ip(http_request, settings=settings),
+        settings.ratelimit_refresh_ip,
+    )
+    presented = _hash_token(refresh_token)
     result = await session.execute(
-        select(AuthSessionRow).where(
-            AuthSessionRow.refresh_token_hash == _hash_token(refresh_token)
-        )
+        select(AuthSessionRow).where(AuthSessionRow.refresh_token_hash == presented)
     )
     auth_session = result.scalar_one_or_none()
-    if (
-        auth_session is None
-        or auth_session.revoked_at is not None
-        or _session_expired(auth_session.expires_at)
-    ):
-        clear_session_cookies(response)
-        raise HTTPException(status_code=401, detail="Refresh session is no longer valid")
+    if auth_session is None:
+        await _handle_refresh_reuse(session, presented)
+        return _rejected_refresh()
+    if auth_session.revoked_at is not None or _session_expired(auth_session.expires_at):
+        return _rejected_refresh()
     user = await session.get(AuthUserRow, auth_session.user_id)
     if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="User is no longer active")
@@ -496,6 +662,9 @@ async def refresh_session(
     tenant_id, role = _select_membership(user, memberships, auth_session.tenant_id)
     new_refresh = secrets.token_urlsafe(48)
     csrf_token = secrets.token_urlsafe(32)
+    # Remember what we rotated away from: replaying it is the only signal that
+    # separates a stolen token from the client that legitimately holds one.
+    auth_session.previous_refresh_token_hash = presented
     auth_session.refresh_token_hash = _hash_token(new_refresh)
     auth_session.csrf_token_hash = _hash_token(csrf_token)
     auth_session.last_seen_at = datetime.now(UTC)

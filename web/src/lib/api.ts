@@ -42,9 +42,16 @@ let refreshPromise: Promise<boolean> | null = null;
 
 async function tryRefreshSession(): Promise<boolean> {
   if (!refreshPromise) {
+    // The refresh cookie alone makes this a cookie-authenticated POST, so the
+    // CSRF middleware rejects it without the double-submit header. It must not
+    // be exempted instead: a forced cross-site refresh would rotate the token
+    // out from under the real client, and the next legitimate use would look
+    // like replay and revoke the whole session family.
+    const csrfToken = readCookie("securgraph_csrf");
     refreshPromise = fetch(`${API_PREFIX}/auth/refresh`, {
       method: "POST",
       credentials: "include",
+      headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
     })
       .then((res) => res.ok)
       .catch(() => false)
