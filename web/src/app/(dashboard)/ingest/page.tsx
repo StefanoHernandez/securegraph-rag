@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SuggestInput } from "@/components/ui/suggest-input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
+import { useExternalSync } from "@/lib/useExternalSync";
 import { ingestApi, operationsApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
 import { searchTenantSuggestions, searchUserSubjects } from "@/lib/suggestions";
@@ -118,22 +119,26 @@ export default function IngestPage() {
   const [jobs, setJobs] = useState<IngestionTrackerJob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (selectedTenantId) {
-      setTenantId(selectedTenantId);
+  // Adjust dependent state during the render that observes the change rather
+  // than from an effect, so the stale value is never committed.
+  useExternalSync(selectedTenantId, (tenant) => {
+    if (tenant) {
+      setTenantId(tenant);
     }
-  }, [selectedTenantId]);
+    // Jobs belong to the previous tenant; drop them with the switch instead of
+    // showing them under the new one until the fetch below returns.
+    setJobs([]);
+  });
 
-  useEffect(() => {
-    const id = sessionUser?.id || sessionUser?.username;
-    if (id) {
-      setOwnerId(`user:${id}`);
+  const sessionOwner = sessionUser?.id || sessionUser?.username;
+  useExternalSync(sessionOwner, (owner) => {
+    if (owner) {
+      setOwnerId(`user:${owner}`);
     }
-  }, [sessionUser]);
+  });
 
   useEffect(() => {
     if (!selectedTenantId) {
-      setJobs([]);
       return;
     }
     let active = true;

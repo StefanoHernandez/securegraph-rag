@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/forensic";
 import VectorAtlasPlot from "@/components/vectors/VectorAtlasPlot";
 import type { AtlasPoint, AtlasViewMode } from "@/components/vectors/atlasPoint";
+import { useExternalSync } from "@/lib/useExternalSync";
 import { adminApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
@@ -135,15 +136,27 @@ export default function VectorsPage() {
   );
 
   useEffect(() => {
+    // loadAtlas sets its loading flag synchronously before its first await,
+    // which trips react-hooks/set-state-in-effect. This is fetch-on-mount, not
+    // state synchronisation: removing the extra render means adopting a
+    // data-fetching layer, which sub-project P5 does. Warns until then.
     void loadAtlas();
   }, [loadAtlas]);
 
-  useEffect(() => {
-    const tenant = searchParams.get("tenant");
+  // Deep links carry the tenant, the query and the points to highlight. Seed
+  // local state during the render that observes a new URL — an effect would
+  // paint the previous query first and correct it on the next frame.
+  const linkedTenant = searchParams.get("tenant");
+  const linkedQuery = searchParams.get("q");
+  const linkedHighlight = searchParams.get("highlight");
+
+  useExternalSync(linkedTenant, (tenant) => {
     if (tenant) selectTenant(tenant);
-    const q = searchParams.get("q");
-    const highlight = searchParams.get("highlight");
+  });
+  useExternalSync(linkedQuery, (q) => {
     if (q) setQueryText(q);
+  });
+  useExternalSync(linkedHighlight, (highlight) => {
     if (highlight) {
       setHighlightIds(
         new Set(
@@ -154,10 +167,16 @@ export default function VectorsPage() {
         )
       );
     }
-    if (q && tenantId) {
-      void runNeighborSearch(q);
+  });
+
+  // The search itself is a side effect and stays in one.
+  useEffect(() => {
+    if (linkedQuery && tenantId) {
+      // Same shape as loadAtlas above: a fetch that flags loading
+      // synchronously. Removed structurally by P5.
+      void runNeighborSearch(linkedQuery);
     }
-  }, [searchParams, tenantId, runNeighborSearch, selectTenant]);
+  }, [linkedQuery, tenantId, runNeighborSearch]);
 
   const documentOptions = useMemo(() => {
     const seen = new Map<string, string>();

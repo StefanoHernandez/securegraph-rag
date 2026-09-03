@@ -8,11 +8,12 @@ const eslintConfig = defineConfig([
   {
     rules: {
       // Downgraded, not silenced. next 16.3 added this rule and it fires on
-      // six pre-existing state-synchronisation effects (ingest and vectors
-      // pages, useSessionUser). They are a cascading-render performance
-      // concern, not a correctness or security one, and fixing them properly
-      // means reworking UI state flow. Kept visible as warnings so the debt
-      // is not lost; see docs/technical/08-development.md.
+      // two fetch-on-mount effects in the vectors page (loadAtlas,
+      // runNeighborSearch). They are a cascading-render performance concern,
+      // not a correctness or security one. Sub-project P5 adopts a
+      // data-fetching layer and removes both call sites structurally, which
+      // is when this override goes away. Kept as a warning so the debt stays
+      // visible until then.
       "react-hooks/set-state-in-effect": "warn",
     },
   },

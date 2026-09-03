@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import type { SessionUser } from "./types";
 
 export function clearSession(): void {
@@ -32,14 +32,49 @@ export function getSessionUser(): SessionUser | null {
   }
 }
 
+// useSyncExternalStore compares snapshots by identity, and getSessionUser()
+// parses fresh JSON on every call, so returning it directly would re-render
+// forever. The parsed value is cached against the raw string it came from and
+// only rebuilt when that string actually changes.
+let cachedRaw: string | null = null;
+let cachedUser: SessionUser | null = null;
+
+function sessionUserSnapshot(): SessionUser | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const raw = localStorage.getItem("securgraph_user");
+  if (raw !== cachedRaw) {
+    cachedRaw = raw;
+    cachedUser = getSessionUser();
+  }
+  return cachedUser;
+}
+
+// Rendered on the server before localStorage exists; a distinct server
+// snapshot is what keeps hydration consistent.
+function serverSessionUserSnapshot(): SessionUser | null {
+  return null;
+}
+
+function subscribeToSessionUser(onChange: () => void): () => void {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+  // `storage` fires in the *other* tabs, so a sign-out elsewhere is reflected
+  // here instead of leaving a stale name in the header until a reload.
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+
 /** Session user for display purposes (name, initials). Authorization is
  * always enforced server-side from the cookie — this is never authoritative. */
 export function useSessionUser(): SessionUser | null {
-  const [user, setUser] = useState<SessionUser | null>(null);
-  useEffect(() => {
-    setUser(getSessionUser());
-  }, []);
-  return user;
+  return useSyncExternalStore(
+    subscribeToSessionUser,
+    sessionUserSnapshot,
+    serverSessionUserSnapshot
+  );
 }
 
 export function displayName(user: SessionUser | null): string {
