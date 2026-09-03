@@ -72,6 +72,33 @@ Tracked honestly rather than hidden:
 - **Deterministic-synthesis templates** are benchmark-specific (see [09 — Evaluation](09-evaluation.md#methodology-caveats)); they can only emit retrieved authorized text, so they are not a leakage vector, but they are not a general mechanism either.
 - **Anchor cadence** — events between anchors rely on DB integrity alone (bounded by the 10 000-event / interval thresholds).
 
+## Response headers
+
+The web app and the API get different sets, because they serve different
+content.
+
+The web app (`web/next.config.ts`) sends a Content-Security-Policy locked to
+same-origin: no external script, style, font, image, or frame host is
+reachable and `connect-src` is `'self'` — the BFF proxies the API, so nothing
+needs to leave the origin. `'unsafe-inline'` for styles and scripts is
+unavoidable without per-request nonces, since Next injects inline bootstrap
+scripts and style tags; the value of the policy here is the origin lock, not
+inline protection. `frame-ancestors 'none'` blocks framing even where
+`X-Frame-Options` is unsupported. Also sent: `X-Content-Type-Options`,
+`X-Frame-Options`, `Referrer-Policy`, a `Permissions-Policy` denying camera,
+microphone, geolocation, payment and USB (the UI uses none of them), and HSTS,
+which is inert over plain HTTP and applies once TLS terminates in front.
+
+The API sends `X-Content-Type-Options`, `X-Frame-Options` and
+`Referrer-Policy`, plus `Cache-Control: no-store` on every endpoint that
+mints, rotates or reveals session material — `/auth/login`, `/auth/refresh`,
+`/auth/me`, `/auth/sessions`. It sends **no** CSP: the interactive docs load
+Swagger UI from a CDN and a strict policy would break them.
+
+`SECURGRAPH_ALLOWED_HOSTS` enables `TrustedHostMiddleware` against Host-header
+poisoning and DNS rebinding. Empty (the default) accepts any host so local
+development and container health checks keep working; set it in stage/prod.
+
 ## Egress and data classification
 
 Egress rules match on **provider and stage only**. There is no classification

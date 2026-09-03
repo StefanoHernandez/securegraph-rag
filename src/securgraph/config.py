@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # a misconfiguration costs per-client granularity instead of handing every
     # caller a spoofable rate-limit key. See securgraph.api.client_address.
     trusted_proxies: list[str] = Field(default_factory=list)
+    # Host header allowlist (TrustedHostMiddleware). Empty accepts any host so
+    # local development and container health checks keep working; set it in
+    # stage/prod to block Host-header poisoning and DNS rebinding.
+    allowed_hosts: list[str] = Field(default_factory=list)
 
     # ----------------------------------------------------------------- postgres
     # PostgreSQL credentials use bare env names so the same .env feeds both

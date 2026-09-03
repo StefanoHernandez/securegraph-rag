@@ -16,10 +16,11 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from securgraph import __version__
-from securgraph.api.middleware import CSRFMiddleware
+from securgraph.api.middleware import CSRFMiddleware, SecurityHeadersMiddleware
 from securgraph.api.routes import admin as admin_routes
 from securgraph.api.routes import auth as auth_routes
 from securgraph.api.routes import config as config_routes
@@ -336,6 +337,11 @@ def create_app() -> FastAPI:
     )
 
     application.add_middleware(CSRFMiddleware)
+    application.add_middleware(SecurityHeadersMiddleware)
+    if settings.allowed_hosts:
+        application.add_middleware(
+            TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts
+        )
 
     # The normal browser path is the same-origin Next.js BFF. Explicit origins
     # remain available in development for direct API diagnostics.
