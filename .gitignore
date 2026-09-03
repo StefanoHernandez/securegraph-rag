@@ -119,3 +119,6 @@ docker/postgres-init/*
 .codex/
 # Playwright output
 web/test-results/
+
+# Subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/
