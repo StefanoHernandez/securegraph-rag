@@ -668,5 +668,21 @@
     "custodySeal": "custody seal",
     "sealed": "SEALED",
     "consensusNA": "CONSENSUS N/A (SINGLE LANE)"
+  },
+  "errors": {
+    "egress_blocked": "This request was blocked by your tenant's egress policy.",
+    "query_scope_invalid": "That query scope cannot be applied to this kind of query.",
+    "egress_url_invalid": "That provider base URL is not valid.",
+    "upload_too_large": "The document is larger than the ingestion size limit.",
+    "corpus_manifest_invalid": "The corpus manifest could not be read.",
+    "ingestion_failed": "Ingestion failed. The failure has been recorded.",
+    "secret_unavailable": "A stored credential could not be read. Check the provider settings.",
+    "csrf_invalid": "Your session could not be verified. Reload the page and try again.",
+    "refresh_rejected": "Your session has expired. Sign in again.",
+    "forbidden": "You do not have permission to do that.",
+    "not_found": "That resource does not exist, or you cannot see it.",
+    "rate_limited": "Too many attempts. Wait a moment and try again.",
+    "internal_error": "The request could not be completed.",
+    "reference": "Reference: {id}"
   }
 }
