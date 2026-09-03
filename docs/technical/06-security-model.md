@@ -72,6 +72,36 @@ Tracked honestly rather than hidden:
 - **Deterministic-synthesis templates** are benchmark-specific (see [09 — Evaluation](09-evaluation.md#methodology-caveats)); they can only emit retrieved authorized text, so they are not a leakage vector, but they are not a general mechanism either.
 - **Anchor cadence** — events between anchors rely on DB integrity alone (bounded by the 10 000-event / interval thresholds).
 
+## Retrieved content is data, not instructions
+
+Draft prompts interpolated evidence with nothing marking where the document
+ended and the instruction resumed, so a sentence inside an ingested file read
+exactly like the operator's own framing.
+
+This never leaked unauthorized chunks — retrieval is filtered through OpenFGA
+before anything reaches a prompt, which is C1 doing its job. What it could do
+is steer what the model says about *authorized* evidence. That matters here
+more than in a plain RAG system: the same drafts feed the NLI judge whose
+agreement score gates the high-trust badge (C2), so a poisoned document that
+alters a draft alters the confidence signal the interface presents as
+evidence of trustworthiness.
+
+Evidence is now wrapped in `<<<RETRIEVED_EVIDENCE>>>` /
+`<<<END_RETRIEVED_EVIDENCE>>>`, the delimiters are stripped from the content
+they wrap so a document cannot close the block and address the model
+directly, and both draft system prompts declare the block as data. Content is
+never censored: this corpus contains security policies that legitimately
+quote instruction-shaped text, and stripping suspicious phrases would corrupt
+them.
+
+**What this does not do.** A delimiter cannot make a model obey. It makes the
+boundary explicit and unforgeable, which removes the trivial attack; a
+sufficiently persuasive payload inside the block may still influence the
+draft. The residual defence is that both lanes must agree before an answer is
+marked high-trust, and that a poisoned document is itself evidence an auditor
+can retrieve from the provenance trace. Treat prompt injection as mitigated,
+not solved.
+
 ## Environment-gated surface
 
 Three things are available in dev and test and withdrawn in stage/prod,
