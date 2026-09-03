@@ -28,6 +28,11 @@ from securgraph.indexing.db import (
     TenantMembershipRow,
 )
 from securgraph.indexing.postgres_writer import create_ingestion_job, store_ingestion_source
+from securgraph.ingestion.limits import (
+    MAX_UPLOAD_BYTES,
+    UPLOAD_CHUNK_BYTES,
+    UploadTooLargeError,
+)
 from securgraph.ingestion.metadata import derive_document_id
 from securgraph.ingestion.metadata import source_hash as compute_source_hash
 from securgraph.ingestion.service import IngestionRequest, ingest_document
@@ -40,11 +45,6 @@ router = APIRouter(tags=["ingestion"])
 # the API boundary instead of failing later inside the pipeline.
 _ALLOWED_UPLOAD_EXTENSIONS = frozenset({".md", ".markdown", ".txt", ".pdf", ".docx", ".xlsx"})
 _MAX_FILENAME_LENGTH = 256
-
-# Ingestion budget. Enforced while reading rather than after, so an oversized
-# body is abandoned mid-stream instead of being spooled in full and measured.
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 # Ingestion changes what every other user's answers are built from, so it is
 # not part of read-only access. can_access_tenant() is true for any member of
@@ -66,10 +66,6 @@ def _ensure_may_ingest(principal: AuthenticatedPrincipal | None) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Ingestion requires the analyst role or higher.",
         )
-
-
-class UploadTooLargeError(Exception):
-    """Raised as soon as an upload passes the ingestion budget."""
 
 
 async def _read_within_limit(upload: UploadFile, limit: int) -> bytes:
