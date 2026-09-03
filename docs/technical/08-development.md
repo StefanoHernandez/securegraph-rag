@@ -92,6 +92,24 @@ Run `make ci && make cov` locally for the backend baseline.
 4. If retrieval, policy, or synthesis behavior changed, re-run the MRD evaluation with `make mrd-live` ([09 — Evaluation](09-evaluation.md)) — the leakage-zero and deny invariants are release-blocking.
 5. Open a PR to `main` after recording the applicable local gate results.
 
+## Known lint debt
+
+`react-hooks/set-state-in-effect` is downgraded to a warning in
+`web/eslint.config.mjs`. It arrived with next 16.3 and fires on six
+pre-existing effects that synchronise local state with an external value:
+three in `app/(dashboard)/ingest/page.tsx`, two in
+`app/(dashboard)/vectors/page.tsx`, and `useSessionUser` in `lib/session.ts`.
+
+They are a cascading-render performance concern, not correctness or security.
+Fixing them properly means reworking how those pages own their state —
+deriving instead of synchronising, and `useSyncExternalStore` with a cached
+snapshot for `useSessionUser` — and none of those pages currently has test
+coverage, so the change would be unverifiable. Downgraded rather than
+disabled so the warnings stay on screen.
+
+Whoever picks this up: add coverage for the ingest and vectors flows first,
+then restore the rule to `error`.
+
 ## Troubleshooting quick hits
 
 | Symptom | Likely cause / fix |

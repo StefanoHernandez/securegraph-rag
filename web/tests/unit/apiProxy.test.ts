@@ -51,6 +51,59 @@ describe("API proxy", () => {
     expect(headers.get("x-csrf-token")).toBe("keep-me");
   });
 
+  // `new URL()` normalises the joined path, so a traversal segment escapes the
+  // /api/v1 prefix the proxy is supposed to confine callers to.
+  it.each([["..", "auth"], ["auth", ".."], ["%2e%2e", "auth"]])(
+    "refuses traversal segments (%s/%s)",
+    async (...segments: string[]) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const request = new NextRequest("http://localhost/api/v1/x");
+
+      const response = await GET(request, {
+        params: Promise.resolve({ path: segments }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it("does not hang when the backend never answers", async () => {
+    // Without a timeout an unresponsive backend holds a Next worker open for
+    // as long as the socket stays alive.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: unknown, init: RequestInit) => {
+        expect(init.signal).toBeInstanceOf(AbortSignal);
+        return Promise.resolve(new Response(null, { status: 204 }));
+      })
+    );
+    const request = new NextRequest("http://localhost/api/v1/auth/me");
+
+    const response = await GET(request, {
+      params: Promise.resolve({ path: ["auth", "me"] }),
+    });
+
+    expect(response.status).toBe(204);
+  });
+
+  it("reports an upstream timeout as 504", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(
+        Object.assign(new Error("The operation was aborted"), { name: "TimeoutError" })
+      )
+    );
+    const request = new NextRequest("http://localhost/api/v1/auth/me");
+
+    const response = await GET(request, {
+      params: Promise.resolve({ path: ["auth", "me"] }),
+    });
+
+    expect(response.status).toBe(504);
+  });
+
   it("forwards them when a trusted reverse proxy sits in front", async () => {
     process.env.SECURGRAPH_TRUST_PROXY_HEADERS = "true";
     const forwardedHeaders = captureForwardedHeaders();

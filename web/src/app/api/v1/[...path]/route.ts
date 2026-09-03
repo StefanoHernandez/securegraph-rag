@@ -32,12 +32,36 @@ function trustsInboundForwardingHeaders(): boolean {
   return process.env.SECURGRAPH_TRUST_PROXY_HEADERS === "true";
 }
 
+// An unresponsive backend would otherwise hold a Next worker open for as long
+// as the socket stays alive. Generous enough for ingestion and query, which
+// wait on embeddings and an LLM round trip.
+const UPSTREAM_TIMEOUT_MS = 120_000;
+
+// Catch-all segments arrive decoded, and `new URL()` normalises the joined
+// path — so a ".." segment climbs out of the /api/v1 prefix this proxy exists
+// to confine callers to. Rejected rather than sanitised: no legitimate route
+// segment contains a slash or a dot-dot.
+function hasTraversalSegment(segments: string[]): boolean {
+  return segments.some(
+    (segment) =>
+      segment === "." ||
+      segment === ".." ||
+      segment.includes("/") ||
+      segment.includes("\\") ||
+      decodeURIComponent(segment) === ".." ||
+      decodeURIComponent(segment).includes("/")
+  );
+}
+
 type RouteContext = {
   params: Promise<{ path: string[] }>;
 };
 
 async function proxy(request: NextRequest, context: RouteContext) {
   const params = await context.params;
+  if (hasTraversalSegment(params.path)) {
+    return NextResponse.json({ detail: "Invalid request path." }, { status: 400 });
+  }
   const path = params.path.join("/");
   const target = new URL(`/api/v1/${path}${request.nextUrl.search}`, BACKEND_ORIGIN);
   const headers = new Headers();
@@ -66,8 +90,12 @@ async function proxy(request: NextRequest, context: RouteContext) {
       body,
       redirect: "manual",
       cache: "no-store",
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return NextResponse.json({ detail: "Backend service timed out." }, { status: 504 });
+    }
     return NextResponse.json({ detail: "Backend service unavailable." }, { status: 503 });
   }
 

@@ -27,6 +27,12 @@ from typing import IO, Final, Literal
 PARSER_VERSION: Final = "1.0.0"
 
 SourceFormat = Literal["markdown", "text", "pdf", "docx", "xlsx"]
+# The docx path accepts the same attacker-authored uploads as xlsx and needs
+# the same ceilings: a .docx is equally a ZIP of XML, so it compresses just as
+# well and expands just as far.
+DOCX_MAX_DECOMPRESSED_BYTES: Final = 25 * 1024 * 1024
+DOCX_MAX_PARAGRAPHS: Final = 100_000
+
 XLSX_MAX_SHEETS: Final = 25
 XLSX_MAX_CELLS: Final = 200_000
 XLSX_MAX_DECOMPRESSED_BYTES: Final = 25 * 1024 * 1024
@@ -224,12 +230,25 @@ def parse_pdf_file(fh: IO[bytes]) -> ParsedDocument:
 
 
 def parse_docx_bytes(data: bytes) -> ParsedDocument:
-    """Extract paragraphs; headings (style names starting with 'Heading') drive sections."""
+    """Extract paragraphs; headings (style names starting with 'Heading') drive sections.
+
+    External entities are not resolved by the underlying parser — pinned by
+    ``tests/unit/test_docx_parser_hardening.py`` so a dependency change cannot
+    quietly reintroduce XXE against uploaded documents.
+    """
+    import zipfile
     from io import BytesIO
 
     import docx  # python-docx
 
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        decompressed_size = sum(info.file_size for info in archive.infolist())
+    if decompressed_size > DOCX_MAX_DECOMPRESSED_BYTES:
+        raise ValueError("DOCX decompressed size exceeds parser limit.")
+
     document = docx.Document(BytesIO(data))
+    if len(document.paragraphs) > DOCX_MAX_PARAGRAPHS:
+        raise ValueError("DOCX paragraph limit exceeded.")
     sections: list[ParsedSection] = []
     stack: list[str] = []
     buffer: list[str] = []
