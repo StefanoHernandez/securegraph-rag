@@ -97,7 +97,7 @@ def spec_for(exc: BaseException) -> ErrorSpec | None:
     signal to fall through to the unhandled path.
     """
     for klass in type(exc).__mro__:
-        spec = ERROR_MAP.get(klass)  # type: ignore[arg-type]
+        spec = ERROR_MAP.get(klass)
         if spec is not None:
             return spec
     return None
