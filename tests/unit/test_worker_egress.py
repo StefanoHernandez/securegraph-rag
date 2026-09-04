@@ -17,7 +17,7 @@ import pytest
 
 from securgraph.adapters.llm import get_llm_adapter_for, reset_llm_adapter_cache
 from securgraph.ingestion.worker import async_ingest_task
-from securgraph.policy.egress import EgressBlockedError
+from securgraph.policy.egress import EgressBlockedError, enforce_egress
 from securgraph.runtime_overrides import clear_runtime_overrides, set_runtime_override
 
 pytestmark = pytest.mark.unit
@@ -121,18 +121,23 @@ async def test_worker_loads_the_egress_policy_before_building_an_adapter(
     assert "Egress blocked by tenant policy" in str(failures[0]["error"])
 
 
-async def test_without_the_reload_the_worker_would_not_see_the_policy() -> None:
+def test_without_the_reload_the_worker_would_not_see_the_policy() -> None:
     """The bug this guards, stated directly.
 
     The API process stores the override; a second process starts with an empty
     map, and `enforce_egress` reads that as no policy at all.
+
+    Asserted on `enforce_egress` rather than on `get_llm_adapter_for`: the
+    allowed case would otherwise continue into adapter construction, which
+    needs a provider API key. That key comes from a gitignored `.env`, so the
+    test would pass on a developer machine and fail in CI — which is exactly
+    what it did.
     """
     set_runtime_override("mrd", "egress_policy", BLOCK_EVERYTHING)
     with pytest.raises(EgressBlockedError):
-        get_llm_adapter_for("extract", tenant_id="mrd")
+        enforce_egress("mrd", "mistral", "extract")
 
     clear_runtime_overrides()  # a fresh process, e.g. the arq worker
-    reset_llm_adapter_cache()
-    # The same tenant and the same stored policy, and the adapter is built
-    # without complaint. Nothing logs, nothing fails: the call just leaves.
-    get_llm_adapter_for("extract", tenant_id="mrd")
+    # The same tenant and the same stored policy, and the call is simply
+    # allowed. Nothing logs, nothing fails: the request just leaves.
+    enforce_egress("mrd", "mistral", "extract")
