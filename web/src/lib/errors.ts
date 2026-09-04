@@ -64,13 +64,3 @@ export function useErrorMessage() {
     [t]
   );
 }
-
-/**
- * @deprecated Kept only so the tree compiles between this task and the call-site
- * sweep. Returns the fallback and ignores the error — it has no translator, so
- * it cannot do better, and returning the backend's text is what it used to do
- * wrong. Deleted at the end of the sweep.
- */
-export function getErrorMessage(_error: unknown, fallback: string): string {
-  return fallback;
-}

@@ -7,10 +7,11 @@ import { HealthResponse } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/forensic";
 import { RefreshCw, Activity } from "lucide-react";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 
 export default function HealthPage() {
   const t = useTranslations("healthPage");
+  const showError = useErrorMessage();
   const [data, setData] = useState<HealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,11 +26,11 @@ export default function HealthPage() {
       setError(null);
       setLastUpdated(new Date());
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("loadError")));
+      setError(showError(err, t("loadError")));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, showError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void fetchHealth(), 0);

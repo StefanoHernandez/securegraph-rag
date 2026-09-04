@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/forensic";
 import { controlPlaneApi } from "@/lib/api";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { TenantDetail, TenantStatus } from "@/lib/types";
 
 const STATUSES: TenantStatus[] = ["active", "suspended", "archived"];
 
 export default function TenantsPage() {
   const t = useTranslations("tenantsPage");
+  const showError = useErrorMessage();
   const [tenants, setTenants] = useState<TenantDetail[]>([]);
   const [tenantId, setTenantId] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -27,11 +28,11 @@ export default function TenantsPage() {
       setTenants(await controlPlaneApi.listTenants());
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("loadError")));
+      setError(showError(err, t("loadError")));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, showError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadTenants(), 0);
@@ -48,7 +49,7 @@ export default function TenantsPage() {
       setTenantId("");
       setDisplayName("");
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("createError")));
+      setError(showError(err, t("createError")));
     } finally {
       setSaving(false);
     }
@@ -67,7 +68,7 @@ export default function TenantsPage() {
       const updated = await controlPlaneApi.updateTenant(tenant.id, body);
       setTenants((items) => items.map((item) => (item.id === updated.id ? updated : item)));
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("updateError")));
+      setError(showError(err, t("updateError")));
     }
   };
 

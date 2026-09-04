@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { SuggestInput } from "@/components/ui/suggest-input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
 import { adminApi, controlPlaneApi, tenantApi } from "@/lib/api";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import {
   documentToFgaObject,
   loadGroupSubjectsForTenant,
@@ -33,6 +33,7 @@ interface FGATuple {
 
 export default function PermissionsPage() {
   const t = useTranslations("permissionsPage");
+  const showError = useErrorMessage();
   const [tuples, setTuples] = useState<FGATuple[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +88,7 @@ export default function PermissionsPage() {
     } catch (err: unknown) {
       console.error(err);
       setError(
-        getErrorMessage(err, t("loadError"))
+        showError(err, t("loadError"))
       );
       // No fake fallback: on error show an empty list + the error banner
       // instead of fabricating permission tuples.
@@ -99,7 +100,7 @@ export default function PermissionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, showError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void fetchTuples(), 0);
@@ -166,7 +167,7 @@ export default function PermissionsPage() {
       setFormSuccess(t("grantSuccess", { subject, relation, object }));
       await fetchTuples();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("grantError")));
+      setError(showError(err, t("grantError")));
     } finally {
       setSubmitting(false);
     }
@@ -190,7 +191,7 @@ export default function PermissionsPage() {
       await adminApi.revokePermission(tuple.user, tuple.relation, tuple.object);
       await fetchTuples();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("revokeError")));
+      setError(showError(err, t("revokeError")));
       setLoading(false);
     }
   };

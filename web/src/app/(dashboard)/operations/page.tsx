@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/forensic";
 import { operationsApi } from "@/lib/api";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { OperationIngestionJob, OperationJob } from "@/lib/types";
 import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 
@@ -31,6 +31,7 @@ function statusClass(status: string): string {
 
 export default function OperationsPage() {
   const t = useTranslations("operationsPage");
+  const showError = useErrorMessage();
   const { tenantId, tenants, loadingTenants, selectTenant } = useTenantSelection();
   const [jobs, setJobs] = useState<OperationIngestionJob[]>([]);
   const [operationJobs, setOperationJobs] = useState<OperationJob[]>([]);
@@ -58,11 +59,11 @@ export default function OperationsPage() {
       setOperationJobs(operationResult.jobs);
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("loadError")));
+      setError(showError(err, t("loadError")));
     } finally {
       setLoading(false);
     }
-  }, [loadingTenants, tenantId, t]);
+  }, [loadingTenants, tenantId, t, showError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadJobs(), 0);
@@ -78,7 +79,7 @@ export default function OperationsPage() {
       setNotice(t("retryQueued", { jobId }));
       await loadJobs();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("retryError")));
+      setError(showError(err, t("retryError")));
     } finally {
       setRunningJobId(null);
     }
@@ -97,7 +98,7 @@ export default function OperationsPage() {
       );
       await loadJobs();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("reconcileError")));
+      setError(showError(err, t("reconcileError")));
     } finally {
       setReconciling(false);
     }
@@ -126,7 +127,7 @@ export default function OperationsPage() {
       setNotice(t("operationFinished", { kind: result.kind, status: result.status }));
       await loadJobs();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("operationError")));
+      setError(showError(err, t("operationError")));
     } finally {
       setRunningOperation(null);
     }

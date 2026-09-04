@@ -20,7 +20,7 @@ import VectorAtlasPlot from "@/components/vectors/VectorAtlasPlot";
 import type { AtlasPoint, AtlasViewMode } from "@/components/vectors/atlasPoint";
 import { useExternalSync } from "@/lib/useExternalSync";
 import { adminApi } from "@/lib/api";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 
@@ -47,6 +47,7 @@ function useReducedMotion(): boolean {
 
 export default function VectorsPage() {
   const t = useTranslations("vectorsPage");
+  const showError = useErrorMessage();
   const searchParams = useSearchParams();
   const reducedMotion = useReducedMotion();
   const { tenants, tenantId, loadingTenants, tenantError, selectTenant } =
@@ -106,11 +107,11 @@ export default function VectorsPage() {
       setPoints(res.points);
       setProjectionMethod(res.projection_method);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("loadError")));
+      setError(showError(err, t("loadError")));
     } finally {
       setLoading(false);
     }
-  }, [tenantId, documentFilter, classificationFilter, projectionDims, t]);
+  }, [tenantId, documentFilter, classificationFilter, projectionDims, t, showError]);
 
   const runNeighborSearch = useCallback(
     async (text: string) => {
@@ -127,12 +128,12 @@ export default function VectorsPage() {
           }))
         );
       } catch (err: unknown) {
-        setError(getErrorMessage(err, t("searchError")));
+        setError(showError(err, t("searchError")));
       } finally {
         setLoading(false);
       }
     },
-    [tenantId, t]
+    [tenantId, t, showError]
   );
 
   useEffect(() => {

@@ -10,12 +10,13 @@ import { Panel } from "@/components/forensic";
 import { CustodyTimeline } from "@/components/explain/CustodyTimeline";
 import { explainApi } from "@/lib/api";
 import { ExplainReport } from "@/lib/types";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { useTenant } from "@/context/TenantProvider";
 import { useSessionUser } from "@/lib/session";
 
 function ExplainContent() {
   const t = useTranslations("explainPage");
+  const showError = useErrorMessage();
   const searchParams = useSearchParams();
   const router = useRouter();
   const traceIdParam = searchParams.get("trace_id");
@@ -38,7 +39,7 @@ function ExplainContent() {
     } catch (err: unknown) {
       console.error(err);
       setError(
-        getErrorMessage(
+        showError(
           err,
           t("loadError")
         )
@@ -47,7 +48,7 @@ function ExplainContent() {
     } finally {
       setLoading(false);
     }
-  }, [sessionUser, t, tenantId]);
+  }, [sessionUser, t, tenantId, showError]);
 
   useEffect(() => {
     if (!traceIdParam) return;

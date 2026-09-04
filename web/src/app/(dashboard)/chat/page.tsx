@@ -11,7 +11,7 @@ import { Panel } from "@/components/forensic";
 import { queryApi } from "@/lib/api";
 import { Classification, QueryRequest, QueryResponse, RetrievalMode, QueryType } from "@/lib/types";
 import AnswerCard from "@/components/chat/AnswerCard";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { useTenant } from "@/context/TenantProvider";
 import { useSessionUser } from "@/lib/session";
 import {
@@ -40,6 +40,7 @@ const CLASSIFICATION_LEVELS = [
 
 export default function ChatPage() {
   const t = useTranslations("chatPage");
+  const showError = useErrorMessage();
   const { tenantId: selectedTenantId } = useTenant();
   const sessionUser = useSessionUser();
   const tenantId = selectedTenantId ?? "default";
@@ -175,7 +176,7 @@ export default function ChatPage() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error: unknown) {
-      const detail = getErrorMessage(error, t("error"));
+      const detail = showError(error, t("error"));
       const errorMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",

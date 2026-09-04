@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
 import { authApi } from "@/lib/api";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 
 function postLoginTarget(): string {
   // Return-URL from ?next=, restricted to internal paths ("/..." but not
@@ -21,6 +21,7 @@ function postLoginTarget(): string {
 
 export default function LoginForm() {
   const t = useTranslations("loginPage");
+  const showError = useErrorMessage();
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -65,7 +66,7 @@ export default function LoginForm() {
       router.push(postLoginTarget());
     } catch (err: unknown) {
       setError(
-        getErrorMessage(err, t("invalid"))
+        showError(err, t("invalid"))
       );
     } finally {
       setLoading(false);

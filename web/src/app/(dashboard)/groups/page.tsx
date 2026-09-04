@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { SuggestInput } from "@/components/ui/suggest-input";
 import { Panel } from "@/components/forensic";
 import { controlPlaneApi } from "@/lib/api";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { searchUserIds } from "@/lib/suggestions";
 import { GroupKind, TenantGroup, TenantUser } from "@/lib/types";
 import { useTenant as useTenantSelection } from "@/context/TenantProvider";
@@ -17,6 +17,7 @@ const KINDS: GroupKind[] = ["functional", "project"];
 
 export default function GroupsPage() {
   const t = useTranslations("groupsPage");
+  const showError = useErrorMessage();
   const { tenantId, loadingTenants } = useTenantSelection();
   const [groups, setGroups] = useState<TenantGroup[]>([]);
   const [users, setUsers] = useState<TenantUser[]>([]);
@@ -53,11 +54,11 @@ export default function GroupsPage() {
       setSelectedGroupId(nextGroupId);
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("loadError")));
+      setError(showError(err, t("loadError")));
     } finally {
       setLoading(false);
     }
-  }, [loadingTenants, selectedGroupId, tenantId, t]);
+  }, [loadingTenants, selectedGroupId, tenantId, t, showError]);
 
   const loadMembers = useCallback(async () => {
     if (!tenantId || !selectedGroupId) {
@@ -68,9 +69,9 @@ export default function GroupsPage() {
       setMembers(await controlPlaneApi.listGroupMembers(tenantId, selectedGroupId));
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("loadMembersError")));
+      setError(showError(err, t("loadMembersError")));
     }
-  }, [selectedGroupId, tenantId, t]);
+  }, [selectedGroupId, tenantId, t, showError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadGroups(), 0);
@@ -103,7 +104,7 @@ export default function GroupsPage() {
       setDescription("");
       setKind("project");
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("createError")));
+      setError(showError(err, t("createError")));
     } finally {
       setSaving(false);
     }
@@ -119,7 +120,7 @@ export default function GroupsPage() {
       setSelectedUserId("");
       await loadMembers();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("addError")));
+      setError(showError(err, t("addError")));
     }
   };
 
@@ -132,7 +133,7 @@ export default function GroupsPage() {
       await controlPlaneApi.removeGroupMember(tenantId, selectedGroupId, user.id);
       await loadMembers();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("removeError")));
+      setError(showError(err, t("removeError")));
     }
   };
 
@@ -153,7 +154,7 @@ export default function GroupsPage() {
       const updated = await controlPlaneApi.updateGroup(tenantId, group.id, body);
       setGroups((items) => items.map((item) => (item.id === updated.id ? updated : item)));
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("updateError")));
+      setError(showError(err, t("updateError")));
     }
   };
 

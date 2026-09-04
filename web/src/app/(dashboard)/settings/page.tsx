@@ -6,7 +6,7 @@ import { Calculator, CheckCircle2, KeyRound, RefreshCw, Save, ShieldAlert, Trash
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/forensic";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { settingsApi } from "@/lib/api";
 import {
   ProviderCredentialStatus,
@@ -43,6 +43,7 @@ const DEFAULT_EGRESS_POLICY = JSON.stringify(
 
 export default function SettingsPage() {
   const t = useTranslations("settingsPage");
+  const showError = useErrorMessage();
   const { tenantId, loadingTenants } = useTenantSelection();
   const [providers, setProviders] = useState<ProviderCredentialStatus[]>([]);
   const [provider, setProvider] = useState<ProviderName>("openai");
@@ -85,9 +86,9 @@ export default function SettingsPage() {
       setProviders(await settingsApi.listProviders(tenantId));
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("loadError")));
+      setError(showError(err, t("loadError")));
     }
-  }, [tenantId, t]);
+  }, [tenantId, t, showError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadProviders(), 0);
@@ -114,7 +115,7 @@ export default function SettingsPage() {
       ]);
       setApiKey("");
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("providerFailed")));
+      setError(showError(err, t("providerFailed")));
     } finally {
       setSavingProvider(false);
     }
@@ -132,7 +133,7 @@ export default function SettingsPage() {
         rows.map((row) => (row.provider === item ? result : row))
       );
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("providerFailed")));
+      setError(showError(err, t("providerFailed")));
     } finally {
       setTestingProvider(null);
     }
@@ -157,7 +158,7 @@ export default function SettingsPage() {
       await settingsApi.deleteProviderCredential(tenantId, item);
       setProviders((rows) => rows.filter((row) => row.provider !== item));
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("providerFailed")));
+      setError(showError(err, t("providerFailed")));
     } finally {
       setRemovingProvider(null);
     }
@@ -178,7 +179,7 @@ export default function SettingsPage() {
       });
       setRuntimeResult(result);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("runtimeFailed")));
+      setError(showError(err, t("runtimeFailed")));
     } finally {
       setSavingRuntime(false);
     }
@@ -198,7 +199,7 @@ export default function SettingsPage() {
       });
       setEgressResult(result);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("egressFailed")));
+      setError(showError(err, t("egressFailed")));
     } finally {
       setSavingEgress(false);
     }
@@ -231,7 +232,7 @@ export default function SettingsPage() {
       });
       setCostEstimate(result);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("estimateFailed")));
+      setError(showError(err, t("estimateFailed")));
     } finally {
       setEstimatingCost(false);
     }
@@ -255,7 +256,7 @@ export default function SettingsPage() {
       });
       setReindexPlan(result);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("reindexFailed")));
+      setError(showError(err, t("reindexFailed")));
     } finally {
       setPlanningReindex(false);
     }

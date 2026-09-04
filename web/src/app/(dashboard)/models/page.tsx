@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/forensic";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { settingsApi } from "@/lib/api";
 import { ModelCatalogEntry, ProviderName } from "@/lib/types";
 import { useTenant as useTenantSelection } from "@/context/TenantProvider";
@@ -21,6 +21,7 @@ const PROVIDERS: Array<ProviderName | "all"> = [
 
 export default function ModelsPage() {
   const t = useTranslations("modelsPage");
+  const showError = useErrorMessage();
   const { tenantId, loadingTenants } = useTenantSelection();
   const [models, setModels] = useState<ModelCatalogEntry[]>([]);
   const [providerFilter, setProviderFilter] = useState<ProviderName | "all">("all");
@@ -37,11 +38,11 @@ export default function ModelsPage() {
       setModels(await settingsApi.listModels(tenantId));
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("loadError")));
+      setError(showError(err, t("loadError")));
     } finally {
       setLoading(false);
     }
-  }, [loadingTenants, tenantId, t]);
+  }, [loadingTenants, tenantId, t, showError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadModels(), 0);

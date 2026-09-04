@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { SuggestInput } from "@/components/ui/suggest-input";
 import { Panel } from "@/components/forensic";
 import { controlPlaneApi } from "@/lib/api";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { appendCsvValue, searchUserIds } from "@/lib/suggestions";
 import { AccessTemplate, Classification, TenantGroup } from "@/lib/types";
 import { useTenant as useTenantSelection } from "@/context/TenantProvider";
@@ -29,6 +29,7 @@ function appendCsvIds(current: string, value: string): string {
 
 export default function AccessTemplatesPage() {
   const t = useTranslations("accessTemplatesPage");
+  const showError = useErrorMessage();
   const { tenantId, loadingTenants } = useTenantSelection();
   const [templates, setTemplates] = useState<AccessTemplate[]>([]);
   const [groups, setGroups] = useState<TenantGroup[]>([]);
@@ -72,11 +73,11 @@ export default function AccessTemplatesPage() {
       setGroups(groupRows);
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("loadError")));
+      setError(showError(err, t("loadError")));
     } finally {
       setLoading(false);
     }
-  }, [loadingTenants, tenantId, t]);
+  }, [loadingTenants, tenantId, t, showError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadTemplates(), 0);
@@ -115,7 +116,7 @@ export default function AccessTemplatesPage() {
       setSelectedGroupIds([]);
       setDirectViewerIds("");
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("createError")));
+      setError(showError(err, t("createError")));
     } finally {
       setSaving(false);
     }
@@ -140,7 +141,7 @@ export default function AccessTemplatesPage() {
       const updated = await controlPlaneApi.updateAccessTemplate(tenantId, template.id, body);
       setTemplates((items) => items.map((item) => (item.id === updated.id ? updated : item)));
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("updateError")));
+      setError(showError(err, t("updateError")));
     }
   };
 

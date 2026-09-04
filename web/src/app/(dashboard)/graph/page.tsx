@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
 import { adminApi } from "@/lib/api";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 import type {
   ForceGraphMethods,
@@ -93,6 +93,7 @@ const LINK_ACTIVE = "rgba(232,178,58,0.85)";
 
 export default function GraphPage() {
   const t = useTranslations("graphPage");
+  const showError = useErrorMessage();
   const { tenants, tenantId, loadingTenants, tenantError, selectTenant } =
     useTenantSelection();
   const [loading, setLoading] = useState(false);
@@ -150,7 +151,7 @@ export default function GraphPage() {
       setSelectedClassifications(classes);
     } catch (err: unknown) {
       console.error(err);
-      setError(getErrorMessage(err, t("loadError")));
+      setError(showError(err, t("loadError")));
       // No fake fallback: on error leave the graph empty so the empty-state
       // panel is shown instead of presenting fabricated nodes as real data.
       setNodes([]);
@@ -158,7 +159,7 @@ export default function GraphPage() {
     } finally {
       setLoading(false);
     }
-  }, [tenantId, t]);
+  }, [tenantId, t, showError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void fetchGraphData(), 0);

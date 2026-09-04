@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { SuggestInput } from "@/components/ui/suggest-input";
 import { Panel } from "@/components/forensic";
 import { controlPlaneApi } from "@/lib/api";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { searchUserIds } from "@/lib/suggestions";
 import { TenantRole, TenantUser } from "@/lib/types";
 import { useTenant as useTenantSelection } from "@/context/TenantProvider";
@@ -17,6 +17,7 @@ const ROLES: TenantRole[] = ["viewer", "analyst", "tenant_admin", "super_admin"]
 
 export default function UsersPage() {
   const t = useTranslations("usersPage");
+  const showError = useErrorMessage();
   const { tenantId, loadingTenants } = useTenantSelection();
   const [users, setUsers] = useState<TenantUser[]>([]);
   const [username, setUsername] = useState("");
@@ -40,11 +41,11 @@ export default function UsersPage() {
       setUsers(await controlPlaneApi.listUsers(tenantId));
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("loadError")));
+      setError(showError(err, t("loadError")));
     } finally {
       setLoading(false);
     }
-  }, [loadingTenants, tenantId, t]);
+  }, [loadingTenants, tenantId, t, showError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadUsers(), 0);
@@ -72,7 +73,7 @@ export default function UsersPage() {
       setRole("viewer");
       await loadUsers();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("createError")));
+      setError(showError(err, t("createError")));
     } finally {
       setSaving(false);
     }
@@ -90,7 +91,7 @@ export default function UsersPage() {
       const updated = await controlPlaneApi.updateUserMembership(tenantId, user.id, body);
       setUsers((items) => items.map((item) => (item.id === updated.id ? updated : item)));
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("updateError")));
+      setError(showError(err, t("updateError")));
     }
   };
 
@@ -104,7 +105,7 @@ export default function UsersPage() {
       setTemporaryPassword(result.temporary_password);
       await loadUsers();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("resetError")));
+      setError(showError(err, t("resetError")));
     }
   };
 
@@ -128,7 +129,7 @@ export default function UsersPage() {
       setSelectedExistingUserId("");
       setAttachRole("viewer");
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("attachError")));
+      setError(showError(err, t("attachError")));
     } finally {
       setSaving(false);
     }

@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Panel, TamperChain, type ChainStatus } from "@/components/forensic";
 import { adminApi } from "@/lib/api";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { useTenant as useTenantSelection } from "@/context/TenantProvider";
 
 interface AuditTrace {
@@ -44,6 +44,7 @@ const TABLE_LABELS: Record<string, string> = {
 
 export default function AuditPage() {
   const t = useTranslations("auditPage");
+  const showError = useErrorMessage();
   const { tenants, tenantId, loadingTenants, tenantError, selectTenant } =
     useTenantSelection();
   const [traces, setTraces] = useState<AuditTrace[]>([]);
@@ -92,7 +93,7 @@ export default function AuditPage() {
       const report = await adminApi.verifyAuditChain(tenantId);
       setVerifReport(report);
     } catch (err: unknown) {
-      setVerifError(getErrorMessage(err, t("chainError")));
+      setVerifError(showError(err, t("chainError")));
     } finally {
       setVerifying(false);
     }
@@ -108,7 +109,7 @@ export default function AuditPage() {
       await adminApi.backfillAuditChain(tenantId);
       await handleVerifyChain();
     } catch (err: unknown) {
-      setVerifError(getErrorMessage(err, t("backfillError")));
+      setVerifError(showError(err, t("backfillError")));
     } finally {
       setBackfilling(false);
     }

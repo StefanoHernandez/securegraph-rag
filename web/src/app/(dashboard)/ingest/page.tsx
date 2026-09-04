@@ -19,7 +19,7 @@ import { SuggestInput } from "@/components/ui/suggest-input";
 import { Panel, ClassificationStamp } from "@/components/forensic";
 import { useExternalSync } from "@/lib/useExternalSync";
 import { ingestApi, operationsApi } from "@/lib/api";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 import { searchTenantSuggestions, searchUserSubjects } from "@/lib/suggestions";
 import { useTenant } from "@/context/TenantProvider";
 import { useSessionUser } from "@/lib/session";
@@ -90,6 +90,7 @@ function loadStoredIdentity(): { tenantId: string; ownerId: string } {
 
 export default function IngestPage() {
   const t = useTranslations("ingestPage");
+  const showError = useErrorMessage();
   const { tenantId: selectedTenantId } = useTenant();
   const sessionUser = useSessionUser();
   const [initialIdentity] = useState(loadStoredIdentity);
@@ -307,7 +308,7 @@ export default function IngestPage() {
       setPolicyTags("");
     } catch (err: unknown) {
       setErrorMessage(
-        getErrorMessage(err, t("uploadError"))
+        showError(err, t("uploadError"))
       );
     } finally {
       setLoading(false);

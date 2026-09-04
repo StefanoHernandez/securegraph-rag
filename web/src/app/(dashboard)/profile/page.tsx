@@ -8,10 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/forensic";
 import { authApi } from "@/lib/api";
 import { ActiveSession, SessionUser } from "@/lib/types";
-import { getErrorMessage } from "@/lib/errors";
+import { useErrorMessage } from "@/lib/errors";
 
 export default function ProfilePage() {
   const t = useTranslations("profilePage");
+  const showError = useErrorMessage();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -31,9 +32,9 @@ export default function ProfilePage() {
       setSessions(activeSessions);
       setError(null);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("loadError")));
+      setError(showError(err, t("loadError")));
     }
-  }, [t]);
+  }, [t, showError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadProfile(), 0);
@@ -57,7 +58,7 @@ export default function ProfilePage() {
       setMessage(t("passwordUpdated"));
       await loadProfile();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("passwordFailed")));
+      setError(showError(err, t("passwordFailed")));
     } finally {
       setSavingPassword(false);
     }
@@ -69,7 +70,7 @@ export default function ProfilePage() {
       await authApi.revokeSession(sessionId);
       setSessions((items) => items.filter((item) => item.id !== sessionId));
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t("sessionFailed")));
+      setError(showError(err, t("sessionFailed")));
     }
   };
 
