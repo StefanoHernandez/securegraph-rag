@@ -670,3 +670,49 @@ def test_auto_route_plain_query_defaults_to_hybrid() -> None:
     # Explicit modes pass through untouched (same object).
     explicit = {"retrieval_mode": "vector", "top_k": 5}
     assert auto_route('Find "exact" A-12', explicit) is explicit
+
+
+@pytest.mark.asyncio
+async def test_global_synthesis_returns_an_answer_without_unbound_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The global branch used to crash on exactly the successful case.
+
+    `warnings` was assigned only inside `if normalized is not None`, the
+    branch taken when the draft is NOT an answer. Whenever the model produced
+    a real answer, the return statement read an unbound local and every
+    successful global query became a 500. No unit test covered this branch,
+    which is why it survived.
+    """
+    qdrant, graph = _build_mocks()
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda *a, **kw: _fake_adapter("A real synthesized answer about Stefano."),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **kw: _fake_adapter("A real synthesized answer about Stefano."),
+    )
+
+    class _StubCommunityRetriever:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        async def retrieve_communities(self, *args: Any, **kwargs: Any) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(
+        "securgraph.indexing.global_retriever.AuthorizedCommunityRetriever",
+        _StubCommunityRetriever,
+    )
+
+    state = _empty_state("hybrid")
+    state["options"]["query_type"] = "global"
+
+    workflow = compile_workflow(qdrant, graph)
+    result = await workflow.ainvoke(state)
+
+    assert result["final_answer"] is not None
+    assert result["final_answer"].text == "A real synthesized answer about Stefano."
+    # The happy path carries no synthesis warning: nothing was refused.
+    assert not [w for w in result["warnings"] if "canonical refusal" in w]

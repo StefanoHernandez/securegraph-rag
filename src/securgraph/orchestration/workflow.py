@@ -963,14 +963,18 @@ def compile_workflow(qdrant: Any, graph: Any) -> Any:
                     keep_alive=300,
                 )
                 citations = await _build_citations_for_state(state)
+                # Seeded before the branch: `warnings` used to be assigned only
+                # inside the `if`, so the happy path — normalize_non_answer
+                # returns None when the draft *is* a real answer — raised
+                # UnboundLocalError and every successful global query 500'd.
+                warnings = list(state.get("warnings") or [])
                 normalized = normalize_non_answer(content)
                 if normalized is not None:
                     content = normalized
-                    warnings = [
-                        *list(state.get("warnings") or []),
+                    warnings.append(
                         "synthesis: global draft did not answer the query; "
-                        "emitted canonical refusal",
-                    ]
+                        "emitted canonical refusal"
+                    )
                 return {
                     "final_answer": Answer(text=content, citations=citations),
                     "warnings": warnings,
