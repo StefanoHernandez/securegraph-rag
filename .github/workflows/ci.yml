@@ -102,9 +102,32 @@ jobs:
       # Moderate and above. The floor is deliberate: a threshold nobody can
       # keep green stops being read, and this repository currently sits at
       # zero, so the job fails only on something newly introduced.
+      #
+      # Parsed rather than run bare: `npm audit` exits 1 both for "found a
+      # vulnerability" and for "could not reach the registry", so a 503 from
+      # registry.npmjs.org reads as a security finding. Only a completed audit
+      # emits a `metadata` block, which is what separates the two. An outage
+      # still fails the job — a security gate that passes when it did not run
+      # is worse than a red one — but it says which of the two happened.
       - name: Web dependency audit
         working-directory: web
-        run: npm audit --audit-level=moderate
+        run: |
+          for attempt in 1 2 3; do
+            if npm audit --json --audit-level=moderate > audit.json 2> audit.err; then
+              echo "No vulnerabilities at moderate or above."
+              exit 0
+            fi
+            if grep -q '"metadata"' audit.json; then
+              echo "::error::npm audit found vulnerabilities at moderate or above."
+              npm audit --audit-level=moderate || true
+              exit 1
+            fi
+            echo "npm registry did not answer (attempt ${attempt}/3):"
+            cat audit.err
+            sleep $((attempt * 15))
+          done
+          echo "::error::npm audit could not reach the registry after 3 attempts: a registry outage, not a vulnerability."
+          exit 1
 
       # The .env files are gitignored, but a scanner is what catches the commit
       # where that stops being true.
