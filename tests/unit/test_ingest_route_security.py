@@ -211,7 +211,13 @@ async def test_worker_marks_job_failed_after_ingestion_store_failure(
     async def fail_ingest(*args: object, **kwargs: object) -> None:
         raise RuntimeError("qdrant unavailable")
 
+    async def noop_hydrate(*args: object, **kwargs: object) -> int:
+        # The worker reloads its tenant's runtime overrides before ingesting
+        # (see test_worker_egress.py); this fake session has no execute().
+        return 0
+
     session_maker = FakeSessionMaker()
+    monkeypatch.setattr("securgraph.ingestion.worker.hydrate_overrides_from_db", noop_hydrate)
     monkeypatch.setattr(
         "securgraph.ingestion.worker.set_tenant_rls_context",
         noop_set_tenant_context,

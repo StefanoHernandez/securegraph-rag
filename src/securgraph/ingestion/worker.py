@@ -27,6 +27,7 @@ from securgraph.ingestion.service import (
     ingest_document,
 )
 from securgraph.logging import configure_logging, get_logger
+from securgraph.runtime_overrides import hydrate_overrides_from_db
 
 _LOG = get_logger(__name__)
 
@@ -51,6 +52,19 @@ async def startup(ctx: dict[Any, Any]) -> None:
 
     # 4. Neo4j Async Driver
     ctx["neo4j_driver"] = get_neo4j_driver()
+
+    # 5. Runtime overrides. This process never sees the settings PUTs, so
+    # without a reload its override map is empty — and an empty map reads as
+    # "no egress policy stored", which enforce_egress treats as allowed. Best
+    # effort here because every ingestion job reloads its own tenant anyway;
+    # this covers the cron task, which has no tenant to scope to.
+    try:
+        async with ctx["session_maker"]() as session:
+            loaded = await hydrate_overrides_from_db(session)
+        _LOG.info("worker_runtime_overrides_hydrated", count=loaded)
+    except Exception:
+        _LOG.exception("worker_runtime_overrides_hydration_failed")
+
     _LOG.info("worker_startup_completed")
 
 
@@ -138,6 +152,13 @@ async def async_ingest_task(
                 tenant_id=request_dict["tenant_id"],
                 is_super_admin=False,
             )
+            # Before any LLM adapter is built: get_llm_adapter calls
+            # enforce_egress, which reads this process's override map. Not
+            # reloading it here is a fail-OPEN — the tenant's stored egress
+            # policy would simply not exist as far as this process knows.
+            # Deliberately inside the try: a job that cannot establish the
+            # policy must fail, not proceed unpoliced.
+            await hydrate_overrides_from_db(session, tenant_id=request_dict["tenant_id"])
             request = IngestionRequest(
                 tenant_id=request_dict["tenant_id"],
                 source_uri=request_dict["source_uri"],

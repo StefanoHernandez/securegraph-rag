@@ -56,6 +56,12 @@ async def test_worker_never_persists_raw_exception_text(
     async def fail_ingest(*args: object, **kwargs: object) -> None:
         raise RuntimeError(SENTINEL)
 
+    async def noop_hydrate(*args: object, **kwargs: object) -> int:
+        # The worker reloads its tenant's runtime overrides before ingesting
+        # (see test_worker_egress.py); the fake session here has no execute().
+        return 0
+
+    monkeypatch.setattr("securgraph.ingestion.worker.hydrate_overrides_from_db", noop_hydrate)
     monkeypatch.setattr(
         "securgraph.ingestion.worker.set_tenant_rls_context",
         noop_set_tenant_context,

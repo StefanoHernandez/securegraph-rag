@@ -4,10 +4,17 @@ Overrides live in the ``_OVERRIDES`` process dict and are persisted to the
 ``runtime_settings`` table by the settings routes. ``hydrate_overrides_from_db``
 reloads them at API startup so PUT-applied settings survive a restart.
 
-Deployment note: consistency across processes is NOT provided — the dev/prod
-entrypoint runs uvicorn single-process (see Makefile ``api`` target). Running
-with ``--workers N`` would leave workers that did not handle the PUT stale
-until restart.
+Deployment note: consistency across processes is NOT provided. The dev/prod
+API entrypoint runs uvicorn single-process (see Makefile ``api`` target);
+running with ``--workers N`` would leave workers that did not handle the PUT
+stale until restart.
+
+The arq ingestion worker is a second process unconditionally, so it never
+observes a PUT at all. It calls ``hydrate_overrides_from_db`` at startup and
+again before each job, which bounds its staleness to one job rather than
+leaving it permanently empty — an empty map means "no policy stored", and
+``enforce_egress`` treats that as allowed. Replacing this module with shared
+storage (P6) removes the window entirely.
 """
 
 from __future__ import annotations
@@ -52,13 +59,24 @@ def get_runtime_overrides(tenant_id: str | None) -> dict[str, Any]:
         return dict(_OVERRIDES.get(tenant_id, {}))
 
 
-async def hydrate_overrides_from_db(session: AsyncSession) -> int:
+async def hydrate_overrides_from_db(
+    session: AsyncSession, tenant_id: str | None = None
+) -> int:
     """Reload persisted runtime settings into the in-process override map.
 
-    Called once at API startup so runtime-safe settings applied via
-    ``PUT /tenants/{id}/settings/runtime/{key}`` survive a restart. Only rows
-    with ``restart_required=False`` and the ``{"value": ...}`` shape written by
-    the settings routes are applied; anything else is skipped with a warning.
+    Called at API startup so runtime-safe settings applied via
+    ``PUT /tenants/{id}/settings/runtime/{key}`` survive a restart, and by the
+    ingestion worker before each job — see the deployment note above: the
+    worker is a second process by design, so without this its override map is
+    permanently empty and `enforce_egress` reads "no policy stored", which is
+    the allow branch. Only rows with ``restart_required=False`` and the
+    ``{"value": ...}`` shape written by the settings routes are applied;
+    anything else is skipped with a warning.
+
+    ``tenant_id`` narrows the reload to one tenant, which is what a worker
+    handling a single tenant's job wants. There is no route that deletes a
+    runtime setting, so merging (rather than replacing) the tenant's map
+    cannot leave a stale key behind.
 
     Returns the number of overrides loaded.
     """
@@ -66,9 +84,10 @@ async def hydrate_overrides_from_db(session: AsyncSession) -> int:
 
     from securgraph.indexing.db import RuntimeSettingRow
 
-    result = await session.execute(
-        select(RuntimeSettingRow).where(RuntimeSettingRow.restart_required.is_(False))
-    )
+    query = select(RuntimeSettingRow).where(RuntimeSettingRow.restart_required.is_(False))
+    if tenant_id is not None:
+        query = query.where(RuntimeSettingRow.tenant_id == tenant_id)
+    result = await session.execute(query)
     loaded = 0
     for row in result.scalars().all():
         if row.tenant_id is None:
