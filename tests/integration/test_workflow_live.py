@@ -6,6 +6,11 @@ from pydantic import ConfigDict
 from securgraph.adapters.llm import reset_llm_adapter_cache
 from securgraph.domain import Subject
 from securgraph.domain.graph import GraphPath
+from securgraph.domain.policy import (
+    PolicyDecision,
+    PolicyDecisionValue,
+    PolicyObjectType,
+)
 from securgraph.domain.retrieval import RetrievalEvidence, RetrieverId
 from securgraph.orchestration.workflow import QueryState, compile_workflow
 
@@ -64,14 +69,44 @@ class MockQdrant:
         return []
 
 
+class MockFga:
+    """The workflow refuses to use vector evidence without a policy adapter.
+
+    `compile_workflow` reads `graph.fga` and raises when fused evidence exists
+    and it is None — a fail-closed ReBAC gate added after this test was
+    written, which is why the test needs to supply one. Authorizing the single
+    chunk MockQdrant returns keeps the assertions below about the vector path.
+    """
+
+    async def filter_chunk_ids(
+        self, subject: Subject, chunk_ids: list[str], trace_id: str
+    ) -> tuple[set[str], list[PolicyDecision]]:
+        decisions = [
+            PolicyDecision(
+                decision_id=f"dec_{chunk_id}",
+                trace_id=trace_id,
+                tenant_id=subject.tenant_id,
+                user_id=subject.user_id,
+                object_type=PolicyObjectType.CHUNK,
+                object_id=chunk_id,
+                decision=PolicyDecisionValue.ALLOW,
+            )
+            for chunk_id in chunk_ids
+        ]
+        return set(chunk_ids), decisions
+
+
 class MockGraph:
+    fga = MockFga()
+
     async def traverse_authorized_subgraph(
         self,
         session: Any,
         subject: Subject,
         seed_entities: list[str],
         trace_id: str,
-        max_depth: int,
+        max_depth: int = 2,
+        scope: object | None = None,
     ) -> list[GraphPath]:
         return [
             MockGraphPath(

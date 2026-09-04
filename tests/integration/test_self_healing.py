@@ -55,7 +55,8 @@ async def test_self_healing_pipeline_execution(monkeypatch: pytest.MonkeyPatch) 
     )
 
     monkeypatch.setattr(
-        "securgraph.ingestion.self_healing.get_llm_adapter_for", lambda role: mock_adapter
+        "securgraph.ingestion.self_healing.get_llm_adapter_for",
+        lambda role, tenant_id=None: mock_adapter,
     )
 
     # Reset metrics count before testing
@@ -131,7 +132,8 @@ async def test_workflow_self_healing_integration(monkeypatch: pytest.MonkeyPatch
     mock_adapter.judge_nli = AsyncMock()
     mock_adapter.judge_nli.side_effect = [mock_nli_entailment, mock_nli_contradiction]
     monkeypatch.setattr(
-        "securgraph.orchestration.workflow.get_llm_adapter_for", lambda role: mock_adapter
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda role, tenant_id=None: mock_adapter,
     )
 
     # 1. Construct State Graph inputs

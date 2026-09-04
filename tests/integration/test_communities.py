@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from securgraph.adapters.community_generator import generate_hierarchical_communities
-from securgraph.config import get_settings
 from securgraph.domain import Subject
 from securgraph.domain.community import Community
 from securgraph.domain.policy import OpenFGAPolicyAdapter
@@ -22,9 +21,6 @@ async def test_community_generation_partitions_by_policy_class(
 ) -> None:
     """Edges from two access classes must produce communities tagged per class,
     and no community may mix entities from different classes."""
-    settings = get_settings()
-    settings.feature_communities_enabled = True
-
     mock_chunks = [
         {"chunk_id": "c1", "owner_id": "alice", "policy_tags": [], "direct_viewers": []},
         {"chunk_id": "c2", "owner_id": "bob", "policy_tags": [], "direct_viewers": []},
@@ -81,7 +77,8 @@ async def test_community_generation_partitions_by_policy_class(
     mock_adapter = AsyncMock()
     mock_adapter.chat.return_value = '{"title": "T", "summary": "S"}'
     monkeypatch.setattr(
-        "securgraph.adapters.community_generator.get_llm_adapter", lambda: mock_adapter
+        "securgraph.adapters.community_generator.get_llm_adapter",
+        lambda role="generation", tenant_id=None: mock_adapter,
     )
 
     await generate_hierarchical_communities(driver=mock_driver, tenant_id="t1")
@@ -96,7 +93,6 @@ async def test_community_generation_partitions_by_policy_class(
         members = set(m["member_entities"])
         assert not (members & class_a and members & class_b), "community spans classes"
 
-    settings.feature_communities_enabled = False
 
 
 @pytest.mark.asyncio
@@ -156,9 +152,6 @@ async def test_global_retriever_and_rebac_filtering() -> None:
 @pytest.mark.asyncio
 async def test_global_workflow_routing_and_synthesis(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify CompiledStateGraph routes to global community retrieval and synthesizes correctly."""
-    settings = get_settings()
-    settings.feature_communities_enabled = True
-
     # Mock AuthorizedCommunityRetriever returned summaries
     mock_summary = Community(
         community_id="comm_l1_test",
@@ -177,7 +170,10 @@ async def test_global_workflow_routing_and_synthesis(monkeypatch: pytest.MonkeyP
 
     mock_adapter = AsyncMock()
     mock_adapter.chat.return_value = "Risposta sintetica globale basata sulle comunità."
-    monkeypatch.setattr("securgraph.orchestration.workflow.get_llm_adapter", lambda: mock_adapter)
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter",
+        lambda role="generation", tenant_id=None: mock_adapter,
+    )
 
     # 1. Compile LangGraph workflow
     qdrant = MagicMock()
@@ -215,4 +211,3 @@ async def test_global_workflow_routing_and_synthesis(monkeypatch: pytest.MonkeyP
     assert result["final_answer"].text == "Risposta sintetica globale basata sulle comunità."
 
     # Clean up
-    settings.feature_communities_enabled = False
