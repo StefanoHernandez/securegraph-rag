@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { tenantApi } from "@/lib/api";
 import { TenantSummary } from "@/lib/types";
+import { useErrorMessage } from "@/lib/errors";
 
 function readStoredTenant(): string | null {
   if (typeof window === "undefined") {
@@ -28,6 +30,8 @@ function readStoredUserTenant(): string | null {
 }
 
 export function useTenantSelection() {
+  const t = useTranslations("errors");
+  const showError = useErrorMessage();
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [tenantId, setTenantId] = useState<string | null>(readStoredTenant);
   const [loadingTenants, setLoadingTenants] = useState(true);
@@ -60,7 +64,7 @@ export function useTenantSelection() {
         if (!active) {
           return;
         }
-        setTenantError(error instanceof Error ? error.message : "Unable to load tenants");
+        setTenantError(showError(error, t("tenantsLoadFailed")));
       })
       .finally(() => {
         if (active) {
@@ -70,7 +74,7 @@ export function useTenantSelection() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [showError, t]);
 
   const currentTenant = useMemo(
     () => tenants.find((tenant) => tenant.id === tenantId) ?? null,

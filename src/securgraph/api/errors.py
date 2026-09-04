@@ -119,8 +119,6 @@ def detail_for(exc: BaseException, spec: ErrorSpec) -> str:
     return spec.message
 
 
-# --- appended to src/securgraph/api/errors.py ---
-
 _LOG = structlog.get_logger(__name__)
 
 # Codes for HTTPExceptions raised by hand across the routes, and by the

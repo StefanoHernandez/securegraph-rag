@@ -1,7 +1,17 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { tenantApi } from "@/lib/api";
 import { useTenantSelection } from "@/lib/useTenantSelection";
+import en from "@/../messages/en.json";
+
+function wrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <NextIntlClientProvider locale="en" messages={en}>
+      {children}
+    </NextIntlClientProvider>
+  );
+}
 
 vi.mock("@/lib/api", () => ({
   tenantApi: {
@@ -33,7 +43,7 @@ describe("useTenantSelection", () => {
   it("selects the session tenant and publishes later tenant changes", async () => {
     localStorage.setItem("securgraph_user", JSON.stringify({ tenant_id: "south" }));
 
-    const { result } = renderHook(() => useTenantSelection());
+    const { result } = renderHook(() => useTenantSelection(), { wrapper });
 
     await waitFor(() => expect(result.current.loadingTenants).toBe(false));
     expect(result.current.tenantId).toBe("south");

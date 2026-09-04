@@ -15,6 +15,7 @@ from securgraph.adapters.embeddings import get_embedding_adapter
 from securgraph.adapters.neo4j import get_neo4j_driver
 from securgraph.adapters.qdrant import build_qdrant_client
 from securgraph.api.dependencies import set_tenant_rls_context
+from securgraph.api.errors import INTERNAL_ERROR_MESSAGE, detail_for, spec_for
 from securgraph.api.main import enforce_audit_hygiene
 from securgraph.config import get_settings
 from securgraph.domain import Classification, DocumentType
@@ -189,6 +190,8 @@ async def async_ingest_task(
             traceback.print_exc()
             await session.rollback()
             _LOG.exception("worker_ingestion_failed", job_id=job_id, error=str(e))
+            spec = spec_for(e)
+            safe_error = detail_for(e, spec) if spec is not None else INTERNAL_ERROR_MESSAGE
             # Mark the job as failed in Postgres
             async with session_maker() as fail_session:
                 await set_tenant_rls_context(
@@ -200,7 +203,7 @@ async def async_ingest_task(
                     fail_session,
                     job_id=job_id,
                     status=ingestion_failure_status(e),
-                    error=str(e),
+                    error=safe_error,
                 )
                 await fail_session.commit()
             raise

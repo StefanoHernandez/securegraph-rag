@@ -683,6 +683,9 @@
     "not_found": "La risorsa non esiste, oppure non è visibile con i tuoi permessi.",
     "rate_limited": "Troppi tentativi. Attendi un momento e riprova.",
     "internal_error": "Non è stato possibile completare la richiesta.",
+    "service_unavailable": "Il servizio non è temporaneamente disponibile. Riprova a breve.",
+    "gateway_timeout": "Il servizio ha impiegato troppo tempo a rispondere. Riprova a breve.",
+    "tenantsLoadFailed": "Non è stato possibile caricare i tenant.",
     "reference": "Riferimento: {id}"
   }
 }

@@ -26,6 +26,8 @@ export const ERROR_CODES: ReadonlySet<string> = new Set([
   "not_found",
   "rate_limited",
   "internal_error",
+  "service_unavailable",
+  "gateway_timeout",
 ]);
 
 type ErrorTranslator = ReturnType<typeof useTranslations<"errors">>;

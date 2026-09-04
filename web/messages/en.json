@@ -683,6 +683,9 @@
     "not_found": "That resource does not exist, or you cannot see it.",
     "rate_limited": "Too many attempts. Wait a moment and try again.",
     "internal_error": "The request could not be completed.",
+    "service_unavailable": "The service is temporarily unavailable. Try again shortly.",
+    "gateway_timeout": "The service took too long to respond. Try again shortly.",
+    "tenantsLoadFailed": "Unable to load tenants.",
     "reference": "Reference: {id}"
   }
 }

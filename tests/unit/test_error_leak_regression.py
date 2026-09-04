@@ -36,12 +36,13 @@ async def test_query_failure_does_not_return_the_exception_text(
     with patch(
         "securgraph.api.routes.query.compile_workflow",
         side_effect=RuntimeError(SENTINEL),
-    ):
+    ) as target:
         response = await tolerant_client.post(
             "/api/v1/query",
             json={"tenant_id": "mrd", "user_id": "user:alice", "query": "anything"},
         )
 
+    target.assert_called_once()
     assert response.status_code == 500
     assert SENTINEL not in response.text
     assert "secret_column" not in response.text
@@ -72,13 +73,14 @@ async def test_ingest_failure_does_not_return_the_exception_text(
     with patch(
         "securgraph.api.routes.ingest.ingest_document",
         side_effect=RuntimeError(SENTINEL),
-    ):
+    ) as target:
         response = await tolerant_client.post(
             "/api/v1/ingest",
             files={"file": ("doc.txt", b"content", "text/plain")},
             data={"tenant_id": "mrd", "classification": "internal"},
         )
 
+    target.assert_called_once()
     assert response.status_code == 500
     assert SENTINEL not in response.text
     assert response.json()["code"] == "internal_error"

@@ -60,7 +60,10 @@ type RouteContext = {
 async function proxy(request: NextRequest, context: RouteContext) {
   const params = await context.params;
   if (hasTraversalSegment(params.path)) {
-    return NextResponse.json({ detail: "Invalid request path." }, { status: 400 });
+    return NextResponse.json(
+      { detail: "Invalid request path.", code: "bad_request" },
+      { status: 400 }
+    );
   }
   const path = params.path.join("/");
   const target = new URL(`/api/v1/${path}${request.nextUrl.search}`, BACKEND_ORIGIN);
@@ -94,9 +97,15 @@ async function proxy(request: NextRequest, context: RouteContext) {
     });
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") {
-      return NextResponse.json({ detail: "Backend service timed out." }, { status: 504 });
+      return NextResponse.json(
+        { detail: "Backend service timed out.", code: "gateway_timeout" },
+        { status: 504 }
+      );
     }
-    return NextResponse.json({ detail: "Backend service unavailable." }, { status: 503 });
+    return NextResponse.json(
+      { detail: "Backend service unavailable.", code: "service_unavailable" },
+      { status: 503 }
+    );
   }
 
   const responseHeaders = new Headers();

@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 
 from securgraph.api.dependencies import get_db_session, get_redis_pool_optional
+from securgraph.api.errors import INTERNAL_ERROR_MESSAGE
 from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.config import get_settings
 from securgraph.indexing.db import IngestionJobRow
@@ -241,7 +242,7 @@ async def test_worker_marks_job_failed_after_ingestion_store_failure(
 
     assert status_updates == [
         ("running", True, None),
-        ("failed", False, "qdrant unavailable"),
+        ("failed", False, INTERNAL_ERROR_MESSAGE),
     ]
     session_maker.sessions[1].rollback.assert_awaited_once()
     session_maker.sessions[2].commit.assert_awaited_once()

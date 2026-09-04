@@ -71,11 +71,11 @@ export default function AuditPage() {
       setTotal(res.total);
     } catch (err) {
       console.error("Failed to fetch audit traces", err);
-      setTracesError(err instanceof Error ? err.message : String(err));
+      setTracesError(showError(err, t("error")));
     } finally {
       setLoadingTraces(false);
     }
-  }, [page, tenantId]);
+  }, [page, tenantId, showError, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void fetchTraces(), 0);

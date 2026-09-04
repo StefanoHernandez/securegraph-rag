@@ -23,7 +23,10 @@ describe("API proxy", () => {
     });
 
     expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({ detail: "Backend service unavailable." });
+    await expect(response.json()).resolves.toEqual({
+      detail: "Backend service unavailable.",
+      code: "service_unavailable",
+    });
   });
 
   // The backend decides whether to believe X-Forwarded-For, but it can only
