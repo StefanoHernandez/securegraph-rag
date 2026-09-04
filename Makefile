@@ -141,6 +141,10 @@ test: ## Run unit + fast integration tests.
 test-unit: ## Run unit tests only.
 	$(VENV)/bin/pytest -m "unit" -v
 
+.PHONY: test-unit-ci
+test-unit-ci: ## Run unit tests the way CI does: no .env, so nothing leans on local secrets.
+	SECURGRAPH_ENV_FILE=/dev/null $(VENV)/bin/pytest -m "unit" -q
+
 .PHONY: audit
 audit: ## Audit dependencies for known vulnerabilities (same checks as CI).
 	@$(UV) export --frozen --extra dev --extra parsers --extra llm_openai \

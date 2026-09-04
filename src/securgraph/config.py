@@ -3,10 +3,18 @@
 All runtime knobs go here. No other module reads ``os.environ`` directly.
 Values come from `.env` (loaded automatically by Settings) with prefix
 ``SECURGRAPH_`` unless explicitly aliased.
+
+``SECURGRAPH_ENV_FILE`` overrides which file that is. Real environment
+variables already win over the file, so this exists for the opposite case:
+running with no file at all. CI has no `.env` — it is gitignored — so a test
+that quietly depends on a developer's provider key passes locally and fails
+only after a push. ``SECURGRAPH_ENV_FILE=/dev/null make test-unit`` reproduces
+the CI environment without touching the developer's own file.
 """
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlparse
@@ -38,7 +46,7 @@ class Settings(BaseSettings):
     """Application settings. Singleton via :func:`get_settings`."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=os.getenv("SECURGRAPH_ENV_FILE", ".env"),
         env_file_encoding="utf-8",
         env_prefix="SECURGRAPH_",
         extra="ignore",
