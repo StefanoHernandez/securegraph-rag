@@ -32,7 +32,6 @@ from securgraph.security.secrets import (
     secret_fingerprint,
 )
 from securgraph.services.provider_catalog import (
-    EgressUrlError,
     ProviderName,
     default_provider_base_url,
     fetch_provider_models,
@@ -340,10 +339,10 @@ async def upsert_provider_credential(
 ) -> ProviderCredentialResponse:
     await _ensure_settings_admin(session, principal, tenant_id)
     base_url = request.base_url or default_provider_base_url(provider)
-    try:
-        validate_egress_url(base_url, provider=provider)
-    except EgressUrlError as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid base URL: {exc}") from exc
+    # No local except: the registry maps EgressUrlError to 400 /
+    # egress_url_invalid and exposes its message, which is a statement about
+    # the URL this admin just submitted.
+    validate_egress_url(base_url, provider=provider)
     try:
         models = await fetch_provider_models(
             provider,

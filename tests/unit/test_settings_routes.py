@@ -18,7 +18,7 @@ from securgraph.config import get_settings
 from securgraph.indexing.db import ProviderCredentialRow, RuntimeSettingRow, TenantRow
 from securgraph.security import secrets
 from securgraph.security.secrets import decrypt_secret, encrypt_secret
-from securgraph.services.provider_catalog import ProviderModel
+from securgraph.services.provider_catalog import EgressUrlError, ProviderModel
 
 pytestmark = pytest.mark.unit
 
@@ -119,6 +119,48 @@ async def test_superadmin_upserts_verified_provider_credential(
     credential = next(row for row in added if isinstance(row, ProviderCredentialRow))
     assert b"sk-test-secret" not in credential.encrypted_secret
     mock_session.merge.assert_awaited_once()
+
+
+async def test_rejected_base_url_answers_through_the_registry(
+    client: AsyncClient,
+    fastapi_app: FastAPI,
+    master_key_env: None,
+) -> None:
+    # The route deliberately does NOT catch EgressUrlError. The registry owns
+    # its presentation, which is what makes the egress_url_invalid code — and
+    # therefore its translation — reachable at all.
+    tenant = TenantRow(
+        id="mrd-lab",
+        display_name="MRD Lab",
+        status="active",
+        tenant_admin_settings_enabled=False,
+    )
+    mock_session = AsyncMock()
+    mock_session.get.return_value = tenant
+
+    async def override_db():
+        yield mock_session
+
+    async def override_user():
+        return principal()
+
+    fastapi_app.dependency_overrides[get_db_session] = override_db
+    fastapi_app.dependency_overrides[settings_routes.require_user] = override_user
+
+    with patch(
+        "securgraph.api.routes.settings.validate_egress_url",
+        side_effect=EgressUrlError("URL resolves to a private or reserved address"),
+    ):
+        response = await client.post(
+            "/api/v1/tenants/mrd-lab/settings/providers/openai/credential",
+            json={"api_key": "sk-test-secret", "base_url": "http://169.254.169.254"},
+        )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["code"] == "egress_url_invalid"
+    # expose_message=True: the reason describes the URL this admin just sent.
+    assert "private or reserved" in body["detail"]
 
 
 async def test_tenant_admin_cannot_manage_settings_without_delegation(
