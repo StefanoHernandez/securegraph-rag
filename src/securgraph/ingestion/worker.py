@@ -109,7 +109,7 @@ async def async_ingest_task(
     trace_id: str,
 ) -> dict[str, Any]:
     """Background task running the full document ingestion pipeline."""
-    print(f"!!! [WORKER] async_ingest_task started for job_id={job_id}, trace_id={trace_id} !!!")
+    _LOG.info("worker_ingestion_started", job_id=job_id, trace_id=trace_id)
     session_maker = ctx["session_maker"]
 
     # 1. Update job to running state in a separate short-lived transaction
@@ -120,7 +120,6 @@ async def async_ingest_task(
                 tenant_id=request_dict["tenant_id"],
                 is_super_admin=False,
             )
-            print("!!! [WORKER] updating status to running... !!!")
             await update_ingestion_job(
                 session,
                 job_id=job_id,
@@ -128,9 +127,7 @@ async def async_ingest_task(
                 increment_attempt=True,
             )
             await session.commit()
-            print("!!! [WORKER] status updated and committed successfully !!!")
-        except Exception as e:
-            print(f"!!! [WORKER] FAILED to update status to running: {e} !!!")
+        except Exception:
             _LOG.exception("worker_failed_to_update_job_status_to_running", job_id=job_id)
 
     # 2. Reconstruct IngestionRequest and execute the ingestion pipeline
@@ -141,7 +138,6 @@ async def async_ingest_task(
                 tenant_id=request_dict["tenant_id"],
                 is_super_admin=False,
             )
-            print("!!! [WORKER] reconstructing IngestionRequest... !!!")
             request = IngestionRequest(
                 tenant_id=request_dict["tenant_id"],
                 source_uri=request_dict["source_uri"],
@@ -154,7 +150,6 @@ async def async_ingest_task(
                 title_override=request_dict.get("title_override"),
                 source_format=request_dict.get("source_format"),
             )
-            print("!!! [WORKER] IngestionRequest reconstructed. Calling ingest_document... !!!")
 
             result = await ingest_document(
                 session=session,
@@ -170,11 +165,9 @@ async def async_ingest_task(
                     tenant_id=request_dict["tenant_id"],
                 ),
             )
-            print(f"!!! [WORKER] ingest_document returned successfully. status={result.status} !!!")
 
             # The transaction must be explicitly committed by the caller
             await session.commit()
-            print("!!! [WORKER] transaction committed successfully !!!")
             _LOG.info("worker_ingestion_success", job_id=job_id, document_id=result.document_id)
             return {
                 "job_id": result.job_id,
@@ -184,10 +177,6 @@ async def async_ingest_task(
                 "chunks_created": result.chunks_created,
             }
         except Exception as e:
-            print(f"!!! [WORKER] EXCEPTION OCCURRED DURING INGESTION: {e} !!!")
-            import traceback
-
-            traceback.print_exc()
             await session.rollback()
             _LOG.exception("worker_ingestion_failed", job_id=job_id, error=str(e))
             spec = spec_for(e)
