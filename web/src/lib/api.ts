@@ -99,12 +99,18 @@ type ErrorPayload = { detail?: unknown; code?: unknown; request_id?: unknown };
 async function toApiError(response: Response): Promise<ApiError> {
   // A body that is not our contract — a proxy's HTML 502, an empty 500 — must
   // not become the user-visible message. Only the parsed fields are trusted.
-  let payload: ErrorPayload = {};
+  let parsed: unknown = null;
   try {
-    payload = (await response.json()) as ErrorPayload;
+    parsed = await response.json();
   } catch {
-    payload = {};
+    parsed = null;
   }
+  // Narrow after the try, not inside it: `JSON.parse("null")` SUCCEEDS, so the
+  // catch never fires and `payload.code` would throw a TypeError on null —
+  // rejecting with something that is not an ApiError, which the translator
+  // downstream would then misclassify.
+  const payload: ErrorPayload =
+    typeof parsed === "object" && parsed !== null ? (parsed as ErrorPayload) : {};
   const code = typeof payload.code === "string" ? payload.code : `http_${response.status}`;
   const detail = typeof payload.detail === "string" ? payload.detail : "";
   const requestId = typeof payload.request_id === "string" ? payload.request_id : null;

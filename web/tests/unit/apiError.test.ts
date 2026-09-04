@@ -48,6 +48,23 @@ describe("ApiError", () => {
     expect(error.requestId).toBeNull();
   });
 
+  it("returns an ApiError even when the body is the JSON literal null", async () => {
+    // JSON.parse("null") succeeds, so a try/catch around response.json() does
+    // not cover it. Reading a field off the result throws, and request() would
+    // reject with a TypeError instead of an ApiError.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("null", { status: 500 }))
+    );
+
+    const error = (await api.get("/anything").catch((e: unknown) => e)) as ApiError;
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.code).toBe("http_500");
+    expect(error.detail).toBe("");
+    expect(error.requestId).toBeNull();
+  });
+
   it("never carries the raw response body in its message", async () => {
     const sentinel = "SELECT secret_column FROM classified_chunks";
     vi.stubGlobal(
