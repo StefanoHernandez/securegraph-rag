@@ -17,19 +17,10 @@ from securgraph.api.request_context import (
     set_request_id,
 )
 from securgraph.api.routes.auth import ACCESS_COOKIE, CSRF_COOKIE, REFRESH_COOKIE
+from securgraph.api.security_headers import BASELINE_SECURITY_HEADERS
 
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 CSRF_EXEMPT_SUFFIXES = ("/auth/login",)
-
-# The API answers JSON, so it needs a narrower set than the web app: no CSP,
-# because the interactive docs load Swagger UI from a CDN and a strict policy
-# would break them. These cover what still applies to a JSON endpoint a
-# browser reaches through the BFF.
-BASELINE_SECURITY_HEADERS = {
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "strict-origin-when-cross-origin",
-    "X-Frame-Options": "DENY",
-}
 
 # Anything that mints, rotates, or reveals session material. A shared or disk
 # cache holding one of these responses hands the next reader a live session.

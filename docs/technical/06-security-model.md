@@ -141,8 +141,12 @@ microphone, geolocation, payment and USB (the UI uses none of them), and HSTS,
 which is inert over plain HTTP and applies once TLS terminates in front.
 
 The API sends `X-Content-Type-Options`, `X-Frame-Options` and
-`Referrer-Policy`, plus `Cache-Control: no-store` on every endpoint that
-mints, rotates or reveals session material — `/auth/login`, `/auth/refresh`,
+`Referrer-Policy` — from `SecurityHeadersMiddleware` on every response that
+passes back through the middleware stack, and from the unhandled-exception
+handler itself on the one that does not: Starlette lifts the `Exception`
+handler out to `ServerErrorMiddleware`, which wraps the user stack, so a 500
+is written past every middleware. Plus `Cache-Control: no-store` on every
+endpoint that mints, rotates or reveals session material — `/auth/login`, `/auth/refresh`,
 `/auth/me`, `/auth/sessions`. It sends **no** CSP: the interactive docs load
 Swagger UI from a CDN and a strict policy would break them.
 

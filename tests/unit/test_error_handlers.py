@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from securgraph.api.security_headers import BASELINE_SECURITY_HEADERS
 from securgraph.ingestion.service import IngestionError
 from securgraph.policy.egress import EgressBlockedError
 
@@ -110,3 +111,16 @@ async def test_csrf_rejection_uses_the_shared_error_shape(client: AsyncClient) -
     assert body["detail"] == "CSRF validation failed"
     assert body["code"] == "csrf_invalid"
     assert body["request_id"]
+
+
+async def test_every_error_response_keeps_the_security_headers(
+    probe_client: AsyncClient,
+) -> None:
+    # The unhandled path is the one at risk: Starlette lifts the Exception
+    # handler out to ServerErrorMiddleware, which wraps the user middleware
+    # stack, so that response is written past SecurityHeadersMiddleware. A 500
+    # without nosniff is a 500 a browser may sniff into something executable.
+    for path in ("/_probe/registered", "/_probe/unregistered", "/_probe/unexposed"):
+        response = await probe_client.get(path)
+        for header, value in BASELINE_SECURITY_HEADERS.items():
+            assert response.headers.get(header) == value, f"{path} lost {header}"

@@ -2,10 +2,10 @@
 
 A registry rather than a common `AppError` base class: six sites catch
 `ValueError`/`RuntimeError` generically and rely on the current bases
-(`api/routes/settings.py:198`, `:212`, `api/routes/admin.py:205`,
-`policy/egress.py:169`, `indexing/tamper.py:165`,
-`adapters/llm/base.py:296`). Reparenting would silently change which handler
-wins at each of them.
+(two in `api/routes/settings.py:_parse_egress_policy`, one each in
+`api/routes/admin.py`, `policy/egress.py:enforce_egress`,
+`indexing/tamper.py` and `adapters/llm/base.py`). Reparenting would silently
+change which handler wins at each of them.
 
 `expose_message` decides whether `str(exc)` may leave the process. It is
 False by default. Setting it True asserts that the message is composed
@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from securgraph.api.request_context import REQUEST_ID_HEADER, get_request_id
+from securgraph.api.security_headers import BASELINE_SECURITY_HEADERS
 from securgraph.corpus.manifest import CorpusManifestError
 from securgraph.domain.query import QueryScopeError
 from securgraph.ingestion.limits import MAX_UPLOAD_BYTES, UploadTooLargeError
@@ -163,8 +164,9 @@ def error_body(request: Request | None, detail: Any, code: str) -> dict[str, Any
     """The one response shape for every error path.
 
     ``detail`` is passed through with its own type. A route may raise
-    ``HTTPException`` with a structured detail — ``settings.py:496`` returns
-    ``{"message": ..., "references": [...]}`` on a 409 — and coercing that with
+    ``HTTPException`` with a structured detail — deleting a provider
+    credential still referenced by a runtime setting answers 409 with
+    ``{"message": ..., "references": [...]}`` — and coercing that with
     ``str()`` would hand the caller a Python repr instead of JSON.
     """
     return {"detail": detail, "code": code, "request_id": request_id_for(request)}
@@ -220,14 +222,18 @@ async def unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
     This is the handler that closes the leak: two catch-all branches used to
     interpolate str(exc) into `detail`, and str() of a SQLAlchemy error carries
     the statement and often its bound parameters.
+
+    It also re-applies the baseline security headers. Starlette lifts the
+    ``Exception`` handler out of the app and into ServerErrorMiddleware, which
+    wraps the whole user middleware stack — so this response is written past
+    SecurityHeadersMiddleware and would otherwise be the one response in the
+    API that ships without them.
     """
     _LOG.error("unhandled_exception", exc_info=exc)
     body = error_body(request, INTERNAL_ERROR_MESSAGE, "internal_error")
-    return JSONResponse(
-        status_code=500,
-        content=body,
-        headers=_headers_for(body["request_id"]),
-    )
+    headers = dict(BASELINE_SECURITY_HEADERS)
+    headers.update(_headers_for(body["request_id"]) or {})
+    return JSONResponse(status_code=500, content=body, headers=headers)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
