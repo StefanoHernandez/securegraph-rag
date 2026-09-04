@@ -678,7 +678,6 @@
     "ingestion_failed": "Ingestion failed. The failure has been recorded.",
     "secret_unavailable": "A stored credential could not be read. Check the provider settings.",
     "csrf_invalid": "Your session could not be verified. Reload the page and try again.",
-    "refresh_rejected": "Your session has expired. Sign in again.",
     "forbidden": "You do not have permission to do that.",
     "not_found": "That resource does not exist, or you cannot see it.",
     "rate_limited": "Too many attempts. Wait a moment and try again.",

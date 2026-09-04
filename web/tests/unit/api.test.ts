@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, operationsApi, queryApi } from "@/lib/api";
+import { ApiError, authApi, operationsApi, queryApi } from "@/lib/api";
 import type { QueryResponse } from "@/lib/types";
 
 const response: QueryResponse = {
@@ -67,5 +67,30 @@ describe("frontend API contracts", () => {
     expect((error as ApiError).code).toBe("http_503");
     expect((error as ApiError).message).not.toContain("worker unavailable");
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/tenants/tenant%2Fa/ingest-jobs");
+  });
+
+  it("throws an ApiError on 401 like every other failing status", async () => {
+    // The 401 branch used to throw a bare Error, so useErrorMessage saw an
+    // unknown value and dropped the code and the request id on the floor.
+    // /auth/me is the clean probe: an auth endpoint never triggers the refresh
+    // replay, and it opts out of the redirect.
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: "Session is no longer valid",
+          code: "unauthorized",
+          request_id: "req-401",
+        }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await authApi.me().catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(401);
+    expect((error as ApiError).code).toBe("unauthorized");
+    expect((error as ApiError).requestId).toBe("req-401");
   });
 });

@@ -678,7 +678,6 @@
     "ingestion_failed": "Ingestione fallita. L'errore è stato registrato.",
     "secret_unavailable": "Non è stato possibile leggere una credenziale salvata. Controlla le impostazioni del provider.",
     "csrf_invalid": "Non è stato possibile verificare la sessione. Ricarica la pagina e riprova.",
-    "refresh_rejected": "La sessione è scaduta. Accedi di nuovo.",
     "forbidden": "Non hai i permessi per questa operazione.",
     "not_found": "La risorsa non esiste, oppure non è visibile con i tuoi permessi.",
     "rate_limited": "Troppi tentativi. Attendi un momento e riprova.",

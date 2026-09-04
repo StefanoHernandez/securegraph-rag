@@ -153,7 +153,10 @@ async function request<T>(
     if (redirectOnUnauthorized && typeof window !== "undefined") {
       redirectToLogin();
     }
-    throw new Error("Unauthorized");
+    // An ApiError like every other non-ok response. A plain Error here would
+    // reach useErrorMessage as an unknown value and collapse to the caller's
+    // generic fallback, discarding the code and the request id.
+    throw await toApiError(response);
   }
 
   if (!response.ok) {

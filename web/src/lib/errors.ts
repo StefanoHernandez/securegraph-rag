@@ -11,6 +11,12 @@ import { ApiError } from "@/lib/api";
  * arbitrary string: next-intl types `t.has` over the namespace's keys, and a
  * code the server introduced but this build has never heard of should fall to
  * the page's own message rather than render blank.
+ *
+ * Two backend codes are deliberately absent. `refresh_rejected` never reaches a
+ * page: `tryRefreshSession` collapses the refresh response to a boolean, so a
+ * rejected refresh becomes a redirect to /login, not a rendered error.
+ * `unauthorized` is left out because the only screen that renders a 401 instead
+ * of redirecting is the login form, whose own message names the actual cause.
  */
 export const ERROR_CODES: ReadonlySet<string> = new Set([
   "egress_blocked",
@@ -21,7 +27,6 @@ export const ERROR_CODES: ReadonlySet<string> = new Set([
   "ingestion_failed",
   "secret_unavailable",
   "csrf_invalid",
-  "refresh_rejected",
   "forbidden",
   "not_found",
   "rate_limited",
