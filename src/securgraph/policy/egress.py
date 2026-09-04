@@ -32,6 +32,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import structlog
+
+_LOG = structlog.get_logger(__name__)
+
 EGRESS_ACTIONS = frozenset({"allow", "block"})
 EGRESS_STAGES = frozenset({"extract", "judge", "generation", "embedding", "any"})
 EGRESS_PROVIDERS = frozenset({"openai", "anthropic", "gemini", "mistral", "ollama", "any"})
@@ -167,8 +171,18 @@ def enforce_egress(
             stage=stage,
         )
     except ValueError as exc:
+        # The parse detail describes the stored policy document, not this
+        # caller's request, and the registry exposes an EgressBlockedError
+        # message verbatim. It goes to the log; the tenant gets a fixed reason.
+        _LOG.error(
+            "egress_policy_unparseable",
+            tenant_id=tenant_id,
+            provider=provider,
+            stage=stage,
+            error=str(exc),
+        )
         raise EgressBlockedError(
-            tenant_id, provider, stage, f"invalid stored egress policy: {exc}"
+            tenant_id, provider, stage, "the stored egress policy is not valid"
         ) from exc
     if not decision.allowed:
         raise EgressBlockedError(tenant_id, provider, stage, decision.reason)

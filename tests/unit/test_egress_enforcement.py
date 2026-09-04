@@ -117,14 +117,29 @@ def test_stored_policy_with_max_classification_fails_closed() -> None:
             ],
         },
     )
-    with pytest.raises(EgressBlockedError, match="invalid stored egress policy"):
+    with pytest.raises(EgressBlockedError, match="the stored egress policy is not valid"):
         enforce_egress("acme", "openai", "generation")
 
 
 def test_invalid_stored_policy_fails_closed() -> None:
     set_runtime_override("acme", "egress_policy", {"default": "bogus-action", "rules": []})
-    with pytest.raises(EgressBlockedError, match="invalid stored egress policy"):
+    with pytest.raises(EgressBlockedError, match="the stored egress policy is not valid"):
         enforce_egress("acme", "openai", "generation")
+
+
+def test_unparseable_policy_reason_does_not_quote_the_parse_error() -> None:
+    """The reason is fixed text, which is what lets the registry expose it.
+
+    EgressBlockedError is one of three types with expose_message=True, granted
+    because its message is provider, stage and a fixed reason. That held only
+    as long as nothing interpolated into the reason; enforce_egress used to
+    interpolate the ValueError from parsing the *stored* policy, which
+    describes a server-side document rather than the caller's request.
+    """
+    set_runtime_override("acme", "egress_policy", {"default": "bogus-action", "rules": []})
+    with pytest.raises(EgressBlockedError) as caught:
+        enforce_egress("acme", "openai", "generation")
+    assert "must be allow or block" not in str(caught.value)
 
 
 # ---------------------------------------------------------------------------
