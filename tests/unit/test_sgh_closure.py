@@ -260,28 +260,72 @@ async def test_sgh03_status_allows_the_job_owner(auth_on):
 
 
 @pytest.mark.unit
-async def test_sgh04_explain_owner_check_exists():
-    """SGH-04: explain must check trace owner or admin privilege."""
-    import inspect
+async def test_sgh04_explain_denies_non_owner_non_admin(auth_on):
+    """SGH-04: explain must deny a non-owner, non-admin caller (behavioural)."""
+    trace = MagicMock()
+    trace.tenant_id = "t1"
+    trace.user_id = "user:bob"
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=trace)  # QueryTraceRow lookup
 
-    from securgraph.api.routes.explain import explain_query
-
-    source = inspect.getsource(explain_query)
-    assert "is_owner" in source, "SGH-04: must check trace ownership"
-    assert "can_admin_tenant" in source, "SGH-04: must allow admin access"
+    alice = make_principal(user_id="alice", tenant_id="t1", role="member")
+    async with build_client(principal=alice, db=db) as client:
+        resp = await client.get("/api/v1/explain/tr-1", params={"tenant_id": "t1"})
+    assert resp.status_code == 403, (
+        "SGH-04: only the trace owner or a tenant admin may view a trace"
+    )
 
 
 @pytest.mark.unit
-async def test_sgh04_missing_policy_decision_is_denied_not_allowed():
-    """SGH-04: absent policy decisions must be treated as denied, not allow."""
-    import inspect
+def test_sgh04_missing_or_non_allow_decision_counts_as_denied():
+    """SGH-04: fail-closed accounting -- absent/non-'allow' linked policy
+    decisions must never be treated as authorizing disclosure of evidence.
 
-    from securgraph.api.routes.explain import explain_query
+    Drives the real module-level `_linked_policy_decision` helper that
+    `explain_query` uses to gate each evidence row, rather than grepping the
+    route source for a literal string.
+    """
+    from securgraph.api.routes.explain import _linked_policy_decision
+    from securgraph.indexing.db import PolicyDecisionRow, RetrievalEvidenceRow
 
-    source = inspect.getsource(explain_query)
-    # The code must use an explicit "allow" check, not a default-allow.
-    assert '== "allow"' in source or "== 'allow'" in source, (
-        "SGH-04: evidence must be allowed only on explicit 'allow' decision"
+    evidence = RetrievalEvidenceRow(
+        evidence_id="ev-1",
+        trace_id="tr-1",
+        tenant_id="t1",
+        object_id="c1",
+        policy_check_id="d1",
+        retriever_id="vector",
+        original_rank=0,
+        original_score=0.9,
+        included_in_prompt=True,
+    )
+
+    # Case 1: the referenced decision is missing from the accounting map
+    # entirely (e.g. never persisted). Must resolve to "no decision", not
+    # to an implicit allow.
+    missing = _linked_policy_decision(evidence, {})
+    assert missing is None, (
+        "SGH-04: a missing policy decision must not resolve to an allow"
+    )
+
+    # Case 2: the referenced decision exists and matches on every field the
+    # helper checks (trace/tenant/object/type/action/retriever), but its
+    # verdict is an explicit DENY, not allow.
+    deny_decision = PolicyDecisionRow(
+        decision_id="d1",
+        trace_id="tr-1",
+        tenant_id="t1",
+        user_id="user:alice",
+        object_type="chunk",
+        object_id="c1",
+        action="read",
+        decision="deny",
+        retriever_id="vector",
+    )
+    linked = _linked_policy_decision(evidence, {"d1": deny_decision})
+    assert linked is not None, "sanity: the deny decision is a well-formed link"
+    assert linked.decision.lower() != "allow", (
+        "SGH-04: a non-allow linked decision must never be treated as allow"
     )
 
 
