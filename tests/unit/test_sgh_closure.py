@@ -8,6 +8,7 @@ using mocked dependencies and the ASGI test client.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
@@ -132,36 +133,66 @@ async def sgh_client() -> AsyncClient:
 # ---------------------------------------------------------------------------
 
 
+class _StopWorkflow(RuntimeError):
+    pass
+
+
+def _capturing_workflow(sink: dict):
+    """Fake compiled workflow: record the subject's user_id, then stop."""
+    async def _ainvoke(state):
+        sink["user_id"] = state["subject"].user_id
+        raise _StopWorkflow("captured")
+
+    app = MagicMock()
+    app.ainvoke = _ainvoke
+    return app
+
+
 @pytest.mark.unit
-async def test_sgh01_query_uses_anonymous_when_auth_disabled(sgh_client, auth_off):
-    """When auth is disabled (dev), query must NOT trust request.user_id.
-
-    The effective user should be 'user:anonymous', not the caller-provided
-    user_id — unless the eval identity simulation flag is explicitly set.
-    We verify by checking that the code path for effective_user_id does not
-    use request.user_id unconditionally.
-    """
-    import inspect
-
-    from securgraph.api.routes.query import query_pipeline
-
-    source = inspect.getsource(query_pipeline)
-    # The eval identity mode must be gated behind an env flag check.
-    assert "SECURGRAPH_EVAL_IDENTITY_MODE" in source, (
-        "SGH-01: caller-provided user_id must be gated behind eval identity flag"
+async def test_sgh01_query_ignores_caller_user_id_when_auth_off(
+    auth_off, monkeypatch
+):
+    sink: dict = {}
+    monkeypatch.setattr(
+        "securgraph.api.routes.query.compile_workflow",
+        lambda qdrant, graph: _capturing_workflow(sink),
     )
-    assert "eval_identity" in source, "SGH-01: must have eval identity guard"
+    async with build_client() as client:
+        # _StopWorkflow is raised inside the route after `sink` is populated;
+        # Starlette's ServerErrorMiddleware re-raises past its own handler
+        # (wrapped in an ExceptionGroup by anyio's TaskGroup), so the client
+        # call itself surfaces it. We only care that `sink` was captured.
+        with contextlib.suppress(BaseException):
+            await client.post(
+                "/api/v1/query",
+                json={"tenant_id": "t1", "query": "hi", "user_id": "user:attacker"},
+            )
+    assert sink["user_id"] == "user:anonymous", (
+        "SGH-01: caller-supplied user_id must never become the FGA subject"
+    )
 
 
 @pytest.mark.unit
-async def test_sgh01_query_anonymous_is_fixed_string(auth_off):
-    """Verify the fallback user id is the fixed anonymous, not caller-controlled."""
-    import inspect
-
-    from securgraph.api.routes.query import query_pipeline
-
-    source = inspect.getsource(query_pipeline)
-    assert "user:anonymous" in source, "SGH-01: fallback must be 'user:anonymous'"
+async def test_sgh01_eval_identity_flag_honours_caller_user_id(
+    auth_off, monkeypatch
+):
+    monkeypatch.setenv("SECURGRAPH_EVAL_IDENTITY_MODE", "true")
+    get_settings.cache_clear()
+    sink: dict = {}
+    monkeypatch.setattr(
+        "securgraph.api.routes.query.compile_workflow",
+        lambda qdrant, graph: _capturing_workflow(sink),
+    )
+    async with build_client() as client:
+        with contextlib.suppress(BaseException):
+            await client.post(
+                "/api/v1/query",
+                json={"tenant_id": "t1", "query": "hi", "user_id": "user:sim"},
+            )
+    get_settings.cache_clear()
+    assert sink["user_id"] == "user:sim", (
+        "SGH-01: eval identity mode must pass the simulated subject through"
+    )
 
 
 # ---------------------------------------------------------------------------
