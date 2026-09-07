@@ -277,16 +277,17 @@ async def test_sgh04_explain_denies_non_owner_non_admin(auth_on):
 
 
 @pytest.mark.unit
-def test_sgh04_missing_or_non_allow_decision_counts_as_denied():
-    """SGH-04: fail-closed accounting -- absent/non-'allow' linked policy
-    decisions must never be treated as authorizing disclosure of evidence.
+def test_sgh04_missing_decision_does_not_resolve_to_allow():
+    """SGH-04: an evidence row whose linked policy decision was never
+    persisted (missing from the accounting map) must resolve to "no
+    decision", never to an implicit allow.
 
     Drives the real module-level `_linked_policy_decision` helper that
     `explain_query` uses to gate each evidence row, rather than grepping the
     route source for a literal string.
     """
     from securgraph.api.routes.explain import _linked_policy_decision
-    from securgraph.indexing.db import PolicyDecisionRow, RetrievalEvidenceRow
+    from securgraph.indexing.db import RetrievalEvidenceRow
 
     evidence = RetrievalEvidenceRow(
         evidence_id="ev-1",
@@ -300,32 +301,91 @@ def test_sgh04_missing_or_non_allow_decision_counts_as_denied():
         included_in_prompt=True,
     )
 
-    # Case 1: the referenced decision is missing from the accounting map
-    # entirely (e.g. never persisted). Must resolve to "no decision", not
-    # to an implicit allow.
     missing = _linked_policy_decision(evidence, {})
     assert missing is None, (
         "SGH-04: a missing policy decision must not resolve to an allow"
     )
 
-    # Case 2: the referenced decision exists and matches on every field the
-    # helper checks (trace/tenant/object/type/action/retriever), but its
-    # verdict is an explicit DENY, not allow.
+
+@pytest.mark.unit
+async def test_sgh04_denied_evidence_is_redacted_not_disclosed(auth_on):
+    """SGH-04: evidence linked to an explicit non-'allow' policy decision must
+    come back redacted, never with its real content disclosed.
+
+    This drives the actual fail-closed disclosure gate in `explain_query`
+    (`is_allowed = decision is not None and decision.decision.lower() ==
+    "allow"`, `explain.py:294`/`:358`) end-to-end via the real HTTP route,
+    rather than only calling the `_linked_policy_decision` helper in
+    isolation. A tampered gate that defaults to allow (e.g. hardcoding
+    `is_allowed = True`) makes this test fail.
+    """
+    from securgraph.indexing.db import (
+        PolicyDecisionRow,
+        QueryTraceRow,
+        RetrievalEvidenceRow,
+    )
+
+    trace = QueryTraceRow(
+        trace_id="tr-1",
+        tenant_id="t1",
+        user_id="user:alice",
+        query="what does the policy say?",
+        started_at=datetime.now(timezone.utc),
+        # v1 makes `_integrity_status` return "legacy_unverified" up front
+        # (explain.py:131-132), so the test doesn't need to mock chain
+        # verification too.
+        tamper_version="v1",
+    )
+
+    evidence_row = RetrievalEvidenceRow(
+        evidence_id="ev-1",
+        trace_id="tr-1",
+        tenant_id="t1",
+        object_id="chunk-1",
+        policy_check_id="d1",
+        retriever_id="vector",  # chunk-backed, not graph/community
+        original_rank=0,
+        original_score=0.9,
+        included_in_prompt=True,
+    )
     deny_decision = PolicyDecisionRow(
         decision_id="d1",
         trace_id="tr-1",
         tenant_id="t1",
         user_id="user:alice",
         object_type="chunk",
-        object_id="c1",
+        object_id="chunk-1",
         action="read",
         decision="deny",
         retriever_id="vector",
     )
-    linked = _linked_policy_decision(evidence, {"d1": deny_decision})
-    assert linked is not None, "sanity: the deny decision is a well-formed link"
-    assert linked.decision.lower() != "allow", (
-        "SGH-04: a non-allow linked decision must never be treated as allow"
+
+    evidence_result = MagicMock()
+    evidence_result.scalars.return_value.all.return_value = [evidence_row]
+    decision_result = MagicMock()
+    decision_result.scalars.return_value.all.return_value = [deny_decision]
+
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=trace)  # QueryTraceRow lookup
+    # explain_query issues exactly two session.execute calls, in order:
+    # (1) the evidence select, (2) the policy-decisions select.
+    db.execute = AsyncMock(side_effect=[evidence_result, decision_result])
+
+    # tenant_admin passes the owner/admin gate regardless of trace ownership,
+    # so this test isolates the disclosure gate rather than the authz gate
+    # already covered by test_sgh04_explain_denies_non_owner_non_admin.
+    admin = make_principal(user_id="alice", tenant_id="t1", role="tenant_admin")
+    async with build_client(principal=admin, db=db) as client:
+        resp = await client.get("/api/v1/explain/tr-1", params={"tenant_id": "t1"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    [ev] = body["evidence"]
+    assert ev["status"] == "redacted", (
+        "SGH-04: evidence linked to a non-allow decision must be marked redacted"
+    )
+    assert ev["object_data"] == "CONFIDENTIAL - ACCESS DENIED", (
+        "SGH-04: a denied evidence row must never disclose its real content"
     )
 
 
