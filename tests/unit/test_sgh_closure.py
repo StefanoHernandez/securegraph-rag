@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -216,16 +217,42 @@ async def test_sgh02_self_owner_is_not_blocked_by_delegation_check(auth_on):
 
 
 @pytest.mark.unit
-async def test_sgh03_ingest_status_requires_auth_check_exists():
-    """SGH-03: ingest status route must check tenant and owner."""
-    import inspect
+async def test_sgh03_status_denies_non_owner_non_admin(auth_on):
+    job_row = MagicMock()
+    job_row.tenant_id = "t1"
+    job_row.requested_by = "bob"
+    job_row.owner_id = "bob"
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=job_row)
 
-    from securgraph.api.routes.ingest import get_ingest_status
-
-    source = inspect.getsource(get_ingest_status)
-    assert "can_access_tenant" in source or "can_admin_tenant" in source, (
-        "SGH-03: ingest status must verify tenant access"
+    alice = make_principal(user_id="alice", tenant_id="t1", role="member")
+    async with build_client(principal=alice, db=db) as client:
+        resp = await client.get("/api/v1/ingest/status/job-123")
+    assert resp.status_code == 403, (
+        "SGH-03: a non-owner, non-admin caller must not read another's job status"
     )
+
+
+@pytest.mark.unit
+async def test_sgh03_status_allows_the_job_owner(auth_on):
+    job_row = MagicMock()
+    job_row.tenant_id = "t1"
+    job_row.requested_by = "alice"
+    job_row.owner_id = "alice"
+    job_row.job_id = "job-123"
+    job_row.trace_id = "tr"
+    job_row.document_id = "doc"
+    job_row.status = "queued"
+    job_row.started_at = datetime.now(timezone.utc)
+    job_row.completed_at = None
+    job_row.error = None
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=job_row)
+
+    alice = make_principal(user_id="alice", tenant_id="t1", role="member")
+    async with build_client(principal=alice, db=db) as client:
+        resp = await client.get("/api/v1/ingest/status/job-123")
+    assert resp.status_code == 200, "SGH-03: the job owner must be able to read status"
 
 # ---------------------------------------------------------------------------
 # SGH-04: explain owner/admin check + missing policy = denied
