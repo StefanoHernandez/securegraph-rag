@@ -9,12 +9,16 @@ using mocked dependencies and the ASGI test client.
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from securgraph.api.routes.auth import AuthenticatedPrincipal, require_user
 from securgraph.config import get_settings
+
+_UNSET = object()
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -38,9 +42,71 @@ def auth_off():
     get_settings.cache_clear()
 
 
+def make_principal(**overrides) -> AuthenticatedPrincipal:
+    """A verified principal; override any field for the case under test."""
+    base = dict(
+        user_id="alice",
+        username="alice",
+        tenant_id="t1",
+        role="member",
+        is_super_admin=False,
+        must_change_password=False,
+        session_id="s1",
+    )
+    base.update(overrides)
+    return AuthenticatedPrincipal(**base)
+
+
+def _permissive_db() -> AsyncMock:
+    mock = AsyncMock()
+    mock.add = MagicMock()
+    mock.add_all = MagicMock()
+    mock.commit = AsyncMock()
+    mock.rollback = AsyncMock()
+    mock.execute.return_value = MagicMock()
+    return mock
+
+
+@asynccontextmanager
+async def build_client(*, principal=_UNSET, db=None):
+    """ASGI client with mocked DB + retrievers, and an optional principal.
+
+    principal=_UNSET  -> real require_user (auth-off yields None)
+    principal=None    -> require_user overridden to return None
+    principal=<obj>   -> require_user overridden to return that principal
+    """
+    from securgraph.api.dependencies import (
+        get_db_session,
+        get_graph_retriever,
+        get_qdrant_retriever,
+    )
+    from securgraph.api.main import create_app
+
+    app = create_app()
+    session = db if db is not None else _permissive_db()
+
+    async def _db():
+        yield session
+
+    app.dependency_overrides[get_db_session] = _db
+    app.dependency_overrides[get_qdrant_retriever] = lambda: MagicMock()
+    app.dependency_overrides[get_graph_retriever] = lambda: MagicMock()
+    if principal is not _UNSET:
+        app.dependency_overrides[require_user] = lambda: principal
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+
 @pytest.fixture
 async def sgh_client() -> AsyncClient:
-    """ASGI client with mocked DB and retrievers for SGH route tests."""
+    """ASGI client with mocked DB and retrievers for SGH route tests.
+
+    Kept for the still-unmigrated SGH test bodies below (task 1 only
+    touches the fixtures/imports region); later tasks replace their use
+    of this fixture with `build_client`.
+    """
     from securgraph.api.dependencies import (
         get_db_session,
         get_graph_retriever,
@@ -51,13 +117,7 @@ async def sgh_client() -> AsyncClient:
     app = create_app()
 
     async def mock_db():
-        mock = AsyncMock()
-        mock.add = MagicMock()
-        mock.add_all = MagicMock()
-        mock.commit = AsyncMock()
-        mock.rollback = AsyncMock()
-        mock.execute.return_value = MagicMock()
-        yield mock
+        yield _permissive_db()
 
     app.dependency_overrides[get_db_session] = mock_db
     app.dependency_overrides[get_qdrant_retriever] = lambda: MagicMock()
