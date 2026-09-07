@@ -100,34 +100,6 @@ async def build_client(*, principal=_UNSET, db=None):
         yield ac
 
 
-@pytest.fixture
-async def sgh_client() -> AsyncClient:
-    """ASGI client with mocked DB and retrievers for SGH route tests.
-
-    Kept for the still-unmigrated SGH test bodies below (task 1 only
-    touches the fixtures/imports region); later tasks replace their use
-    of this fixture with `build_client`.
-    """
-    from securgraph.api.dependencies import (
-        get_db_session,
-        get_graph_retriever,
-        get_qdrant_retriever,
-    )
-    from securgraph.api.main import create_app
-
-    app = create_app()
-
-    async def mock_db():
-        yield _permissive_db()
-
-    app.dependency_overrides[get_db_session] = mock_db
-    app.dependency_overrides[get_qdrant_retriever] = lambda: MagicMock()
-    app.dependency_overrides[get_graph_retriever] = lambda: MagicMock()
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
-
-
 # ---------------------------------------------------------------------------
 # SGH-01: query identity binding — effective_user_id never caller-controlled
 # ---------------------------------------------------------------------------
@@ -201,25 +173,41 @@ async def test_sgh01_eval_identity_flag_honours_caller_user_id(
 
 
 @pytest.mark.unit
-async def test_sgh02_ingest_owner_defaults_to_anonymous_when_auth_disabled(sgh_client, auth_off):
-    """When auth is disabled and no owner_id provided, owner is user:anonymous."""
-    import inspect
-
-    from securgraph.api.routes.ingest import ingest_file
-
-    source = inspect.getsource(ingest_file)
-    assert "user:anonymous" in source, "SGH-02: must default to anonymous when no principal"
+async def test_sgh02_non_admin_cannot_delegate_ownership(auth_on):
+    # role=analyst clears the ingest-role gate (_ensure_may_ingest) so the
+    # request reaches the delegation check below it; analyst is still not
+    # tenant_admin/super_admin, so can_admin_tenant() is False.
+    alice = make_principal(user_id="alice", tenant_id="t1", role="analyst")
+    async with build_client(principal=alice) as client:
+        resp = await client.post(
+            "/api/v1/ingest",
+            data={"tenant_id": "t1", "owner_id": "user:bob"},
+            files={"file": ("rules.md", b"# Rules\nbody", "text/markdown")},
+        )
+    assert resp.status_code == 403, (
+        "SGH-02: a non-admin delegating ownership to another user must be denied"
+    )
 
 
 @pytest.mark.unit
-async def test_sgh02_ingest_delegation_check_exists():
-    """SGH-02: delegation path must check can_admin_tenant for non-self owner."""
-    import inspect
-
-    from securgraph.api.routes.ingest import ingest_file
-
-    source = inspect.getsource(ingest_file)
-    assert "can_admin_tenant" in source, "SGH-02: must check admin privilege for owner delegation"
+async def test_sgh02_self_owner_is_not_blocked_by_delegation_check(auth_on):
+    alice = make_principal(user_id="alice", tenant_id="t1", role="analyst")
+    db = _permissive_db()
+    template_result = MagicMock()
+    template_result.scalar_one_or_none.return_value = None
+    db.execute = AsyncMock(return_value=template_result)
+    async with build_client(principal=alice, db=db) as client:
+        resp = await client.post(
+            "/api/v1/ingest",
+            data={"tenant_id": "t1", "owner_id": "user:alice"},
+            files={"file": ("rules.md", b"# Rules\nbody", "text/markdown")},
+        )
+    # Self-ownership passes the delegation gate. It may still fail later
+    # (downstream ingestion needs backends) but MUST NOT be the 403 delegation
+    # denial.
+    assert resp.status_code != 403, (
+        "SGH-02: uploading under one's own id must not hit the delegation denial"
+    )
 
 
 # ---------------------------------------------------------------------------
