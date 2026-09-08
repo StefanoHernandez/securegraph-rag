@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -243,7 +243,7 @@ async def test_sgh03_status_allows_the_job_owner(auth_on):
     job_row.trace_id = "tr"
     job_row.document_id = "doc"
     job_row.status = "queued"
-    job_row.started_at = datetime.now(timezone.utc)
+    job_row.started_at = datetime.now(UTC)
     job_row.completed_at = None
     job_row.error = None
     db = AsyncMock()
@@ -330,7 +330,7 @@ async def test_sgh04_denied_evidence_is_redacted_not_disclosed(auth_on):
         tenant_id="t1",
         user_id="user:alice",
         query="what does the policy say?",
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         # v1 makes `_integrity_status` return "legacy_unverified" up front
         # (explain.py:131-132), so the test doesn't need to mock chain
         # verification too.
@@ -439,7 +439,8 @@ def test_sgh05_bootstrap_is_a_registered_cli_command(monkeypatch, capsys):
         main()
     err = capsys.readouterr().err
     assert "the following arguments are required" in err and "--username" in err, (
-        "SGH-05: bootstrap-superadmin must be a registered CLI subcommand with a required --username"
+        "SGH-05: bootstrap-superadmin must be a registered CLI subcommand "
+        "with a required --username"
     )
 
 
@@ -697,7 +698,9 @@ async def test_sgh10_readiness_uses_cache_and_never_calls_llm(auth_off, monkeypa
         "ping_ollama",
         AsyncMock(side_effect=AssertionError("SGH-10: readiness invoked the LLM")),
     )
-    cached_marker = health.ComponentReport(status=health.ComponentStatus.DEGRADED, detail="not_tested")
+    cached_marker = health.ComponentReport(
+        status=health.ComponentStatus.DEGRADED, detail="not_tested"
+    )
     monkeypatch.setattr(health, "_cached_provider_report", lambda: cached_marker)
     # Neutralise the real backend pings so readiness returns without services.
     ok = health.ComponentReport(status=health.ComponentStatus.OK)
