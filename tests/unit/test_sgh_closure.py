@@ -449,17 +449,118 @@ def test_sgh05_bootstrap_is_a_registered_cli_command(monkeypatch, capsys):
 
 
 @pytest.mark.unit
-async def test_sgh07_policy_decisions_committed_for_allow_and_deny():
-    """SGH-07: write_policy_decisions must be called in the workflow."""
-    import inspect
+async def test_sgh07_workflow_persists_allow_and_deny_decisions(monkeypatch):
+    """SGH-07: running the compiled workflow over a mixed allow/deny FGA
+    result must call `write_policy_decisions` with both an allowed and a
+    denied decision, and `filter_chunk_ids` must be invoked. Drives the real
+    `compile_workflow` end-to-end with mocked collaborators, rather than
+    grepping its source.
+    """
+    from unittest.mock import AsyncMock, MagicMock
 
+    from securgraph.domain import RetrievalEvidence, RetrieverId, Subject
+    from securgraph.domain.policy import (
+        PolicyDecision,
+        PolicyDecisionValue,
+        PolicyObjectType,
+    )
     from securgraph.orchestration.workflow import compile_workflow
 
-    source = inspect.getsource(compile_workflow)
-    assert "write_policy_decisions" in source, (
-        "SGH-07: workflow must persist policy decisions"
+    qdrant = MagicMock()
+    qdrant.search_lexical = AsyncMock(return_value=[])
+    graph = MagicMock()
+    graph.traverse_authorized_subgraph = AsyncMock(return_value=[])
+    graph.driver = MagicMock()
+    graph.fga = MagicMock()
+
+    ev_allow = RetrievalEvidence(
+        evidence_id="ev-a", trace_id="tr1", tenant_id="t1", evidence_type="chunk",
+        object_id="chunk-allow", retriever_id=RetrieverId.VECTOR,
+        retrieval_strategy="dense", original_rank=0, original_score=0.9,
+        policy_check_id="unverified", text="allowed source",
     )
-    assert "filter_chunk_ids" in source, "SGH-07: workflow must run FGA filter"
+    ev_deny = RetrievalEvidence(
+        evidence_id="ev-d", trace_id="tr1", tenant_id="t1", evidence_type="chunk",
+        object_id="chunk-deny", retriever_id=RetrieverId.VECTOR,
+        retrieval_strategy="dense", original_rank=1, original_score=0.8,
+        policy_check_id="unverified", text="denied source",
+    )
+    qdrant.search_dense = AsyncMock(return_value=[ev_allow, ev_deny])
+
+    allow = PolicyDecision(
+        decision_id="dec-allow", trace_id="tr1", tenant_id="t1", user_id="user:alice",
+        object_type=PolicyObjectType.CHUNK, object_id="chunk-allow",
+        decision=PolicyDecisionValue.ALLOW, reason_code="openfga_ok",
+    )
+    deny = PolicyDecision(
+        decision_id="dec-deny", trace_id="tr1", tenant_id="t1", user_id="user:alice",
+        object_type=PolicyObjectType.CHUNK, object_id="chunk-deny",
+        decision=PolicyDecisionValue.DENY, reason_code="unauthorized_rbac",
+    )
+    graph.fga.filter_chunk_ids = AsyncMock(return_value=({"chunk-allow"}, [allow, deny]))
+
+    class FakeSessionContext:
+        async def __aenter__(self):
+            s = MagicMock()
+            s.commit = AsyncMock()
+            return s
+
+        async def __aexit__(self, *args):
+            return None
+
+    write_decisions = AsyncMock()
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.AsyncSessionLocal",
+        lambda: FakeSessionContext(),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.set_tenant_rls_context", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "securgraph.indexing.postgres_writer.fetch_chunk_text_hashes",
+        AsyncMock(return_value={"chunk-deny": "sha256:x"}),
+    )
+    monkeypatch.setattr(
+        "securgraph.indexing.postgres_writer.write_policy_decisions", write_decisions
+    )
+
+    def _fake_adapter(text="answer"):
+        a = MagicMock()
+        a.chat = AsyncMock(return_value=text)
+        a.extract_claims = AsyncMock(return_value=MagicMock(claims=[]))
+        a.judge_nli = AsyncMock(
+            return_value=MagicMock(label="neutral", confidence=0.5, reason="mock")
+        )
+        return a
+
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter", lambda *a, **k: _fake_adapter()
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.get_llm_adapter_for",
+        lambda *a, **k: _fake_adapter(),
+    )
+    monkeypatch.setattr(
+        "securgraph.orchestration.workflow.build_authorized_citations",
+        AsyncMock(return_value=()),
+    )
+
+    state = {
+        "query": "q", "subject": Subject(tenant_id="t1", user_id="user:alice"),
+        "options": {"retrieval_mode": "vector", "top_k": 5, "consensus_threshold": 0.7},
+        "trace_id": "tr1", "vector_context": [], "vector_draft": None,
+        "vector_claims": [], "graph_context": [], "graph_draft": None,
+        "graph_claims": [], "consensus_report": None, "final_answer": None,
+        "warnings": [],
+    }
+    await compile_workflow(qdrant, graph).ainvoke(state)
+
+    graph.fga.filter_chunk_ids.assert_awaited()
+    persisted = write_decisions.await_args.args[1]
+    values = {d.decision for d in persisted}
+    assert PolicyDecisionValue.ALLOW in values and PolicyDecisionValue.DENY in values, (
+        f"SGH-07: workflow must persist both allow and deny decisions, got {values}"
+    )
 
 
 # ---------------------------------------------------------------------------
