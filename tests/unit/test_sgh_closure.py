@@ -438,8 +438,8 @@ def test_sgh05_bootstrap_is_a_registered_cli_command(monkeypatch, capsys):
     with _pytest.raises(SystemExit):
         main()
     err = capsys.readouterr().err
-    assert "bootstrap-superadmin" in err or "--username" in err, (
-        "SGH-05: bootstrap-superadmin must be a registered CLI subcommand"
+    assert "the following arguments are required" in err and "--username" in err, (
+        "SGH-05: bootstrap-superadmin must be a registered CLI subcommand with a required --username"
     )
 
 
