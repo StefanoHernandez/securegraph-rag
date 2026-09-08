@@ -662,30 +662,53 @@ def test_sgh09_custody_timeline_does_not_hardcode_intact():
 
 
 @pytest.mark.unit
-async def test_sgh10_health_live_has_no_dependency_calls():
-    """SGH-10: /health/live must not call any dependency (zero cost)."""
-    import inspect
+async def test_sgh10_liveness_touches_no_dependency(auth_off, monkeypatch):
+    """SGH-10: /health/live must return 200 without invoking any dependency
+    ping. Every ping the module exposes is patched to raise if called, so a
+    liveness handler that starts probing a backend fails via the raising
+    mock rather than by grepping the handler's source.
+    """
+    import securgraph.api.routes.health as health
 
-    from securgraph.api.routes.health import liveness
-
-    source = inspect.getsource(liveness)
-    # liveness must not reference postgres, qdrant, neo4j, openfga, ollama, or LLM.
-    forbidden = ["postgres", "qdrant", "neo4j", "openfga", "ollama", "llm", "provider"]
-    found = [kw for kw in forbidden if kw in source.lower()]
-    assert not found, f"SGH-10: /health/live probes dependencies: {found}"
+    for name in ("ping_postgres", "ping_qdrant", "ping_neo4j", "ping_openfga", "ping_ollama"):
+        monkeypatch.setattr(
+            health,
+            name,
+            AsyncMock(side_effect=AssertionError(f"SGH-10: liveness called {name}")),
+        )
+    async with build_client() as client:
+        resp = await client.get("/api/v1/health/live")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
 
 
 @pytest.mark.unit
-async def test_sgh10_health_ready_does_not_invoke_llm():
-    """SGH-10: /health/ready must use cached diagnostics, not invoke LLM completion."""
-    import inspect
+async def test_sgh10_readiness_uses_cache_and_never_calls_llm(auth_off, monkeypatch):
+    """SGH-10: /health/ready must serve the cached provider report and never
+    run a live LLM completion. `ping_ollama` is patched to raise if called;
+    the other backend pings are neutralised so readiness can complete
+    without real services, and `_cached_provider_report` is stubbed to a
+    distinctive marker that must show up verbatim in the response.
+    """
+    import securgraph.api.routes.health as health
 
-    from securgraph.api.routes.health import _readiness_body
-
-    source = inspect.getsource(_readiness_body)
-    assert "_cached_provider_report" in source or "cached" in source.lower(), (
-        "SGH-10: readiness must use cached provider report, not live LLM call"
+    monkeypatch.setattr(
+        health,
+        "ping_ollama",
+        AsyncMock(side_effect=AssertionError("SGH-10: readiness invoked the LLM")),
     )
-    # Must not call ollama generate / chat / complete directly.
-    assert "generate(" not in source, "SGH-10: readiness must not call LLM generate"
-    assert ".chat(" not in source, "SGH-10: readiness must not call LLM chat"
+    cached_marker = health.ComponentReport(status=health.ComponentStatus.DEGRADED, detail="not_tested")
+    monkeypatch.setattr(health, "_cached_provider_report", lambda: cached_marker)
+    # Neutralise the real backend pings so readiness returns without services.
+    ok = health.ComponentReport(status=health.ComponentStatus.OK)
+    monkeypatch.setattr(health, "ping_postgres", AsyncMock(return_value=ok))
+    monkeypatch.setattr(health, "ping_qdrant", AsyncMock(return_value=ok))
+    monkeypatch.setattr(health, "ping_neo4j", AsyncMock(return_value=ok))
+    monkeypatch.setattr(health, "ping_openfga", AsyncMock(return_value=ok))
+
+    async with build_client() as client:
+        resp = await client.get("/api/v1/health/ready")
+    assert resp.status_code == 200
+    assert resp.json()["components"]["provider"]["detail"] == "not_tested", (
+        "SGH-10: readiness must serve the cached provider report, not a live check"
+    )
