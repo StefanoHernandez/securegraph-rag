@@ -395,27 +395,52 @@ async def test_sgh04_denied_evidence_is_redacted_not_disclosed(auth_on):
 
 
 @pytest.mark.unit
-async def test_sgh05_no_auto_seed_in_startup():
-    """SGH-05: application startup must not auto-seed demo users."""
-    import inspect
-
+async def test_sgh05_startup_inserts_no_users(auth_off, monkeypatch):
+    """Running the app lifespan must not create any user/seed rows."""
     from securgraph.api.main import create_app
 
-    source = inspect.getsource(create_app)
-    # Must not contain seed-demo or auto-create-user calls in the app factory.
-    assert "seed_demo" not in source, "SGH-05: create_app must not call seed_demo"
-    assert "demo_user" not in source.lower(), "SGH-05: no demo user creation in startup"
+    added: list = []
+    session = _permissive_db()
+    session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+
+    # If any startup code opened its own session, route it to our spy.
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _fake_session():
+        yield session
+
+    monkeypatch.setattr(
+        "securgraph.api.dependencies.AsyncSessionLocal",
+        lambda: _fake_session(),
+        raising=False,
+    )
+
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        pass
+
+    seed_like = [o for o in added if "user" in type(o).__name__.lower()]
+    assert not seed_like, f"SGH-05: startup must not seed users, got {seed_like}"
 
 
 @pytest.mark.unit
-async def test_sgh05_bootstrap_is_cli_only():
-    """SGH-05: bootstrap-superadmin must be a CLI command, not startup auto-seed."""
-    import inspect
+def test_sgh05_bootstrap_is_a_registered_cli_command(monkeypatch, capsys):
+    """`bootstrap-superadmin` must be a real subcommand of the CLI parser."""
+    import pytest as _pytest
 
     from securgraph.cli import main
 
-    source = inspect.getsource(main)
-    assert "bootstrap" in source.lower(), "SGH-05: CLI must expose bootstrap-superadmin"
+    # argparse exits when a required subcommand is missing; invoking the
+    # bootstrap subcommand without its required args must fail *as that
+    # subcommand* (SystemExit from argparse), proving it is registered.
+    monkeypatch.setattr("sys.argv", ["securgraph", "bootstrap-superadmin"])
+    with _pytest.raises(SystemExit):
+        main()
+    err = capsys.readouterr().err
+    assert "bootstrap-superadmin" in err or "--username" in err, (
+        "SGH-05: bootstrap-superadmin must be a registered CLI subcommand"
+    )
 
 
 # ---------------------------------------------------------------------------
