@@ -568,17 +568,8 @@ async def test_sgh07_workflow_persists_allow_and_deny_decisions(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
-async def test_sgh08_chain_head_locking_mechanism_exists():
-    """SGH-08: tamper chain must use chain-head row + locking."""
-    import inspect
-
-    from securgraph.indexing.tamper import chain_query_trace
-
-    source = inspect.getsource(chain_query_trace)
-    assert "chain_head" in source, "SGH-08: must use chain-head row for serialization"
-
-
+# SGH-08's sole proof is the @integration concurrent-writers test below: a
+# grep for "chain_head" proves nothing about real serialization under load.
 @pytest.mark.integration
 async def test_sgh08_concurrent_writers_do_not_fork():
     """SGH-08: two concurrent chain_query_trace calls must not produce forked chains.
