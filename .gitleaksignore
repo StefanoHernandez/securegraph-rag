@@ -1,9 +1,9 @@
 # Reviewed false positives: test-only fixtures, not credentials.
 # - test_auth.py: placeholder password used by the change-password tests.
 # - test_community_domain.py: synthetic policy_class_key values.
-653fcca520f27dbef247b1c2319bed27b2448ce9:tests/unit/test_community_domain.py:generic-api-key:18
-653fcca520f27dbef247b1c2319bed27b2448ce9:tests/unit/test_community_domain.py:generic-api-key:20
-653fcca520f27dbef247b1c2319bed27b2448ce9:tests/unit/test_community_domain.py:generic-api-key:30
-653fcca520f27dbef247b1c2319bed27b2448ce9:tests/unit/test_community_domain.py:generic-api-key:32
-b4ba105b790b23137b6e4d01431025d4d1a4c31f:tests/unit/test_auth.py:generic-api-key:193
-b4ba105b790b23137b6e4d01431025d4d1a4c31f:tests/unit/test_auth.py:generic-api-key:258
+08763950d792f4e25497ea32c072c7a98ae7e91e:tests/unit/test_auth.py:generic-api-key:193
+08763950d792f4e25497ea32c072c7a98ae7e91e:tests/unit/test_auth.py:generic-api-key:258
+5cdd452f133130b8ddb35fc68661f1b91b2a7711:tests/unit/test_community_domain.py:generic-api-key:18
+5cdd452f133130b8ddb35fc68661f1b91b2a7711:tests/unit/test_community_domain.py:generic-api-key:20
+5cdd452f133130b8ddb35fc68661f1b91b2a7711:tests/unit/test_community_domain.py:generic-api-key:30
+5cdd452f133130b8ddb35fc68661f1b91b2a7711:tests/unit/test_community_domain.py:generic-api-key:32
