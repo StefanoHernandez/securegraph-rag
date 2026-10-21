@@ -184,7 +184,7 @@ Spot-check delle claim "recently shipped" del work-tracker:
 
 ## Decisione consigliata
 
-1. **Priorità immediata**: investigare **tamper-chain** (rischio reputazione per la tesi — è uno dei contributi C1 dichiarati).
+1. **Priorità immediata**: investigare **tamper-chain** (è uno dei contributi C1 dichiarati).
 2. **Subito dopo**: capire perché vector retrieval non fa fail-closed stretto a monte (potrebbe essere by-design, ma documentare).
 3. **Quick wins** prima del prossimo step grande: `ruff check --fix` (chiude 138/245 lint errors automaticamente), fix dei 2 `any` → `typing.Any` (chiude 2/21 type errors).
 4. **WIP 10 file**: 2 commit raggruppati come da tabella sopra. Quando l'utente decide.

@@ -14,7 +14,7 @@ For each (model, thinking) we report mean +/- stdev of:
 plus the JSON-parse success rate.
 
 This is offline research code — slow by design (75+ LLM calls). Output is
-written to ``eval/results/extract_audit_<UTC>.json`` for the paper.
+written to ``eval/results/extract_audit_<UTC>.json``.
 """
 
 from __future__ import annotations

@@ -92,4 +92,4 @@ green on the current commit:
 
 The pilot demonstrated useful early integration coverage and informed the
 submission-ready remediation work. It is not a basis for release tagging,
-paper claims, or production-security conclusions.
+published claims, or production-security conclusions.

@@ -216,7 +216,6 @@ make test-minio-anchor-live  # live Object Lock integration gate
 
 ## Evaluation
 
-
 Empirical results: `make eval` on the golden set; multi-mode baselines via `make baseline`.
 
 ## License

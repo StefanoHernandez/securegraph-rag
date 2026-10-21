@@ -68,7 +68,7 @@ async def generate_hierarchical_communities(
 
     C3 ablation: set ``SECURGRAPH_C3_ABLATION_DISABLE_PARTITION=true`` to skip
     policy-equivalence-class partitioning and run Louvain on the whole tenant
-    graph as a single bucket. Used only for the C3 paper ablation study.
+    graph as a single bucket. Used only for the C3 ablation study.
     """
     _LOG.info("generating_communities_started", tenant_id=tenant_id)
 

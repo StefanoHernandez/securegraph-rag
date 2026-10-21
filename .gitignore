@@ -71,7 +71,7 @@ docs/eval/REPORT-*.md
 docs/eval/REPORT-*.json
 !docs/eval/REPORT-template.md
 
-# Eval run outputs (generated; keep files referenced by docs/research)
+# Eval run outputs (generated; keep files referenced by docs)
 eval/results/*
 !eval/results/.gitkeep
 !eval/results/c3-ablation-live-20260701T154455Z.json

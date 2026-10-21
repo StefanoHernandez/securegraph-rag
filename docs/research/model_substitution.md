@@ -26,7 +26,7 @@ The pipeline uses `get_llm_adapter()` / `get_llm_adapter_for()` rather than
 calling vendor SDKs directly. OpenAI, Mistral, Google, and Anthropic adapters
 remain available. Ollama is retained only as an explicit legacy local adapter:
 stage and production startup reject it, and it is excluded from cloud defaults,
-acceptance tests, held-out evaluation, and paper experiments.
+acceptance tests, and held-out evaluation.
 
 ## Configuration
 
