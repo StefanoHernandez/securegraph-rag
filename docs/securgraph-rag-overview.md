@@ -365,7 +365,7 @@ Affiancate da **hard security gates** (zero-tolerance):
 
 ### 9.2 Corpus baseline e 4-mode harness
 
-Il corpus `baseline_v1` ospita 5 documenti (HR policy, contratti servizio, manuale sicurezza, verbali di riunione, estratti regolamentari) e 30 coppie QA con ground truth. La P0.2 *Baseline Comparison Harness* (branch corrente `feat/p02-baseline-harness`, spec `docs/superpowers/specs/2026-05-27-p02-baseline-harness-design.md`) wirea `retrieval_mode` end-to-end attraverso il workflow LangGraph in modo che `eval/baseline.py` possa generare **numeri side-by-side per le quattro modalità** (`vector` / `lexical` / `graph` / `hybrid`) sullo stesso golden corpus.
+Il corpus `baseline_v1` ospita 5 documenti (HR policy, contratti servizio, manuale sicurezza, verbali di riunione, estratti regolamentari) e 30 coppie QA con ground truth. La P0.2 *Baseline Comparison Harness* (branch corrente `feat/p02-baseline-harness`) wirea `retrieval_mode` end-to-end attraverso il workflow LangGraph in modo che `eval/baseline.py` possa generare **numeri side-by-side per le quattro modalità** (`vector` / `lexical` / `graph` / `hybrid`) sullo stesso golden corpus.
 
 Status della P0.2 al momento di stesura:
 
@@ -404,14 +404,6 @@ Requisito di valutazione: il judge NLI usato per misurare l'agreement non deve e
 ### Riferimenti chiave nel repository
 
 - `README.md`
-- `SecurGraph_RAG_Technical_Blueprint.md`
-- `wiki/overview-securegraph-rag.md`
-- `wiki/project/work-tracker.md`
-- `wiki/project/status.md`
-- `wiki/project/milestones.md`
-- `docs/superpowers/specs/2026-05-20-consensus-verifier-design.md`
-- `docs/superpowers/specs/2026-05-27-policy-partitioned-community-detection-design.md`
-- `docs/superpowers/specs/2026-05-27-p02-baseline-harness-design.md`
 
 ---
 

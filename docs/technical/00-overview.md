@@ -92,6 +92,5 @@ corpus/mrd_v1/      Evaluation corpus (manifest, QA pairs, artifacts)
 eval/               Evaluation harness (isolated venv) + results
 web/                Next.js Forensic Vault UI
 docs/technical/     This documentation set
-docs/research/      Model configuration notes
-wiki/               Internal engineering wiki (agent-maintained)
+docs/research/      Research notes (C1/C2/C3)
 ```

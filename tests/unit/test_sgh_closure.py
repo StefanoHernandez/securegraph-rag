@@ -1,7 +1,6 @@
 """SGH-01..SGH-10 closure regression tests.
 
-Each test maps directly to a Security Hardening finding in
-`wiki/project/security-hardening.md`. Tests that require live PostgreSQL,
+Each test maps directly to a Security Hardening finding. Tests that require live PostgreSQL,
 OpenFGA, or real backends are marked `integration`; the rest are unit tests
 using mocked dependencies and the ASGI test client.
 """

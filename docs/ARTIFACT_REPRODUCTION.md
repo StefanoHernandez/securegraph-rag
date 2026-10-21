@@ -1,4 +1,4 @@
-# Artifact reproduction (submission track)
+# Artifact reproduction
 
 Reproduce MRD dev and Helios held-out evaluation from a clean stack.
 

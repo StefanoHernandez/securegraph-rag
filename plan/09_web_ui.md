@@ -1,7 +1,6 @@
 # Web UI — Implementation Plan
 
 **Milestone:** WEB-UI (M9)  
-**Design Spec:** `docs/superpowers/specs/2026-06-21-web-ui-design.md`  
 **Stack:** Next.js 15 (App Router) + shadcn/ui + Tailwind CSS + Three.js + React Flow + 3d-force-graph  
 **Location:** `web/`  
 **API Backend:** existing FastAPI at `localhost:8000`

@@ -9,8 +9,7 @@ change which handler wins at each of them.
 
 `expose_message` decides whether `str(exc)` may leave the process. It is
 False by default. Setting it True asserts that the message is composed
-entirely of values the caller supplied or is entitled to see — see the table
-in docs/superpowers/specs/2026-09-03-p2-error-surface-design.md §3.2.1.
+entirely of values the caller supplied or is entitled to see.
 """
 
 from __future__ import annotations

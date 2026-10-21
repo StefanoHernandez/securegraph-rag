@@ -28,7 +28,6 @@ The submission configuration uses durable cross-store ingestion, PostgreSQL RLS,
 
 - **[Technical documentation](docs/technical/README.md)** — architecture, data model, API reference, query/ingestion pipelines, security model, deployment, development, evaluation.
 - [Operator Deployment Guide](docs/operator-deployment-guide.md) — step-by-step operations.
-- `wiki/` — internal engineering wiki (working notes; the technical docs above are the stable reference).
 
 ## Architecture
 
@@ -133,7 +132,6 @@ For encrypted provider credential storage in Settings, set `SECURGRAPH_MASTER_KE
 - The first **super-admin** is created via `securgraph bootstrap-superadmin`; automatic demo seeding on API startup has been removed.
 - Roles: `super_admin`, `tenant_admin`, `analyst`, `viewer`. Tenant scope is enforced server-side from membership rows, not from UI dropdowns alone.
 
-Details: [`wiki/project/security-hardening.md`](wiki/project/security-hardening.md), [`wiki/project/admin-control-plane.md`](wiki/project/admin-control-plane.md).
 
 ## Web UI
 
@@ -197,7 +195,6 @@ eval/               # Isolated ragas/baseline harness (own lockfile)
 scripts/            # Eval helpers, consistency checks
 docs/{research,superpowers}/
 web/                # Next.js Forensic Vault UI
-wiki/               # Engineering wiki (architecture, modules, status)
 docker/             # Local compose stack
 alembic/            # PostgreSQL migrations
 ```
@@ -216,8 +213,6 @@ make baseline      # vector / lexical / graph / hybrid comparison → eval/resul
 make eval          # golden-set KPI evaluation (requires make eval-venv)
 make test-minio-anchor-live  # live Object Lock integration gate
 ```
-
-Engineering reference: [`wiki/engineering/development.md`](wiki/engineering/development.md), [`wiki/index.md`](wiki/index.md).
 
 ## Evaluation
 

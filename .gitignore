@@ -23,7 +23,7 @@ coverage.xml
 venv/
 env/
 
-# uv — lockfiles are tracked for reproducible installs (paper/eval branches).
+# uv — lockfiles are tracked for reproducible installs (eval project).
 
 # IDE
 .vscode/
