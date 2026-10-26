@@ -44,6 +44,9 @@ const SECURITY_HEADERS = [
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(process.cwd(), "."),
+  // `next dev --hostname 0.0.0.0` treats 127.0.0.1 as a cross-origin dev
+  // host and refuses the HMR socket, so the login form never hydrates.
+  allowedDevOrigins: ["127.0.0.1"],
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
   },
